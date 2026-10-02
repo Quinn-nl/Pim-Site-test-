@@ -1,5 +1,6 @@
 'use strict';
 const { ROLES } = require('./fields');
+const { LANGS, LANG_NAMES, OG_LOCALE, UI } = require('./i18n');
 
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
@@ -17,47 +18,87 @@ const ICONS = {
 const icon = (name) => `<svg class="icon" viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${ICONS[name]}</svg>`;
 const STEP_ICONS = ['detect', 'decide', 'switch'];
 const APP_ICONS = ['city', 'fleet', 'factory', 'route'];
+const APP_ROLES = ['Municipality', 'Fleet operator', 'Vehicle manufacturer', 'Mobility platform'];
 
-const NAV = [['/problem', 'The problem'], ['/how-it-works', 'How it works'], ['/applications', 'Applications']];
+/** Localised URL for a page key ('/' for home). */
+const url = (lang, page = '/') => `/${lang}${page === '/' ? '/' : page}`;
+const clip = (text, max = 155) => {
+	const t = String(text || '').replace(/\s+/g, ' ').trim();
+	if (t.length <= max) return t;
+	return t.slice(0, max).replace(/\s+\S*$/, '') + '…';
+};
+const jsonLd = (data) => JSON.stringify(data).replace(/</g, '\\u003c');
 
-function layout({ title, description, body, name, footerNote = '', path = '' }) {
-	const link = ([href, label]) => `<a href="${href}"${path === href ? ' aria-current="page"' : ''}>${esc(label)}</a>`;
+function layout({ lang, page, title, description, body, v, siteUrl, noindex = false, graph = null, stickyCta = true }) {
+	const t = UI[lang];
+	const name = v.site_name;
+	const link = (p, label) => `<a href="${url(lang, p)}"${page === p ? ' aria-current="page"' : ''}>${esc(label)}</a>`;
+	const nav = [['/problem', t.nav_problem], ['/how-it-works', t.nav_how], ['/applications', t.nav_apps]];
+	const canonical = `${siteUrl}${url(lang, page)}`;
+	const desc = clip(description);
+	const alternates = page === null || noindex ? '' : [
+		...LANGS.map((l) => `<link rel="alternate" hreflang="${l}" href="${esc(siteUrl + url(l, page))}">`),
+		`<link rel="alternate" hreflang="x-default" href="${esc(siteUrl + '/')}">`,
+	].join('\n');
+	const switcher = `<span class="lang" role="group" aria-label="${esc(t.language)}">${LANGS.map((l) => `<a href="${url(l, page || '/')}" hreflang="${l}" lang="${l}" data-lang="${l}" title="${esc(LANG_NAMES[l])}"${l === lang ? ' aria-current="true"' : ''}>${l.toUpperCase()}</a>`).join('')}</span>`;
 	return `<!doctype html>
-<html lang="en">
+<html lang="${lang}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(title)}</title>
-${description ? `<meta name="description" content="${esc(description)}">` : ''}
+${desc ? `<meta name="description" content="${esc(desc)}">` : ''}
+<meta name="robots" content="${noindex ? 'noindex, follow' : 'index, follow, max-image-preview:large'}">
+<link rel="canonical" href="${esc(canonical)}">
+${alternates}
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="${esc(name)}">
+<meta property="og:title" content="${esc(title)}">
+${desc ? `<meta property="og:description" content="${esc(desc)}">` : ''}
+<meta property="og:url" content="${esc(canonical)}">
+<meta property="og:locale" content="${OG_LOCALE[lang]}">
+${LANGS.filter((l) => l !== lang).map((l) => `<meta property="og:locale:alternate" content="${OG_LOCALE[l]}">`).join('\n')}
+<meta name="twitter:card" content="summary">
 <meta name="theme-color" content="#0b1b33">
 <link rel="icon" href="/img/favicon.svg" type="image/svg+xml">
+${graph ? `<script type="application/ld+json">${jsonLd(graph)}</script>` : ''}
 <script src="/js/init.js"></script>
 <link rel="stylesheet" href="/css/site.css">
 <script src="/js/site.js" defer></script>
 </head>
 <body>
-<a class="skip-link" href="#main">Skip to content</a>
+<a class="skip-link" href="#main">${esc(t.skip)}</a>
 <header class="site-header">
 	<div class="wrap header-inner">
-		<a class="brand" href="/" aria-label="${esc(name)} home">${LOGO}<span class="brand-name">${esc(name.toUpperCase())}</span></a>
-		<button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav">Menu</button>
-		<nav id="site-nav" class="site-nav" aria-label="Primary">
-			${NAV.map(link).join('\n\t\t\t')}
-			<a class="btn btn-small" href="/contact"${path === '/contact' ? ' aria-current="page"' : ''}>Contact</a>
+		<a class="brand" href="${url(lang)}" aria-label="${esc(name)}">${LOGO}<span class="brand-name">${esc(name.toUpperCase())}</span></a>
+		<button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav">${esc(t.menu)}</button>
+		<nav id="site-nav" class="site-nav" aria-label="${esc(t.primary_nav)}">
+			${nav.map(([p, l]) => link(p, l)).join('\n\t\t\t')}
+			${switcher}
+			<a class="btn btn-small" href="${url(lang, '/contact')}"${page === '/contact' ? ' aria-current="page"' : ''}>${esc(t.nav_contact)}</a>
 		</nav>
 	</div>
 </header>
 ${body}
+${stickyCta && page !== '/contact' ? `<a class="sticky-cta" href="${url(lang, '/contact')}">${esc(v.hero_cta)}</a>` : ''}
 <footer class="site-footer">
 	<div class="wrap footer-inner">
-		<div><p class="footer-brand">${esc(name.toUpperCase())}</p><p class="footer-note">${esc(footerNote)}</p></div>
-		<nav aria-label="Footer">${NAV.map(link).join('')}<a href="/contact">Contact</a><a href="/privacy"${path === '/privacy' ? ' aria-current="page"' : ''}>Privacy statement</a></nav>
+		<div><p class="footer-brand">${esc(name.toUpperCase())}</p><p class="footer-note">${esc(v.company_line)}</p></div>
+		<nav aria-label="${esc(t.footer_nav)}">${nav.map(([p, l]) => link(p, l)).join('')}${link('/contact', t.nav_contact)}${link('/privacy', t.privacy)}</nav>
 	</div>
-	<div class="wrap footer-bottom"><small>&copy; ${new Date().getFullYear()} ${esc(name)}. Informational website; not an offer of securities or financial products.</small></div>
+	<div class="wrap footer-bottom"><small>&copy; ${new Date().getFullYear()} ${esc(name)}. ${esc(t.disclaimer)}</small></div>
 </footer>
 </body>
 </html>`;
 }
+
+const crumbs = (lang, siteUrl, v, page, label) => ({
+	'@type': 'BreadcrumbList',
+	itemListElement: [
+		{ '@type': 'ListItem', position: 1, name: v.site_name, item: siteUrl + url(lang) },
+		{ '@type': 'ListItem', position: 2, name: label, item: siteUrl + url(lang, page) },
+	],
+});
 
 function photo(images, slot, cls) {
 	const img = images[slot];
@@ -75,28 +116,29 @@ const pageHead = (kicker, title, lead) => `
 	</div>
 </section>`;
 
-const ctaBand = (v) => `
+const ctaBand = (lang, v) => `
 <section class="cta-band" aria-labelledby="cta-title">
 	<div class="wrap cta-inner">
 		<div><h2 id="cta-title">${esc(v.cta_title)}</h2><p>${esc(v.cta_text)}</p></div>
-		<a class="btn btn-light" href="/contact">${esc(v.hero_cta)}</a>
+		<a class="btn btn-light" href="${url(lang, '/contact')}">${esc(v.hero_cta)}</a>
 	</div>
 </section>`;
 
-const fact = (v, n) => `
+const fact = (t, v, n) => `
 <figure class="fact">
 	<p class="fact-value">${esc(v[`fact${n}_value`])}</p>
 	<figcaption>${esc(v[`fact${n}_label`])}
-		<span class="source">Source: ${v[`fact${n}_url`] ? `<a href="${esc(v[`fact${n}_url`])}" rel="noopener noreferrer" target="_blank">${esc(v[`fact${n}_source`])}</a>` : esc(v[`fact${n}_source`])}</span>
+		<span class="source">${esc(t.source)}: ${v[`fact${n}_url`] ? `<a href="${esc(v[`fact${n}_url`])}" rel="noopener noreferrer" target="_blank">${esc(v[`fact${n}_source`])}</a>` : esc(v[`fact${n}_source`])}</span>
 	</figcaption>
 </figure>`;
 
-const roadmap = '<ul><li class="done">Concept</li><li class="current" aria-current="step">Prototype</li><li>Validation</li><li>Pilots</li></ul>';
+const roadmap = (t) => `<ul><li class="done">${esc(t.rm[0])}</li><li class="current" aria-current="step">${esc(t.rm[1])}</li><li>${esc(t.rm[2])}</li><li>${esc(t.rm[3])}</li></ul>`;
 
-function renderHome({ values: v, images }) {
+function renderHome({ lang, values: v, images }, { siteUrl }) {
+	const t = UI[lang];
 	const steps = [1, 2, 3].map((n) => `
 		<li class="mini-step">${icon(STEP_ICONS[n - 1])}<div><h3>${esc(v[`step${n}_title`])}</h3><p>${esc(v[`step${n}_text`])}</p></div></li>`).join('');
-	const apps = [1, 2, 3, 4].map((n) => `<li>${icon(APP_ICONS[n - 1])}<span>${esc(v[`app${n}_title`])}</span></li>`).join('');
+	const apps = [1, 2, 3, 4].map((n) => `<li><a href="${url(lang, '/contact')}?role=${encodeURIComponent(APP_ROLES[n - 1])}">${icon(APP_ICONS[n - 1])}<span>${esc(v[`app${n}_title`])}</span></a></li>`).join('');
 	const body = `
 <main id="main">
 <section class="hero" aria-labelledby="hero-title">
@@ -105,74 +147,81 @@ function renderHome({ values: v, images }) {
 		<p class="eyebrow">${esc(v.hero_eyebrow)}</p>
 		<h1 id="hero-title">${esc(v.hero_title)}</h1>
 		<p class="lead">${esc(v.hero_text)}</p>
-		<p class="hero-actions"><a class="btn btn-light" href="/contact">${esc(v.hero_cta)}</a><a class="btn btn-ghost" href="/how-it-works">How it works</a></p>
+		<p class="hero-actions"><a class="btn btn-light" href="${url(lang, '/contact')}">${esc(v.hero_cta)}</a><a class="btn btn-ghost" href="${url(lang, '/how-it-works')}">${esc(t.how_cta)}</a></p>
 		${photo(images, 'hero', 'photo hero-photo')}
 	</div>
 </section>
 
 <section class="section" aria-labelledby="home-problem">
 	<div class="wrap split">
-		${fact(v, 1)}
+		${fact(t, v, 1)}
 		<div>
-			<p class="kicker">The problem</p>
+			<p class="kicker">${esc(t.k_problem)}</p>
 			<h2 id="home-problem">${esc(v.home_problem_line)}</h2>
-			<p><a class="more" href="/problem">The problem in detail</a></p>
+			<p><a class="more" href="${url(lang, '/problem')}">${esc(t.read_problem)}</a></p>
 		</div>
 	</div>
 </section>
 
 <section class="section section-tint" aria-labelledby="home-how">
 	<div class="wrap">
-		<p class="kicker">How it works</p>
+		<p class="kicker">${esc(t.k_how)}</p>
 		<h2 id="home-how">${esc(v.steps_title)}</h2>
 		<ol class="mini-steps">${steps}
 		</ol>
-		<p><a class="more" href="/how-it-works">More about how it works</a></p>
+		<p><a class="more" href="${url(lang, '/how-it-works')}">${esc(t.read_how)}</a></p>
 	</div>
 </section>
 
 <section class="section" aria-labelledby="home-apps">
 	<div class="wrap">
-		<p class="kicker">Applications</p>
+		<p class="kicker">${esc(t.k_apps)}</p>
 		<h2 id="home-apps">${esc(v.apps_title)}</h2>
 		<ul class="chips">${apps}</ul>
-		<p><a class="more" href="/applications">See the applications</a></p>
+		<p><a class="more" href="${url(lang, '/applications')}">${esc(t.read_apps)}</a></p>
 	</div>
 </section>
 
-<section class="status-band" aria-label="Status">
+<section class="status-band" aria-label="${esc(t.k_status)}">
 	<div class="wrap status-inner">
-		<div class="status-track" aria-label="Development phase">${roadmap}</div>
+		<div class="status-track" aria-label="${esc(t.phase)}">${roadmap(t)}</div>
 		<p>${esc(v.status_short)}</p>
 	</div>
 </section>
-${ctaBand(v)}
+${ctaBand(lang, v)}
 </main>`;
-	return layout({ title: `${v.site_name}: ${v.hero_title}`, description: v.meta_description, body, name: v.site_name, footerNote: v.company_line, path: '/' });
+	const home = siteUrl + url(lang);
+	const graph = { '@context': 'https://schema.org', '@graph': [
+		{ '@type': 'Organization', '@id': `${siteUrl}/#organization`, name: v.site_name, url: home, description: v.meta_description },
+		{ '@type': 'WebSite', '@id': `${siteUrl}/#website`, name: v.site_name, url: home, inLanguage: lang, publisher: { '@id': `${siteUrl}/#organization` } },
+	] };
+	return layout({ lang, page: '/', title: `${v.site_name}: ${v.hero_title}`, description: v.meta_description, body, v, siteUrl, graph });
 }
 
-function renderProblem({ values: v, images }) {
+function renderProblem({ lang, values: v, images }, { siteUrl }) {
+	const t = UI[lang];
 	const body = `
 <main id="main">
-${pageHead('The problem', v.problem_title, v.problem_text)}
+${pageHead(t.k_problem, v.problem_title, v.problem_text)}
 <section class="section">
 	<div class="wrap">
-		<div class="facts">${fact(v, 1)}${fact(v, 2)}</div>
+		<div class="facts">${fact(t, v, 1)}${fact(t, v, 2)}</div>
 		${photo(images, 'problem', 'photo section-photo')}
-		<p class="next"><a class="more" href="/how-it-works">How Aethra responds</a></p>
+		<p class="next"><a class="more" href="${url(lang, '/how-it-works')}">${esc(t.next_problem)}</a></p>
 	</div>
 </section>
-${ctaBand(v)}
+${ctaBand(lang, v)}
 </main>`;
-	return layout({ title: `${v.problem_title} | ${v.site_name}`, description: v.problem_text, body, name: v.site_name, footerNote: v.company_line, path: '/problem' });
+	return layout({ lang, page: '/problem', title: `${v.problem_title} | ${v.site_name}`, description: v.problem_text, body, v, siteUrl, graph: { '@context': 'https://schema.org', ...crumbs(lang, siteUrl, v, '/problem', t.nav_problem) } });
 }
 
-function renderHow({ values: v, images }) {
+function renderHow({ lang, values: v, images }, { siteUrl }) {
+	const t = UI[lang];
 	const steps = [1, 2, 3].map((n) => `
 		<li class="step">${icon(STEP_ICONS[n - 1])}<span class="step-num" aria-hidden="true">0${n}</span><h2>${esc(v[`step${n}_title`])}</h2><p>${esc(v[`step${n}_text`])}</p></li>`).join('');
 	const body = `
 <main id="main">
-${pageHead('How it works', v.steps_title, '')}
+${pageHead(t.k_how, v.steps_title, '')}
 <section class="section">
 	<div class="wrap">
 		<ol class="steps">${steps}
@@ -182,66 +231,68 @@ ${pageHead('How it works', v.steps_title, '')}
 <section class="section section-dark" aria-labelledby="status-title">
 	<div class="wrap status-grid">
 		<div>
-			<p class="kicker">Status</p>
+			<p class="kicker">${esc(t.k_status)}</p>
 			<h2 id="status-title">${esc(v.status_title)}</h2>
 			<p class="section-lead">${esc(v.status_text)}</p>
 			<p class="status-note">${esc(v.status_note)}</p>
 			${photo(images, 'status', 'photo section-photo')}
 		</div>
-		<div class="status-track" aria-label="Development phase">${roadmap}</div>
+		<div class="status-track" aria-label="${esc(t.phase)}">${roadmap(t)}</div>
 	</div>
 </section>
-${ctaBand(v)}
+${ctaBand(lang, v)}
 </main>`;
-	return layout({ title: `How it works | ${v.site_name}`, description: v.meta_description, body, name: v.site_name, footerNote: v.company_line, path: '/how-it-works' });
+	return layout({ lang, page: '/how-it-works', title: `${v.steps_title} | ${v.site_name}`, description: `${v.step1_text} ${v.step2_text} ${v.step3_text}`, body, v, siteUrl, graph: { '@context': 'https://schema.org', ...crumbs(lang, siteUrl, v, '/how-it-works', t.nav_how) } });
 }
 
-function renderApplications({ values: v }) {
+function renderApplications({ lang, values: v }, { siteUrl }) {
+	const t = UI[lang];
 	const cards = [1, 2, 3, 4].map((n) => `
-		<article class="card">${icon(APP_ICONS[n - 1])}<h2>${esc(v[`app${n}_title`])}</h2><p>${esc(v[`app${n}_text`])}</p></article>`).join('');
+		<article class="card">${icon(APP_ICONS[n - 1])}<h2>${esc(v[`app${n}_title`])}</h2><p>${esc(v[`app${n}_text`])}</p><p><a class="more" href="${url(lang, '/contact')}?role=${encodeURIComponent(APP_ROLES[n - 1])}">${esc(t.card_cta)}</a></p></article>`).join('');
 	const body = `
 <main id="main">
-${pageHead('Applications', v.apps_title, '')}
+${pageHead(t.k_apps, v.apps_title, '')}
 <section class="section">
 	<div class="wrap"><div class="cards">${cards}
 	</div></div>
 </section>
-${ctaBand(v)}
+${ctaBand(lang, v)}
 </main>`;
-	return layout({ title: `Applications | ${v.site_name}`, description: v.meta_description, body, name: v.site_name, footerNote: v.company_line, path: '/applications' });
+	return layout({ lang, page: '/applications', title: `${v.apps_title} | ${v.site_name}`, description: [1, 2, 3, 4].map((n) => v[`app${n}_title`]).join(', ') + '. ' + v.meta_description, body, v, siteUrl, graph: { '@context': 'https://schema.org', ...crumbs(lang, siteUrl, v, '/applications', t.nav_apps) } });
 }
 
-function renderContact({ values: v }, { status = '', token = '' } = {}) {
-	const notice = {
-		sent: '<p class="notice notice-ok" role="status">Thank you. Your message has been sent.</p>',
-		invalid: '<p class="notice notice-err" role="alert">Please complete all required fields, including consent.</p>',
-		error: '<p class="notice notice-err" role="alert">Your message could not be sent. Please try again later.</p>',
-		limit: '<p class="notice notice-err" role="alert">Too many messages from your network. Please try again later.</p>',
-	}[status] || '';
+function renderContact({ lang, values: v }, { siteUrl, status = '', token = '', role = '' }) {
+	const t = UI[lang];
+	const notice = { sent: ['ok', t.n_sent], invalid: ['err', t.n_invalid], error: ['err', t.n_error], limit: ['err', t.n_limit] }[status];
+	const consent = esc(t.f_consent).replace('{link}', `<a href="${url(lang, '/privacy')}">${esc(t.privacy_link)}</a>`);
+	const selected = ROLES.includes(role) ? role : '';
 	const body = `
 <main id="main">
-${pageHead('Contact', v.contact_title, v.contact_text)}
+${pageHead(t.k_contact, v.contact_title, v.contact_text)}
 <section class="section">
 	<div class="wrap narrow-form">
-		${notice}
-		<form class="form" method="post" action="/contact">
+		${notice ? `<p class="notice notice-${notice[0]}" role="${notice[0] === 'ok' ? 'status' : 'alert'}">${esc(notice[1])}</p>` : ''}
+		${status === 'sent' ? '' : `<p class="reply-note">${esc(v.contact_reply)}</p>`}
+		<form class="form" method="post" action="${url(lang, '/contact')}">
 			<input type="hidden" name="token" value="${esc(token)}">
 			<div class="hp" aria-hidden="true"><label>Website <input type="text" name="website" tabindex="-1" autocomplete="off"></label></div>
-			<div class="field"><label for="f-name">Name *</label><input id="f-name" name="name" type="text" autocomplete="name" maxlength="120" required></div>
-			<div class="field"><label for="f-email">Email *</label><input id="f-email" name="email" type="email" autocomplete="email" maxlength="200" required></div>
-			<div class="field"><label for="f-org">Organisation</label><input id="f-org" name="organisation" type="text" autocomplete="organization" maxlength="160"></div>
-			<div class="field"><label for="f-role">I am a(n)</label><select id="f-role" name="role">${ROLES.map((r) => `<option>${esc(r)}</option>`).join('')}</select></div>
-			<div class="field"><label for="f-msg">Message *</label><textarea id="f-msg" name="message" rows="5" maxlength="5000" required></textarea></div>
-			<div class="field check"><input id="f-consent" name="consent" type="checkbox" value="1" required><label for="f-consent">I agree that my details are used to reply to this message. See the <a href="/privacy">privacy statement</a>.</label></div>
-			<button class="btn" type="submit">Send message</button>
+			<div class="field"><label for="f-role">${esc(t.f_role)}</label><select id="f-role" name="role">${ROLES.map((r) => `<option value="${esc(r)}"${r === selected ? ' selected' : ''}>${esc(t.roles[r])}</option>`).join('')}</select></div>
+			<div class="field"><label for="f-name">${esc(t.f_name)} *</label><input id="f-name" name="name" type="text" autocomplete="name" maxlength="120" required></div>
+			<div class="field"><label for="f-email">${esc(t.f_email)} *</label><input id="f-email" name="email" type="email" autocomplete="email" maxlength="200" required></div>
+			<div class="field"><label for="f-org">${esc(t.f_org)}</label><input id="f-org" name="organisation" type="text" autocomplete="organization" maxlength="160"></div>
+			<div class="field"><label for="f-msg">${esc(t.f_msg)} *</label><textarea id="f-msg" name="message" rows="5" maxlength="5000" required></textarea></div>
+			<div class="field check"><input id="f-consent" name="consent" type="checkbox" value="1" required><label for="f-consent">${consent}</label></div>
+			<button class="btn" type="submit">${esc(t.f_send)}</button>
+			<p class="trust">${esc(t.f_trust)}</p>
 		</form>
 	</div>
 </section>
 </main>`;
-	return layout({ title: `Contact | ${v.site_name}`, description: v.contact_text, body, name: v.site_name, footerNote: v.company_line, path: '/contact' });
+	return layout({ lang, page: '/contact', title: `${v.contact_title} | ${v.site_name}`, description: v.contact_text, body, v, siteUrl, stickyCta: false, noindex: false });
 }
 
-function renderPrivacy({ values: v, privacy }) {
+function renderPrivacy({ lang, values: v, privacy }, { siteUrl }) {
+	const t = UI[lang];
 	const blocks = privacy.split(/\n{2,}|\n(?=# )/).map((b) => b.trim()).filter(Boolean).map((b) => {
 		if (b.startsWith('# ')) {
 			const [head, ...rest] = b.split('\n');
@@ -249,12 +300,21 @@ function renderPrivacy({ values: v, privacy }) {
 		}
 		return `<p>${esc(b.replace(/\n/g, ' '))}</p>`;
 	}).join('\n');
-	const body = `<main id="main" class="wrap prose page-main"><h1>Privacy statement</h1>\n${blocks}</main>`;
-	return layout({ title: `Privacy statement | ${v.site_name}`, body, name: v.site_name, footerNote: v.company_line, path: '/privacy' });
+	const body = `<main id="main" class="wrap prose page-main"><h1>${esc(t.privacy_title)}</h1>\n${blocks}</main>`;
+	return layout({ lang, page: '/privacy', title: `${t.privacy_title} | ${v.site_name}`, description: '', body, v, siteUrl, stickyCta: false });
 }
 
-function renderNotFound({ values: v }) {
-	return layout({ title: `Not found | ${v.site_name}`, name: v.site_name, footerNote: v.company_line, body: '<main id="main" class="wrap prose page-main"><h1>Page not found</h1><p><a href="/">Back to the home page</a></p></main>' });
+function renderNotFound({ lang, values: v }, { siteUrl }) {
+	const t = UI[lang];
+	return layout({ lang, page: null, title: `${t.nf_title} | ${v.site_name}`, description: '', noindex: true, v, siteUrl, stickyCta: false, body: `<main id="main" class="wrap prose page-main"><h1>${esc(t.nf_title)}</h1><p><a href="${url(lang)}">${esc(t.nf_back)}</a></p></main>` });
 }
 
-module.exports = { esc, layout, renderHome, renderProblem, renderHow, renderApplications, renderContact, renderPrivacy, renderNotFound };
+const PAGES = ['/', '/problem', '/how-it-works', '/applications', '/contact', '/privacy'];
+
+function renderSitemap(siteUrl, lastmod) {
+	const alt = (page) => [...LANGS.map((l) => `<xhtml:link rel="alternate" hreflang="${l}" href="${esc(siteUrl + url(l, page))}"/>`), `<xhtml:link rel="alternate" hreflang="x-default" href="${esc(siteUrl + '/')}"/>`].join('');
+	const entries = PAGES.flatMap((page) => LANGS.map((l) => `<url><loc>${esc(siteUrl + url(l, page))}</loc><lastmod>${lastmod}</lastmod>${alt(page)}</url>`));
+	return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">\n${entries.join('\n')}\n</urlset>\n`;
+}
+
+module.exports = { esc, url, PAGES, renderHome, renderProblem, renderHow, renderApplications, renderContact, renderPrivacy, renderNotFound, renderSitemap };

@@ -7,7 +7,8 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const cfg = require('./config');
-const { FIELDS, DEFAULTS, IMAGE_SLOTS, DEFAULT_PRIVACY } = require('./fields');
+const { FIELDS, IMAGE_SLOTS } = require('./fields');
+const { LANGS, defaultsFor, PRIVACY } = require('./i18n');
 
 const file = (name) => path.join(cfg.DATA_DIR, name);
 const uploadsDir = () => path.join(cfg.DATA_DIR, 'uploads');
@@ -66,19 +67,34 @@ function cleanValue(field, raw) {
 	return v;
 }
 
-function getContent() {
-	const saved = readJson('content.json', {});
+/* Saved content is per language: { values: { en: {...}, nl: {...} }, privacy: { en: '...' }, images }.
+   Older single-language files (flat values, string privacy) are read as English. */
+function normalise(saved) {
+	const values = saved.values || {};
+	const flat = Object.keys(values).some((k) => FIELDS[k]);
 	return {
-		values: { ...DEFAULTS, ...(saved.values || {}) },
+		values: flat ? { en: values } : values,
+		privacy: typeof saved.privacy === 'string' ? { en: saved.privacy } : (saved.privacy || {}),
 		images: saved.images || {},
-		privacy: typeof saved.privacy === 'string' && saved.privacy ? saved.privacy : DEFAULT_PRIVACY,
+	};
+}
+
+function getContent(lang = 'en') {
+	const saved = normalise(readJson('content.json', {}));
+	return {
+		lang,
+		values: { ...defaultsFor(lang), ...(saved.values[lang] || {}) },
+		images: saved.images,
+		privacy: saved.privacy[lang] || PRIVACY[lang] || PRIVACY.en,
 	};
 }
 
 function saveContent(patch) {
-	const saved = readJson('content.json', {});
+	const lang = patch.lang || 'en';
+	if (!LANGS.includes(lang)) return { ok: false, errors: ['Unknown language'] };
+	const saved = normalise(readJson('content.json', {}));
 	if (patch.values) {
-		const values = { ...(saved.values || {}) };
+		const values = { ...(saved.values[lang] || {}) };
 		const errors = [];
 		for (const [key, raw] of Object.entries(patch.values)) {
 			const field = FIELDS[key];
@@ -88,9 +104,9 @@ function saveContent(patch) {
 			else values[key] = v;
 		}
 		if (errors.length) return { ok: false, errors };
-		saved.values = values;
+		saved.values[lang] = values;
 	}
-	if (typeof patch.privacy === 'string') saved.privacy = patch.privacy.replace(/\r/g, '').slice(0, 20000);
+	if (typeof patch.privacy === 'string') saved.privacy[lang] = patch.privacy.replace(/\r/g, '').slice(0, 20000);
 	if (patch.images) saved.images = patch.images;
 	writeJson('content.json', saved);
 	return { ok: true };
@@ -98,7 +114,7 @@ function saveContent(patch) {
 
 function setImage(slot, entry) {
 	if (!IMAGE_SLOTS.some((s) => s.slot === slot)) throw new Error('unknown slot');
-	const { images } = getContent();
+	const { images } = getContent('en');
 	const old = images[slot];
 	if (entry) images[slot] = entry;
 	else delete images[slot];

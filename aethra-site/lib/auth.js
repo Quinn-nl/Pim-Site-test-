@@ -71,6 +71,12 @@ function destroySession(req) {
 	if (id) sessions.delete(id);
 }
 
+/** After a password change every other session is signed out. */
+function destroyOtherSessions(req) {
+	const keep = parseCookies(req.headers.cookie)[COOKIE];
+	for (const id of sessions.keys()) if (id !== keep) sessions.delete(id);
+}
+
 function cookieHeader(value, maxAgeSeconds) {
 	const parts = [`${COOKIE}=${value}`, 'Path=/admin', 'HttpOnly', 'SameSite=Strict', `Max-Age=${maxAgeSeconds}`];
 	if (cfg.SECURE) parts.push('Secure');
@@ -99,4 +105,4 @@ function checkFormToken(token, { minAge = 3, maxAge = 6 * 3600 } = {}) {
 	return age >= minAge && age <= maxAge;
 }
 
-module.exports = { COOKIE, hashPassword, verifyPassword, setPassword, checkPassword, hasAdmin, parseCookies, createSession, getSession, destroySession, cookieHeader, safeEqual, formToken, checkFormToken };
+module.exports = { COOKIE, hashPassword, verifyPassword, setPassword, checkPassword, hasAdmin, parseCookies, createSession, getSession, destroySession, destroyOtherSessions, cookieHeader, safeEqual, formToken, checkFormToken };

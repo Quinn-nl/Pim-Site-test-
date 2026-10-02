@@ -14,5 +14,7 @@ module.exports = {
 	// Set TRUST_PROXY=1 only when running behind a reverse proxy you control.
 	TRUST_PROXY: process.env.TRUST_PROXY === '1',
 	RETENTION_DAYS: Number(process.env.RETENTION_DAYS) || 365,
+	// Public address used in canonical links, hreflang and the sitemap, e.g. https://aethra.example
+	SITE_URL: (process.env.SITE_URL || '').replace(/\/+$/, ''),
 	MAX_IMAGE_BYTES: 5 * 1024 * 1024,
 };

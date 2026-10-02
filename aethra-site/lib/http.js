@@ -1,6 +1,7 @@
 'use strict';
 const fs = require('fs');
 const path = require('path');
+const zlib = require('zlib');
 const cfg = require('./config');
 
 const CSP = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'";
@@ -19,13 +20,20 @@ function baseHeaders(extra = {}) {
 	return h;
 }
 
+const wantsGzip = (req) => /\bgzip\b/.test(String((req && req.headers['accept-encoding']) || ''));
+
 function send(res, status, body, headers = {}) {
-	res.writeHead(status, baseHeaders({ 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', ...headers }));
+	const h = baseHeaders({ 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', Vary: 'Accept-Encoding', ...headers });
+	if (typeof body === 'string' && body.length > 1024 && wantsGzip(res.req)) {
+		body = zlib.gzipSync(body);
+		h['Content-Encoding'] = 'gzip';
+	}
+	res.writeHead(status, h);
 	res.end(body);
 }
 
-function redirect(res, location, headers = {}) {
-	res.writeHead(303, baseHeaders({ Location: location, 'Cache-Control': 'no-store', ...headers }));
+function redirect(res, location, headers = {}, status = 303) {
+	res.writeHead(status, baseHeaders({ Location: location, 'Cache-Control': 'no-store', ...headers }));
 	res.end();
 }
 
@@ -67,6 +75,7 @@ async function readForm(req, limit = 200 * 1024) {
 const TYPES = { '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.webp': 'image/webp', '.ico': 'image/x-icon', '.txt': 'text/plain; charset=utf-8' };
 
 function serveFile(res, root, relPath, cache) {
+	const req = res.req;
 	let decoded;
 	try {
 		decoded = decodeURIComponent(relPath);
@@ -84,8 +93,19 @@ function serveFile(res, root, relPath, cache) {
 	if (!stat.isFile()) return false;
 	const type = TYPES[path.extname(full).toLowerCase()];
 	if (!type) return false;
-	res.writeHead(200, baseHeaders({ 'Content-Type': type, 'Content-Length': stat.size, 'Cache-Control': cache }));
-	fs.createReadStream(full).pipe(res);
+	const etag = `W/"${stat.size}-${Math.floor(stat.mtimeMs)}"`;
+	const headers = { 'Content-Type': type, 'Cache-Control': cache, ETag: etag, Vary: 'Accept-Encoding' };
+	if (req && req.headers['if-none-match'] === etag) {
+		res.writeHead(304, baseHeaders(headers));
+		res.end();
+		return true;
+	}
+	const compressible = /^(text\/|image\/svg)/.test(type) && stat.size > 1024 && wantsGzip(req);
+	if (compressible) headers['Content-Encoding'] = 'gzip';
+	else headers['Content-Length'] = stat.size;
+	res.writeHead(200, baseHeaders(headers));
+	const stream = fs.createReadStream(full);
+	(compressible ? stream.pipe(zlib.createGzip()) : stream).pipe(res);
 	return true;
 }
 

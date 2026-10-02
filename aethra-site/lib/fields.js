@@ -64,6 +64,7 @@ const GROUPS = [
 	G('contact', 'Contact', [
 		F('contact_title', 'Title', 'text', 'Let us talk'),
 		F('contact_text', 'Text', 'textarea', 'City, fleet, manufacturer, platform or investor: send us a message and we will reply.'),
+		F('contact_reply', 'Reply expectation', 'text', 'We usually reply within two working days.'),
 	]),
 ];
 
@@ -78,20 +79,4 @@ const IMAGE_SLOTS = [
 
 const ROLES = ['Investor', 'Municipality', 'Fleet operator', 'Vehicle manufacturer', 'Mobility platform', 'Other'];
 
-const DEFAULT_PRIVACY = `[Draft: complete every part in brackets and have this statement reviewed before launch.]
-
-This website is operated by [company name and legal form], [address], [registration number].
-
-# What we collect
-When you use the contact form we receive the details you enter: name, email address, organisation, your role and your message. We also receive nothing else about you: this website does not use cookies for tracking, analytics or advertising, and does not load content from third parties.
-
-# Why and on what basis
-We use these details only to reply to your message. The basis is your consent, which you give by ticking the box before sending.
-
-# How long we keep it
-Messages are stored in the website's inbox and deleted after [retention period, e.g. 12 months], or earlier on request.
-
-# Your rights
-You can ask us to access, correct or delete your details, and withdraw your consent at any time. Contact: [email address]. You can also complain to the Dutch Data Protection Authority (Autoriteit Persoonsgegevens).`;
-
-module.exports = { GROUPS, FIELDS, DEFAULTS, IMAGE_SLOTS, ROLES, DEFAULT_PRIVACY };
+module.exports = { GROUPS, FIELDS, DEFAULTS, IMAGE_SLOTS, ROLES };

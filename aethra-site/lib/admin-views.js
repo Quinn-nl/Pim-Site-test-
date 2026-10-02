@@ -1,5 +1,6 @@
 'use strict';
 const { GROUPS, IMAGE_SLOTS } = require('./fields');
+const { LANGS, LANG_NAMES } = require('./i18n');
 const { esc } = require('./views');
 
 function shell(title, active, csrf, inner, flash) {
@@ -31,10 +32,14 @@ function field(f, value) {
 	return `<div class="row"><label for="${id}">${esc(f.label)}</label>${control}</div>`;
 }
 
-function contentPage(session, values, flash) {
+function langTabs(base, lang) {
+	return `<nav class="tabs" aria-label="Language">${LANGS.map((l) => `<a href="${base}?lang=${l}"${l === lang ? ' aria-current="page"' : ''}>${esc(LANG_NAMES[l])}</a>`).join('')}</nav>`;
+}
+
+function contentPage(session, lang, values, flash) {
 	const groups = GROUPS.map((g) => `<fieldset><legend>${esc(g.title)}</legend>${g.fields.map((f) => field(f, values[f.key])).join('')}</fieldset>`).join('');
-	return shell('Content', 'content', session.csrf, `<h1>Page content</h1><p class="hint">Edit the texts and save. Changes appear on the site immediately.</p>
-<form method="post" action="/admin/content"><input type="hidden" name="csrf" value="${esc(session.csrf)}">${groups}<div class="sticky"><button type="submit">Save changes</button></div></form>`, flash);
+	return shell('Content', 'content', session.csrf, `<h1>Page content</h1><p class="hint">Edit the texts per language and save. Changes appear on the site immediately. Visitors see the language of their browser, and can switch.</p>${langTabs('/admin', lang)}
+<form method="post" action="/admin/content"><input type="hidden" name="csrf" value="${esc(session.csrf)}"><input type="hidden" name="lang" value="${esc(lang)}">${groups}<div class="sticky"><button type="submit">Save changes</button></div></form>`, flash);
 }
 
 function photosPage(session, images, flash) {
@@ -52,17 +57,18 @@ ${img ? `<img class="preview" src="/uploads/${esc(img.file)}" alt="">` : '<p cla
 	return shell('Photos', 'photos', session.csrf, `<h1>Photos</h1><p class="hint">Only upload images you have the right to use. AI-generated images may only be shown as atmosphere, never as the prototype itself. Remove location data (EXIF) from photos before uploading.</p>${items}`, flash);
 }
 
-function privacyPage(session, privacy, flash) {
+function privacyPage(session, lang, privacy, flash) {
 	return shell('Privacy statement', 'privacy', session.csrf, `<h1>Privacy statement</h1>
 <p class="hint">Lines starting with <code>#</code> become headings; blank lines separate paragraphs. Replace everything in [brackets] and have it reviewed before launch.</p>
-<form method="post" action="/admin/privacy"><input type="hidden" name="csrf" value="${esc(session.csrf)}">
+${langTabs('/admin/privacy', lang)}
+<form method="post" action="/admin/privacy"><input type="hidden" name="csrf" value="${esc(session.csrf)}"><input type="hidden" name="lang" value="${esc(lang)}">
 <label class="sr" for="privacy">Privacy statement</label><textarea id="privacy" name="privacy" rows="22" maxlength="20000">${esc(privacy)}</textarea>
 <div class="sticky"><button type="submit">Save</button></div></form>`, flash);
 }
 
 function messagesPage(session, messages, retention, flash) {
 	const rows = messages.length ? messages.map((m) => `<article class="card msg"><p class="who"><strong>${esc(m.name)}</strong> &lt;<a href="mailto:${esc(m.email)}">${esc(m.email)}</a>&gt;</p>
-<p class="meta">${esc(m.role)}${m.org ? ' · ' + esc(m.org) : ''} · ${esc(new Date(m.at).toLocaleString('en-GB', { timeZone: 'Europe/Amsterdam' }))}</p>
+<p class="meta">${esc(m.role)}${m.lang ? ' · ' + esc(String(m.lang).toUpperCase()) : ''}${m.org ? ' · ' + esc(m.org) : ''} · ${esc(new Date(m.at).toLocaleString('en-GB', { timeZone: 'Europe/Amsterdam' }))}</p>
 <p>${esc(m.message).replace(/\n/g, '<br>')}</p>
 <form method="post" action="/admin/messages/delete"><input type="hidden" name="csrf" value="${esc(session.csrf)}"><input type="hidden" name="id" value="${esc(m.id)}"><button class="danger" type="submit">Delete</button></form></article>`).join('') : '<p class="hint">No messages yet.</p>';
 	return shell('Messages', 'messages', session.csrf, `<h1>Messages</h1><p class="hint">Messages are kept here for ${retention} days and then deleted automatically. Delete them earlier on request.</p>${rows}`, flash);

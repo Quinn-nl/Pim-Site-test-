@@ -23,9 +23,20 @@
 			if (e.key === 'Escape' && nav.classList.contains('open')) { nav.classList.remove('open'); toggle.setAttribute('aria-expanded', 'false'); toggle.focus(); }
 		});
 	}
+	// Remember a deliberate language choice (one functional cookie, one year).
+	document.querySelectorAll('.lang a[data-lang]').forEach(function (a) {
+		a.addEventListener('click', function () {
+			var secure = location.protocol === 'https:' ? '; Secure' : '';
+			document.cookie = 'aethra_lang=' + a.getAttribute('data-lang') + '; Path=/; Max-Age=31536000; SameSite=Lax' + secure;
+		});
+	});
+	var sticky = document.querySelector('.sticky-cta');
 	var header = document.querySelector('.site-header');
 	if (header) {
-		var onScroll = function () { header.classList.toggle('is-scrolled', window.scrollY > 8); };
+		var onScroll = function () {
+			header.classList.toggle('is-scrolled', window.scrollY > 8);
+			if (sticky) sticky.classList.toggle('show', window.scrollY > 480);
+		};
 		onScroll();
 		window.addEventListener('scroll', onScroll, { passive: true });
 	}
