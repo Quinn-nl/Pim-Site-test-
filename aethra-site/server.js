@@ -36,13 +36,15 @@ function csrfOk(session, token) {
 
 async function handlePublic(req, res, url) {
 	const content = store.getContent();
-	if (req.method === 'GET' && url.pathname === '/') {
-		return send(res, 200, views.renderHome(content, { status: url.searchParams.get('contact') || '', token: auth.formToken() }));
+	const pages = { '/': views.renderHome, '/problem': views.renderProblem, '/how-it-works': views.renderHow, '/applications': views.renderApplications };
+	if (req.method === 'GET' && pages[url.pathname]) return send(res, 200, pages[url.pathname](content));
+	if (req.method === 'GET' && url.pathname === '/contact') {
+		return send(res, 200, views.renderContact(content, { status: url.searchParams.get('contact') || '', token: auth.formToken() }));
 	}
 	if (req.method === 'GET' && url.pathname === '/privacy') return send(res, 200, views.renderPrivacy(content));
 	if (req.method === 'GET' && url.pathname === '/healthz') return send(res, 200, 'ok', { 'Content-Type': 'text/plain' });
 	if (req.method === 'POST' && url.pathname === '/contact') {
-		const back = (s) => redirect(res, `/?contact=${s}#contact`);
+		const back = (s) => redirect(res, `/contact?contact=${s}`);
 		const ip = clientIp(req);
 		const form = await readForm(req);
 		if (form.website || !auth.checkFormToken(form.token)) return back('sent'); // silent for bots
@@ -165,7 +167,7 @@ function createServer() {
 			else if (req.method === 'GET' && url.pathname.startsWith('/uploads/')) handled = serveFile(res, store.uploadsDir(), url.pathname.slice('/uploads/'.length), 'public, max-age=31536000, immutable');
 			else if (req.method === 'GET' && (url.pathname.startsWith('/css/') || url.pathname.startsWith('/js/') || url.pathname.startsWith('/img/'))) handled = serveFile(res, cfg.PUBLIC_DIR, url.pathname.slice(1), 'public, max-age=3600');
 			else handled = await handlePublic(req, res, url);
-			if (handled === false) send(res, 404, views.renderNotFound(store.getContent().values.site_name));
+			if (handled === false) send(res, 404, views.renderNotFound(store.getContent()));
 		} catch (err) {
 			if (res.headersSent) return res.end();
 			const status = err.status || 500;

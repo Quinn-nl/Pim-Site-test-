@@ -65,7 +65,7 @@ test('login sets hardened cookie and CSRF is enforced', async () => {
 });
 
 test('contact form: bots dropped, valid message stored, shown in admin, deletable', async () => {
-	const token = /name="token" value="([^"]+)"/.exec(await (await fetch(base + '/')).text())[1];
+	const token = /name="token" value="([^"]+)"/.exec(await (await fetch(base + '/contact')).text())[1];
 	// Too fast (token younger than 3 seconds) is silently dropped.
 	await post('/contact', { token, name: 'Fast', email: 'a@b.nl', message: 'hi', consent: '1' });
 	assert.equal(store.listMessages().length, 0);
@@ -122,6 +122,17 @@ test('login is rate limited and password change works', async () => {
 	let last;
 	for (let i = 0; i < 7; i++) last = await post('/admin/login', { password: 'bad' });
 	assert.equal(last.status, 429);
+});
+
+test('every public page renders with its own heading and nav state', async () => {
+	for (const [path, text] of [['/problem', 'Air pollution is concentrated'], ['/how-it-works', 'Detect'], ['/applications', 'Municipalities'], ['/contact', 'Send message'], ['/privacy', 'Privacy statement']]) {
+		const res = await fetch(base + path);
+		const html = await res.text();
+		assert.equal(res.status, 200, path);
+		assert.ok(html.includes(text), path);
+		assert.ok(html.includes('aria-current="page"'), path);
+	}
+	assert.equal((await fetch(base + '/nope')).status, 404);
 });
 
 test('multipart parser and image sniffing', () => {
