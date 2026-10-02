@@ -1,11 +1,3 @@
-/*
-Theme Name: Aethra
-Description: Single-page theme for the Aethra CubeSat startup. Light layout with a deep-space hero. Content and photos are edited in Appearance > Customize. No external fonts, scripts or embeds.
-Version: 1.0.0
-Requires at least: 6.3
-Requires PHP: 7.4
-Text Domain: aethra
-*/
 
 :root {
 	--bg: #f7f9fc;
@@ -163,3 +155,8 @@ p { margin: 0 0 var(--s-2); }
 	.js [data-reveal] { opacity: 1; transform: none; transition: none; }
 	.btn, .site-header { transition: none; }
 }
+
+.photo { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; background: var(--line); }
+.hero-photo { max-width: 860px; }
+.prose h2 { font-size: 1.35rem; margin-top: var(--s-4); }
+.page-main h1 { font-size: clamp(1.9rem, 4vw, 2.6rem); }

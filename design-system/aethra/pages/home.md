@@ -8,5 +8,5 @@ These rules take precedence over `MASTER.md` for the single-page site.
 | Fonts | Exo / Roboto Mono (Google Fonts) | System font stack + system mono | No external requests (privacy, no third-party data transfer) |
 | Motion | GSAP scroll reveal | CSS/IntersectionObserver reveal, 10px, 0.4s | Client: "a little"; audience is investors and municipalities; no external script |
 | Accent | #3B82F6 | #1F5FD1 | 4.5:1+ against white for text and buttons |
-| Imagery | Photos | Editor uploads in Customizer; none bundled | No stock/external sources; rights stay with the client. Never present AI imagery as the prototype |
+| Imagery | Photos | Editor uploads in the admin panel; none bundled | No stock/external sources; rights stay with the client. Never present AI imagery as the prototype |
 | Copy | n/a | No emission-reduction figures, no HOW (possible patent), no offer of shares or returns | ACM, AFM and patent considerations |
