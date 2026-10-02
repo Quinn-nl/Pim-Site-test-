@@ -5,6 +5,7 @@
  * All translations are a first draft: have a native speaker review them.
  */
 const { DEFAULTS } = require('./fields');
+const { audienceTranslations } = require('./audiences');
 
 const LANGS = ['en', 'nl', 'de', 'fr'];
 const DEFAULT_LANG = 'en';
@@ -13,6 +14,12 @@ const OG_LOCALE = { en: 'en_GB', nl: 'nl_NL', de: 'de_DE', fr: 'fr_FR' };
 
 const UI = {
 	en: {
+		faq_title: 'Frequently asked questions',
+		learn_more: 'Learn more',
+		aud_other: 'Other audiences',
+		aud_for: 'For',
+		ar_subject: 'We received your message',
+		ar_body: 'Thank you for contacting {name}. We have received your message and will reply by email. {reply}\n\nThis is an automatic confirmation; you do not need to reply.',
 		rm_done: 'completed',
 		rm_current: 'current phase',
 		n_expired: 'This form expired. Your text is still here, please send it again.',
@@ -41,6 +48,12 @@ const UI = {
 		nf_title: 'Page not found', nf_back: 'Back to the home page', privacy_title: 'Privacy statement',
 	},
 	nl: {
+		faq_title: 'Veelgestelde vragen',
+		learn_more: 'Meer informatie',
+		aud_other: 'Andere doelgroepen',
+		aud_for: 'Voor',
+		ar_subject: 'Wij hebben uw bericht ontvangen',
+		ar_body: 'Bedankt voor uw bericht aan {name}. Wij hebben het ontvangen en reageren per e-mail. {reply}\n\nDit is een automatische bevestiging; u hoeft hierop niet te antwoorden.',
 		rm_done: 'afgerond',
 		rm_current: 'huidige fase',
 		n_expired: 'Dit formulier is verlopen. Uw tekst staat er nog, verstuur het opnieuw.',
@@ -69,6 +82,12 @@ const UI = {
 		nf_title: 'Pagina niet gevonden', nf_back: 'Terug naar de startpagina', privacy_title: 'Privacyverklaring',
 	},
 	de: {
+		faq_title: 'Häufig gestellte Fragen',
+		learn_more: 'Mehr erfahren',
+		aud_other: 'Weitere Zielgruppen',
+		aud_for: 'Für',
+		ar_subject: 'Wir haben Ihre Nachricht erhalten',
+		ar_body: 'Vielen Dank für Ihre Nachricht an {name}. Wir haben sie erhalten und antworten per E-Mail. {reply}\n\nDies ist eine automatische Bestätigung; Sie müssen nicht antworten.',
 		rm_done: 'abgeschlossen',
 		rm_current: 'aktuelle Phase',
 		n_expired: 'Dieses Formular ist abgelaufen. Ihr Text ist noch da, bitte senden Sie es erneut.',
@@ -97,6 +116,12 @@ const UI = {
 		nf_title: 'Seite nicht gefunden', nf_back: 'Zurück zur Startseite', privacy_title: 'Datenschutzerklärung',
 	},
 	fr: {
+		faq_title: 'Questions fréquentes',
+		learn_more: 'En savoir plus',
+		aud_other: 'Autres publics',
+		aud_for: 'Pour',
+		ar_subject: 'Nous avons bien reçu votre message',
+		ar_body: 'Merci d’avoir contacté {name}. Nous avons bien reçu votre message et répondrons par e-mail. {reply}\n\nCeci est une confirmation automatique ; vous n’avez pas besoin de répondre.',
 		rm_done: 'terminée',
 		rm_current: 'phase actuelle',
 		n_expired: 'Ce formulaire a expiré. Votre texte est toujours là, veuillez le renvoyer.',
@@ -232,7 +257,7 @@ const PRIVACY = {
 This website is operated by [company name and legal form], [address], [registration number].
 
 # What we collect
-When you use the contact form we receive the details you enter: name, email address, organisation, your role and your message. This website does not use tracking, analytics or advertising cookies and does not load content from third parties. If you choose a language, one functional cookie remembers that choice for one year.
+When you use the contact form we receive the details you enter: name, email address, organisation, your role and your message. This website does not use tracking, advertising or analytics cookies and does not load content from third parties. We count page views in anonymous totals (page, language and referring site) without cookies and without storing IP addresses or any personal identifier. If you choose a language, one functional cookie remembers that choice for one year.
 
 # Why and on what basis
 We use these details only to reply to your message. The basis is your consent, which you give by ticking the box before sending.
@@ -247,7 +272,7 @@ You can ask us to access, correct or delete your details, and withdraw your cons
 Deze website wordt beheerd door [bedrijfsnaam en rechtsvorm], [adres], [inschrijvingsnummer].
 
 # Wat wij verzamelen
-Als u het contactformulier gebruikt, ontvangen wij de gegevens die u invult: naam, e-mailadres, organisatie, uw rol en uw bericht. Deze website gebruikt geen tracking-, analyse- of advertentiecookies en laadt geen inhoud van derden. Als u een taal kiest, onthoudt één functionele cookie die keuze een jaar.
+Als u het contactformulier gebruikt, ontvangen wij de gegevens die u invult: naam, e-mailadres, organisatie, uw rol en uw bericht. Deze website gebruikt geen tracking-, advertentie- of analysecookies en laadt geen inhoud van derden. Wij tellen paginaweergaven in anonieme totalen (pagina, taal en verwijzende site), zonder cookies en zonder IP-adressen of andere persoonlijke kenmerken op te slaan. Als u een taal kiest, onthoudt één functionele cookie die keuze een jaar.
 
 # Waarom en op welke grondslag
 Wij gebruiken deze gegevens alleen om op uw bericht te reageren. De grondslag is uw toestemming, die u geeft door het vakje aan te vinken voordat u verzendt.
@@ -262,7 +287,7 @@ U kunt ons vragen uw gegevens in te zien, te corrigeren of te verwijderen en uw 
 Diese Website wird betrieben von [Firmenname und Rechtsform], [Adresse], [Registernummer].
 
 # Was wir erfassen
-Wenn Sie das Kontaktformular nutzen, erhalten wir Ihre Eingaben: Name, E-Mail-Adresse, Organisation, Ihre Rolle und Ihre Nachricht. Diese Website verwendet keine Tracking-, Analyse- oder Werbecookies und lädt keine Inhalte von Dritten. Wenn Sie eine Sprache wählen, merkt sich ein funktionales Cookie diese Wahl ein Jahr lang.
+Wenn Sie das Kontaktformular nutzen, erhalten wir Ihre Eingaben: Name, E-Mail-Adresse, Organisation, Ihre Rolle und Ihre Nachricht. Diese Website verwendet keine Tracking-, Werbe- oder Analysecookies und lädt keine Inhalte von Dritten. Wir zählen Seitenaufrufe in anonymen Summen (Seite, Sprache und verweisende Website), ohne Cookies und ohne IP-Adressen oder andere persönliche Kennungen zu speichern. Wenn Sie eine Sprache wählen, merkt sich ein funktionales Cookie diese Wahl ein Jahr lang.
 
 # Zweck und Rechtsgrundlage
 Wir verwenden diese Angaben nur, um auf Ihre Nachricht zu antworten. Rechtsgrundlage ist Ihre Einwilligung, die Sie durch Anklicken des Kästchens vor dem Absenden erteilen.
@@ -277,7 +302,7 @@ Sie können Auskunft, Berichtigung oder Löschung Ihrer Daten verlangen und Ihre
 Ce site est exploité par [nom de la société et forme juridique], [adresse], [numéro d’immatriculation].
 
 # Ce que nous collectons
-Lorsque vous utilisez le formulaire de contact, nous recevons les informations que vous saisissez : nom, adresse e-mail, organisation, votre rôle et votre message. Ce site n’utilise ni cookies de suivi, d’analyse ou de publicité, ni contenu de tiers. Si vous choisissez une langue, un cookie fonctionnel mémorise ce choix pendant un an.
+Lorsque vous utilisez le formulaire de contact, nous recevons les informations que vous saisissez : nom, adresse e-mail, organisation, votre rôle et votre message. Ce site n’utilise ni cookies de suivi, de publicité ou d’analyse, ni contenu de tiers. Nous comptons les pages vues en totaux anonymes (page, langue et site de provenance), sans cookies et sans conserver d’adresses IP ni d’identifiant personnel. Si vous choisissez une langue, un cookie fonctionnel mémorise ce choix pendant un an.
 
 # Finalité et base juridique
 Nous utilisons ces données uniquement pour répondre à votre message. La base juridique est votre consentement, que vous donnez en cochant la case avant l’envoi.
@@ -290,7 +315,7 @@ Vous pouvez demander l’accès, la rectification ou la suppression de vos donn�
 };
 
 const isLang = (l) => LANGS.includes(l);
-const defaultsFor = (lang) => ({ ...DEFAULTS, ...(TR[lang] || {}) });
+const defaultsFor = (lang) => ({ ...DEFAULTS, ...(TR[lang] || {}), ...audienceTranslations(lang) });
 
 /** Best supported language from an Accept-Language header (honours q-values). */
 function fromAcceptLanguage(header) {

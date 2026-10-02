@@ -3,6 +3,7 @@
  * Single source of truth for every editable text: label, type, default.
  * The admin form and the public page are both generated from this.
  */
+const { audienceFields } = require('./audiences');
 const G = (id, title, fields) => ({ id, title, fields });
 const F = (key, label, type, def) => ({ key, label, type, default: def });
 
@@ -73,6 +74,7 @@ const GROUPS = [
 		F('contact_text', 'Text', 'textarea', 'City, fleet, manufacturer, platform or investor: send us a message and we will reply.'),
 		F('contact_reply', 'Reply expectation', 'text', 'We usually reply within two working days.'),
 	]),
+	...audienceFields(),
 ];
 
 const FIELDS = Object.fromEntries(GROUPS.flatMap((g) => g.fields).map((f) => [f.key, f]));

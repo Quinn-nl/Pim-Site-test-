@@ -163,8 +163,8 @@ function messagesCsv() {
 		if (/^[=+\-@\t]/.test(t)) t = `'${t}`;
 		return `"${t.replace(/"/g, '""')}"`;
 	};
-	const rows = listMessages().map((m) => [m.at, m.lang, m.role, m.name, m.email, m.org, m.message].map(cell).join(','));
-	return '\ufeff' + ['Received,Language,Role,Name,Email,Organisation,Message', ...rows].join('\r\n') + '\r\n';
+	const rows = listMessages().map((m) => [m.at, m.lang, m.role, m.source, m.campaign, m.name, m.email, m.org, m.message].map(cell).join(','));
+	return '\ufeff' + ['Received,Language,Role,Source,Campaign,Name,Email,Organisation,Message', ...rows].join('\r\n') + '\r\n';
 }
 
 function deleteMessage(id) {

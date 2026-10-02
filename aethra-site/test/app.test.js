@@ -9,7 +9,8 @@ process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'aethra-'));
 const auth = require('../lib/auth');
 const store = require('../lib/store');
 const { parseMultipart, detectImage } = require('../lib/multipart');
-const { createServer } = require('../server');
+const { createServer, contactLimiter } = require('../server');
+const resetContactLimit = () => ['127.0.0.1', '::ffff:127.0.0.1', '::1'].forEach((k) => contactLimiter.clear(k));
 
 const zlib = require('zlib');
 const crc32 = (buf) => { let r = 0xffffffff; for (const x of buf) { let c = (r ^ x) & 255; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; r = c ^ (r >>> 8); } return (r ^ 0xffffffff) >>> 0; };
@@ -297,7 +298,8 @@ test('SEO: canonical, hreflang, Open Graph, JSON-LD, sitemap and robots', async 
 	assert.equal(ld['@graph'][0]['@type'], 'Organization');
 	assert.ok(home.includes('Sauberere Luft'));
 	const map = await (await fetch(base + '/sitemap.xml')).text();
-	assert.equal((map.match(/<url>/g) || []).length, 24);
+	assert.equal((map.match(/<url>/g) || []).length, 44);
+	assert.ok(map.includes('/nl/for/investors'));
 	assert.ok(map.includes('hreflang="fr"'));
 	const robots = await (await fetch(base + '/robots.txt')).text();
 	assert.match(robots, /Disallow: \/admin/);
@@ -330,6 +332,120 @@ test('responses are gzip-compressed and static files support ETag', async () => 
 	assert.ok(etag);
 	const again = await fetch(base + '/css/site.css', { headers: { 'if-none-match': etag } });
 	assert.equal(again.status, 304);
+});
+
+test('audience pages: one per audience and language, FAQ markup, links and titles', async () => {
+	const { AUDIENCES } = require('../lib/audiences');
+	for (const l of ['en', 'nl', 'de', 'fr']) for (const a of AUDIENCES) {
+		const res = await fetch(base + `/${l}/for/${a.slug}`);
+		const html = await res.text();
+		assert.equal(res.status, 200, `${l}/${a.slug}`);
+		assert.equal((html.match(/<h1[ >]/g) || []).length, 1);
+		assert.equal((html.match(/<details>/g) || []).length, 2);
+		const title = /<title>([^<]*)<\/title>/.exec(html)[1].replace(/&amp;/g, '&').replace(/&#39;/g, "'");
+		assert.ok(title.length <= 62, `${l}/${a.slug}: ${title.length} ${title}`);
+		assert.ok(html.includes(`href="/${l}/contact?role=${encodeURIComponent(a.role)}"`), 'CTA preselects the role');
+		const ld = JSON.parse(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/.exec(html)[1]);
+		assert.ok(ld['@graph'].some((n) => n['@type'] === 'FAQPage' && n.mainEntity.length === 2));
+		assert.ok(html.includes(`hreflang="x-default"`));
+	}
+	const inv = await (await fetch(base + '/en/for/investors')).text();
+	assert.ok(inv.includes('not an offer of shares'), 'investor page says it is not an offer');
+	assert.ok(!/\d+\s?%|reduc(e|tion) of/i.test(inv), 'no emission figures');
+	assert.equal((await fetch(base + '/en/for/unknown')).status, 404);
+	const home = await (await fetch(base + '/en/')).text();
+	assert.ok(home.includes('/en/for/municipalities') && home.includes('/en/for/investors'));
+});
+
+test('statistics: cookieless, bot- and DNT-aware, UTM carried to the message, dashboard renders', async () => {
+	const stats = require('../lib/stats');
+	const http = require('http');
+	// Node's fetch strips Sec-Fetch-* headers (browsers send them), so use raw HTTP here.
+	const rawGet = (p, headers = {}) => new Promise((resolve) => http.get(base + p, { headers }, (res) => { let t = ''; res.on('data', (d) => (t += d)); res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, text: t })); }));
+	const nav = { 'sec-fetch-dest': 'document', 'sec-fetch-mode': 'navigate' };
+	const before = stats.summary(30);
+	const r1 = await rawGet('/en/problem?utm_source=LinkedIn&utm_campaign=Launch-1', nav);
+	assert.equal(r1.headers['set-cookie'], undefined, 'public pages set no cookie');
+	await rawGet('/en/problem', { ...nav, dnt: '1' });
+	await rawGet('/en/problem', { ...nav, 'sec-gpc': '1' });
+	await rawGet('/en/problem', { 'user-agent': 'Googlebot' });
+	await rawGet('/en/problem', { ...nav, 'sec-purpose': 'prefetch' });
+	await rawGet('/en/applications', { ...nav, referer: 'https://www.example.org/some/path?x=1' });
+	const after = stats.summary(30);
+	assert.equal(after.views - before.views, 2, 'only the two real navigations count');
+	assert.equal(after.sources['linkedin / launch-1'], 1);
+	assert.equal(after.sources['example.org'], 1);
+	assert.ok(!JSON.stringify(require('../lib/store').readJson('stats.json', {})).includes('/some/path'), 'no referrer path stored');
+	// UTM tags stay on internal links and end up on the message.
+	const html = await (await fetch(base + '/en/problem?utm_source=linkedin&utm_campaign=launch-1')).text();
+	assert.ok(html.includes('href="/en/contact?utm_source=linkedin&amp;utm_campaign=launch-1"'));
+	assert.ok(/<link rel="canonical" href="[^"?]*\/en\/problem">/.test(html), 'canonical has no tracking tags');
+	const contact = await (await fetch(base + '/en/contact?utm_source=linkedin&utm_campaign=launch-1')).text();
+	assert.ok(contact.includes('name="utm_source" value="linkedin"'));
+	const crypto = require('crypto');
+	const ts = String(Math.floor(Date.now() / 1000) - 30);
+	const token = `${ts}.${crypto.createHmac('sha256', store.getSecret()).update(ts).digest('hex')}`;
+	resetContactLimit();
+	await post('/en/contact', { token, name: 'Lead', email: 'lead@example.org', message: 'Hi', consent: '1', role: 'Fleet operator', utm_source: 'LinkedIn!', utm_campaign: 'Launch-1' });
+	const msg = store.listMessages()[0];
+	assert.equal(msg.source, 'linkedin');
+	assert.equal(msg.campaign, 'launch-1');
+	const sum = stats.summary(30);
+	assert.equal(sum.sent - before.sent, 1);
+	assert.equal((sum.roles['Fleet operator'] || 0) - (before.roles['Fleet operator'] || 0), 1);
+	const page = await (await fetch(base + '/admin/stats?days=7', { headers: { cookie } })).text();
+	assert.ok(page.includes('Page views per day') && page.includes('linkedin / launch-1') && page.includes('Fleet operator'));
+	assert.equal((await fetch(base + '/admin/stats', { redirect: 'manual' })).status, 303);
+	store.deleteMessage(msg.id);
+});
+
+test('visitor confirmation mail: sent once per address, fixed text, can be disabled', async () => {
+	const net = require('net');
+	const crypto = require('crypto');
+	const mails = [];
+	const smtp = net.createServer((sock) => {
+		let data = false, buf = '';
+		sock.write('220 t\r\n');
+		sock.on('data', (d) => {
+			buf += d.toString();
+			if (data) { if (buf.endsWith('\r\n.\r\n')) { mails.push(buf); data = false; buf = ''; sock.write('250 ok\r\n'); } return; }
+			for (const line of buf.split('\r\n').slice(0, -1)) {
+				if (/^EHLO/.test(line)) sock.write('250 t\r\n');
+				else if (/^(MAIL|RCPT)/.test(line)) sock.write('250 ok\r\n');
+				else if (line === 'DATA') { data = true; sock.write('354 go\r\n'); buf = ''; return; }
+				else if (line === 'QUIT') sock.end('221 bye\r\n');
+			}
+			buf = '';
+		});
+	});
+	await new Promise((r) => smtp.listen(0, '127.0.0.1', r));
+	Object.assign(process.env, { SMTP_HOST: '127.0.0.1', SMTP_PORT: String(smtp.address().port), MAIL_FROM: 'site@example.org', MAIL_TO: 'team@example.org' });
+	const send = async (email, lang) => {
+		const ts = String(Math.floor(Date.now() / 1000) - 30);
+		const token = `${ts}.${crypto.createHmac('sha256', store.getSecret()).update(ts).digest('hex')}`;
+		resetContactLimit();
+		await post(`/${lang}/contact`, { token, name: 'Ana', email, message: 'secret body', consent: '1' });
+		await new Promise((r) => setTimeout(r, 400));
+	};
+	await send('visitor@example.org', 'nl');
+	await send('visitor@example.org', 'nl');
+	await send('other@example.org', 'en');
+	process.env.AUTO_REPLY = '0';
+	await send('third@example.org', 'en');
+	for (const k of ['SMTP_HOST', 'SMTP_PORT', 'MAIL_FROM', 'MAIL_TO', 'AUTO_REPLY']) delete process.env[k];
+	smtp.close();
+	const decode = (m) => { const body = m.split('\r\n\r\n')[1].replace(/\r\n\.\r\n$/, '').replace(/\r\n/g, ''); return Buffer.from(body, 'base64').toString('utf8'); };
+	const toVisitors = mails.filter((m) => /^To: (visitor|other)@/m.test(m));
+	assert.equal(toVisitors.length, 2, 'one confirmation per address, none when disabled');
+	assert.ok(decode(toVisitors[0]).includes('Bedankt voor uw bericht'));
+	assert.ok(!toVisitors.some((m) => decode(m).includes('secret body')), 'visitor text is never echoed');
+	for (const m of store.listMessages()) store.deleteMessage(m.id);
+});
+
+test('llms.txt describes the site for AI search', async () => {
+	const txt = await (await fetch(base + '/llms.txt')).text();
+	assert.ok(txt.startsWith('# Aethra'));
+	assert.ok(txt.includes('/en/for/investors') && txt.includes('not an offer of securities'));
 });
 
 test('multipart parser and image sniffing', () => {

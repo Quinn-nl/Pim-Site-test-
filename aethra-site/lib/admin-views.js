@@ -12,7 +12,7 @@ function shell(title, active, csrf, inner, flash) {
 <link rel="stylesheet" href="/css/admin.css"></head>
 <body>
 <header class="bar"><strong>Aethra admin</strong>
-<nav aria-label="Admin">${csrf ? `${tab('/admin', 'Content', 'content')}${tab('/admin/photos', 'Photos', 'photos')}${tab('/admin/privacy', 'Privacy statement', 'privacy')}${tab('/admin/messages', `Messages${store.unreadCount() ? ` <span class="badge" aria-label="${store.unreadCount()} unread">${store.unreadCount()}</span>` : ''}`, 'messages')}${tab('/admin/account', 'Account', 'account')}<a href="/" target="_blank" rel="noopener">View site</a>
+<nav aria-label="Admin">${csrf ? `${tab('/admin', 'Content', 'content')}${tab('/admin/photos', 'Photos', 'photos')}${tab('/admin/privacy', 'Privacy statement', 'privacy')}${tab('/admin/stats', 'Statistics', 'stats')}${tab('/admin/messages', `Messages${store.unreadCount() ? ` <span class="badge" aria-label="${store.unreadCount()} unread">${store.unreadCount()}</span>` : ''}`, 'messages')}${tab('/admin/account', 'Account', 'account')}<a href="/" target="_blank" rel="noopener">View site</a>
 <form method="post" action="/admin/logout"><input type="hidden" name="csrf" value="${esc(csrf)}"><button class="link" type="submit">Log out</button></form>` : ''}</nav></header>
 <main>${flash ? `<p class="flash ${flash.ok ? 'ok' : 'err'}" role="${flash.ok ? 'status' : 'alert'}">${flash.html || esc(flash.text)}</p>` : ''}${inner}</main>
 </body></html>`;
@@ -69,10 +69,42 @@ ${langTabs('/admin/privacy', lang)}
 
 function messagesPage(session, messages, retention, flash) {
 	const rows = messages.length ? messages.map((m) => `<article class="card msg"><p class="who"><strong>${esc(m.name)}</strong> &lt;<a href="mailto:${esc(m.email)}">${esc(m.email)}</a>&gt;</p>
-<p class="meta">${esc(m.role)}${m.lang ? ' · ' + esc(String(m.lang).toUpperCase()) : ''}${m.org ? ' · ' + esc(m.org) : ''} · ${esc(new Date(m.at).toLocaleString('en-GB', { timeZone: 'Europe/Amsterdam' }))}</p>
+<p class="meta">${esc(m.role)}${m.source && m.source !== 'direct' ? ' · ' + esc(m.source) + (m.campaign ? ' / ' + esc(m.campaign) : '') : ''}${m.lang ? ' · ' + esc(String(m.lang).toUpperCase()) : ''}${m.org ? ' · ' + esc(m.org) : ''} · ${esc(new Date(m.at).toLocaleString('en-GB', { timeZone: 'Europe/Amsterdam' }))}</p>
 <p>${esc(m.message).replace(/\n/g, '<br>')}</p>
 <form method="post" action="/admin/messages/delete"><input type="hidden" name="csrf" value="${esc(session.csrf)}"><input type="hidden" name="id" value="${esc(m.id)}"><button class="danger" type="submit">Delete</button></form></article>`).join('') : '<p class="hint">No messages yet.</p>';
 	return shell('Messages', 'messages', session.csrf, `<h1>Messages</h1><p class="hint">Messages are kept here for ${retention} days and then deleted automatically. Delete them earlier on request. <a href="/admin/messages.csv">Download as CSV</a></p>${rows}`, flash);
+}
+
+function table(headers, rows, empty) {
+	if (!rows.length) return `<p class="hint">${esc(empty)}</p>`;
+	return `<div class="scroll"><table><thead><tr>${headers.map((h) => `<th scope="col">${esc(h)}</th>`).join('')}</tr></thead><tbody>${rows.map((r) => `<tr>${r.map((c, i) => (i ? `<td class="num">${esc(c)}</td>` : `<th scope="row">${esc(c)}</th>`)).join('')}</tr>`).join('')}</tbody></table></div>`;
+}
+
+function chart(sum) {
+	const w = 720, h = 140, max = Math.max(1, ...sum.perDay), n = sum.perDay.length, gap = 2, bw = Math.max(2, (w - gap * (n - 1)) / n);
+	const bars = sum.perDay.map((v, i) => { const bh = Math.round((v / max) * (h - 8)); return `<rect class="bar-rect" x="${(i * (bw + gap)).toFixed(1)}" y="${h - bh}" width="${bw.toFixed(1)}" height="${Math.max(bh, v ? 1 : 0)}"><title>${esc(sum.days[i])}: ${v}</title></rect>`; }).join('');
+	return `<svg class="chart" viewBox="0 0 ${w} ${h + 18}" role="img" aria-label="Page views per day, peak ${max}"><text x="0" y="10" class="axis">${max}</text>${bars}<text x="0" y="${h + 14}" class="axis">${esc(sum.days[0])}</text><text x="${w}" y="${h + 14}" class="axis" text-anchor="end">${esc(sum.days[n - 1])}</text></svg>`;
+}
+
+function statsPage(session, sum, days) {
+	const top = (obj, limit = 10) => Object.entries(obj).sort((a, b) => b[1] - a[1]).slice(0, limit);
+	const pct = (a, b) => (b ? `${((a / b) * 100).toFixed(1)}%` : '-');
+	const ranges = [7, 30, 90].map((d) => `<a href="/admin/stats?days=${d}"${d === days ? ' aria-current="page"' : ''}>${d} days</a>`).join('');
+	return shell('Statistics', 'stats', session.csrf, `<h1>Statistics</h1>
+<p class="hint">Anonymous page views, counted without cookies or IP addresses. Visitors who send Do Not Track are not counted, and unique visitors cannot be measured. Use these numbers for trends, not exact counts.</p>
+<nav class="tabs" aria-label="Period">${ranges}</nav>
+<div class="kpis">
+<div class="kpi"><span class="kpi-v">${sum.views}</span><span>Page views</span></div>
+<div class="kpi"><span class="kpi-v">${sum.contactViews}</span><span>Contact page views</span></div>
+<div class="kpi"><span class="kpi-v">${sum.sent}</span><span>Messages sent</span></div>
+<div class="kpi"><span class="kpi-v">${pct(sum.sent, sum.contactViews)}</span><span>Contact page to message</span></div>
+</div>
+<section class="card"><h2>Page views per day</h2>${chart(sum)}</section>
+<section class="card"><h2>Top pages</h2>${table(['Page', 'Views'], top(sum.pages).map(([k, v]) => [k, v]), 'No views yet.')}</section>
+<section class="card"><h2>Where visitors come from</h2>${table(['Source / campaign', 'Views'], top(sum.sources).map(([k, v]) => [k, v]), 'No views yet.')}
+<p class="hint">Tag your links to see campaigns here, for example <code>https://your-site.example/en/?utm_source=linkedin&amp;utm_campaign=launch</code>. The tags stay attached while a visitor browses, so messages are credited to the right campaign (see the CSV export).</p></section>
+<section class="card"><h2>Language</h2>${table(['Language', 'Views'], top(sum.langs).map(([k, v]) => [k.toUpperCase(), v]), 'No views yet.')}</section>
+<section class="card"><h2>Messages by role</h2>${table(['Role', 'Messages'], top(sum.roles).map(([k, v]) => [k, v]), 'No messages in this period.')}</section>`);
 }
 
 function accountPage(session, flash) {
@@ -83,4 +115,4 @@ function accountPage(session, flash) {
 <button type="submit">Change password</button></form>`, flash);
 }
 
-module.exports = { loginPage, contentPage, photosPage, privacyPage, messagesPage, accountPage };
+module.exports = { statsPage, loginPage, contentPage, photosPage, privacyPage, messagesPage, accountPage };

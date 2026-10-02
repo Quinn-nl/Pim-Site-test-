@@ -35,3 +35,17 @@ code { background: #e6ecf6; padding: .1rem .35rem; border-radius: 4px; }
 .tabs a { padding: .45rem .9rem; border: 1px solid var(--line); border-radius: 999px; background: #fff; color: var(--ink); text-decoration: none; font-weight: 600; font-size: .95rem; }
 .tabs a[aria-current="page"] { background: var(--ink); color: #fff; border-color: var(--ink); }
 .badge { display: inline-block; min-width: 1.4rem; padding: 0 .4rem; margin-left: .25rem; border-radius: 999px; background: #6ea8ff; color: #0b1b33; font-size: .8rem; font-weight: 700; text-align: center; }
+
+.kpis { display: grid; gap: .75rem; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); margin: 1rem 0; }
+.kpi { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: .9rem 1rem; display: grid; gap: .1rem; }
+.kpi-v { font-size: 1.7rem; font-weight: 700; }
+.card h2 { font-size: 1.1rem; margin: 0 0 .6rem; }
+.chart { width: 100%; height: auto; max-height: 220px; }
+.bar-rect { fill: #1f5fd1; }
+.axis { font-size: 11px; fill: var(--muted); }
+.scroll { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: .95rem; }
+th, td { text-align: left; padding: .45rem .5rem; border-bottom: 1px solid var(--line); }
+th[scope=row] { font-weight: 500; }
+.num { text-align: right; font-variant-numeric: tabular-nums; }
+thead th { color: var(--muted); font-size: .85rem; font-weight: 600; }

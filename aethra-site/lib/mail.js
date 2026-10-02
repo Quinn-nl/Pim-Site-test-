@@ -40,9 +40,10 @@ function buildMessage({ from, to, subject, text, replyTo }) {
 	return `${headers.join('\r\n')}\r\n\r\n${body}\r\n`;
 }
 
-function sendMail({ subject, text, replyTo }) {
+function sendMail({ subject, text, replyTo, to }) {
 	const c = cfg();
 	if (!configured()) return Promise.resolve({ sent: false, reason: 'not configured' });
+	if (to) c.to = to;
 	const message = buildMessage({ from: c.from, to: c.to, subject, text, replyTo });
 
 	return new Promise((resolve) => {

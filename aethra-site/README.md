@@ -8,7 +8,7 @@ Node.js 20+ only: no npm packages, no database, no external requests (fonts, scr
 cd aethra-site
 npm run set-password      # once: choose an admin password of at least 12 characters
 npm start                 # http://127.0.0.1:3000   (PORT / HOST can be set)
-npm test                  # 17 tests: security, languages, SEO, form, upload, admin
+npm test                  # 21 tests: security, languages, SEO, form, upload, admin
 ```
 Data (texts, photos, messages, password hash) lives in `aethra-site/data/` (git-ignored; set `DATA_DIR` to move it). **Back this folder up.**
 
@@ -18,6 +18,12 @@ Data (texts, photos, messages, password hash) lives in `aethra-site/data/` (git-
 - **Set `SITE_URL`** (for example `https://aethra.example`) in production so canonical links and the sitemap use your real domain.
 - Dutch, German and French copy is a first draft: have native speakers review it (especially technical terms and the privacy text). Add another language in `lib/i18n.js` (UI strings and translated copy) and the `LANGS` list.
 - Not included, because there is no image yet: a social-sharing image (`og:image`). Add one once the brand has a logo or photo.
+
+## Audience pages, statistics and follow-up
+- **One page per audience** (`/<lang>/for/municipalities|fleets|manufacturers|platforms|investors`) with its own heading, three points, two FAQs (with FAQ markup for search engines) and a button that opens the contact form with the right role selected. Every text is editable per language. The investor page states that the site is not an offer.
+- **Statistics** (admin > Statistics): anonymous page views per day, top pages, sources and campaigns, language, contact-page-to-message rate and messages by role. No cookies, no IP addresses, no visitor identifiers; Do Not Track and Global Privacy Control are respected; crawlers are not counted. Tag links with `?utm_source=linkedin&utm_campaign=launch`: the tags stay on internal links while a visitor browses (no storage needed) and are saved on the message, so the CSV shows which campaign produced which lead.
+- **Confirmation e-mail** to the visitor (fixed text in their language, once per address per day) when SMTP is set. Switch off with `AUTO_REPLY=0`.
+- `/llms.txt` summarises the site for AI search tools.
 
 ## Conversion
 Every page ends in one call to action; segment cards link to the contact form with the right role preselected; the form asks for the minimum, says when you will reply (editable) and what happens with the details; a fixed contact button appears on phones. No analytics are installed on purpose: the admin inbox shows each message with its role and language.

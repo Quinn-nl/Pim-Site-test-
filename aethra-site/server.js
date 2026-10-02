@@ -6,6 +6,8 @@ const auth = require('./lib/auth');
 const { send, sendPage, redirect, clientIp, readBody, readForm, serveFile } = require('./lib/http');
 const { inspectImage } = require('./lib/image');
 const mail = require('./lib/mail');
+const stats = require('./lib/stats');
+const { AUDIENCES } = require('./lib/audiences');
 const { parseMultipart } = require('./lib/multipart');
 const { createLimiter } = require('./lib/ratelimit');
 const { ROLES, GROUPS, IMAGE_SLOTS } = require('./lib/fields');
@@ -35,6 +37,20 @@ function requireAdmin(req, res) {
 
 function csrfOk(session, token) {
 	return !!token && auth.safeEqual(token, session.csrf);
+}
+
+const replyLimiter = createLimiter(1, 24 * 3600 * 1000); // one confirmation per address per day: the form can not be used to mail strangers repeatedly
+
+/** Confirmation to the visitor (only when SMTP is configured and AUTO_REPLY is not 0). Fixed text, no visitor input. */
+function confirmToVisitor(m, content) {
+	if (process.env.AUTO_REPLY === '0' || !mail.configured()) return;
+	if (!replyLimiter.allow(m.email.toLowerCase())) return;
+	const t = UI[m.lang] || UI.en;
+	mail.sendMail({
+		to: [m.email],
+		subject: t.ar_subject,
+		text: t.ar_body.replace('{name}', content.values.site_name).replace('{reply}', content.values.contact_reply),
+	}).then((r) => { if (!r.sent) console.error(`Confirmation mail failed: ${r.reason}`); });
 }
 
 /** E-mail the team about a new message. Failures are logged without personal data; the message stays in the inbox. */
@@ -73,6 +89,13 @@ async function handlePublic(req, res, url) {
 		try { modified = require('fs').statSync(store.file('content.json')).mtime; } catch (e) { /* no edits yet */ }
 		return send(res, 200, views.renderSitemap(siteUrl, modified.toISOString().slice(0, 10)), { 'Content-Type': 'application/xml; charset=utf-8', 'Cache-Control': 'public, max-age=3600' });
 	}
+	if (get && url.pathname === '/llms.txt') {
+		const v = store.getContent('en').values;
+		const lines = [`# ${v.site_name}`, '', `> ${v.meta_description}`, '', 'Status: prototype phase. Informational website; not an offer of securities or financial products.', ''];
+		for (const l of LANGS) lines.push(`- [${l.toUpperCase()}: ${store.getContent(l).values.hero_title}](${siteUrl}/${l}/)`);
+		lines.push('', '## Pages (English)', ...['/problem', '/how-it-works', '/applications', ...AUDIENCES.map((a) => `/for/${a.slug}`), '/contact'].map((p) => `- ${siteUrl}/en${p}`), '');
+		return send(res, 200, lines.join('\n'), { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'public, max-age=3600' });
+	}
 	if (get && url.pathname === '/healthz') return send(res, 200, 'ok', { 'Content-Type': 'text/plain' });
 
 	// Auto-detect: the bare address and legacy paths go to the visitor's language.
@@ -86,12 +109,26 @@ async function handlePublic(req, res, url) {
 	if (get && !m[2]) return redirect(res, `/${lang}/`, {}, 301);
 	if (page.length > 1 && page.endsWith('/')) page = page.slice(0, -1);
 	const content = store.getContent(lang);
+	const attribution = stats.sourceOf(url, req.headers.referer, req.headers.host);
+	const utm = { source: stats.tag(url.searchParams.get('utm_source')), campaign: stats.tag(url.searchParams.get('utm_campaign')) };
+	views.setCarry(utm);
 	const ctx = { siteUrl };
+	const aud = /^\/for\/([a-z-]+)$/.exec(page);
+	const audience = aud && AUDIENCES.some((a) => a.slug === aud[1]) ? aud[1] : null;
+	const countView = (key) => { if (get && stats.countable(req)) stats.record('v', { lang, page: key, ...attribution }); };
 
 	if (get && page === '/contact') {
-		return send(res, 200, views.renderContact(content, { ...ctx, status: url.searchParams.get('contact') || '', token: auth.formToken(), role: url.searchParams.get('role') || '' }));
+		countView('/contact');
+		return send(res, 200, views.renderContact(content, { ...ctx, status: url.searchParams.get('contact') || '', token: auth.formToken(), role: url.searchParams.get('role') || '', utm }));
 	}
-	if (get && PAGE_RENDERERS[page]) return sendPage(req, res, PAGE_RENDERERS[page](content, ctx));
+	if (get && audience) {
+		countView(page);
+		return sendPage(req, res, views.renderAudience(content, ctx, audience));
+	}
+	if (get && PAGE_RENDERERS[page]) {
+		countView(page);
+		return sendPage(req, res, PAGE_RENDERERS[page](content, ctx));
+	}
 
 	if (req.method === 'POST' && page === '/contact') {
 		const ip = clientIp(req);
@@ -103,8 +140,10 @@ async function handlePublic(req, res, url) {
 			org: (form.organisation || '').trim().slice(0, 160),
 			role: ROLES.includes(form.role) ? form.role : 'Other',
 			message: (form.message || '').trim(),
+			source: stats.tag(form.utm_source) || 'direct',
+			campaign: stats.tag(form.utm_campaign),
 		};
-		const again = (status, errors = {}, code = 200) => send(res, code, views.renderContact(content, { ...ctx, status, errors, token: auth.formToken(), form: msg }));
+		const again = (status, errors = {}, code = 200) => send(res, code, views.renderContact(content, { ...ctx, status, errors, token: auth.formToken(), form: msg, utm: { source: msg.source === 'direct' ? '' : msg.source, campaign: msg.campaign } }));
 		const token = auth.inspectFormToken(form.token);
 		if (form.website || token === 'bad') return redirect(res, `/${lang}/contact?contact=sent`); // bots get a quiet success
 		if (token !== 'ok') return again('expired');
@@ -118,6 +157,8 @@ async function handlePublic(req, res, url) {
 		const saved = store.addMessage(msg);
 		if (!saved) return again('error', {}, 503);
 		notify(saved);
+		confirmToVisitor(saved, content);
+		stats.record('s', { lang, page: msg.role, source: msg.source, campaign: msg.campaign });
 		return redirect(res, `/${lang}/contact?contact=sent`);
 	}
 	return false;
@@ -148,6 +189,10 @@ async function handleAdmin(req, res, url) {
 		if (p === '/admin') return send(res, 200, admin.contentPage(session, lang, c.values, flash));
 		if (p === '/admin/photos') return send(res, 200, admin.photosPage(session, c.images, flash));
 		if (p === '/admin/privacy') return send(res, 200, admin.privacyPage(session, lang, c.privacy, flash));
+		if (p === '/admin/stats') {
+			const days = [7, 30, 90].includes(Number(url.searchParams.get('days'))) ? Number(url.searchParams.get('days')) : 30;
+			return send(res, 200, admin.statsPage(session, stats.summary(days), days));
+		}
 		if (p === '/admin/messages.csv') {
 			return send(res, 200, store.messagesCsv(), { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': 'attachment; filename="aethra-messages.csv"' });
 		}
@@ -260,10 +305,11 @@ if (require.main === module) {
 	server.listen(cfg.PORT, cfg.HOST, () => console.log(`Aethra site on http://${cfg.HOST}:${cfg.PORT}`));
 	for (const sig of ['SIGTERM', 'SIGINT']) {
 		process.on(sig, () => {
+			stats.flush();
 			server.close(() => process.exit(0));
 			setTimeout(() => process.exit(0), 5000).unref();
 		});
 	}
 }
 
-module.exports = { createServer };
+module.exports = { createServer, contactLimiter };
