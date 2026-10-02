@@ -8,7 +8,7 @@ Node.js 20+ only: no npm packages, no database, no external requests (fonts, scr
 cd aethra-site
 npm run set-password      # once: choose an admin password of at least 12 characters
 npm start                 # http://127.0.0.1:3000   (PORT / HOST can be set)
-npm test                  # 13 tests: security, languages, SEO, form, upload, admin
+npm test                  # 12 tests: security, languages, SEO, form, upload, admin
 ```
 Data (texts, photos, messages, password hash) lives in `aethra-site/data/` (git-ignored; set `DATA_DIR` to move it). **Back this folder up.**
 
