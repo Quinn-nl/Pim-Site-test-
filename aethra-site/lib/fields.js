@@ -18,6 +18,13 @@ const GROUPS = [
 		F('cta_title', 'Closing call to action: title', 'text', 'Want to know more?'),
 		F('cta_text', 'Closing call to action: text', 'text', 'We are open to conversations with municipalities, fleets, manufacturers, platforms and investors.'),
 	]),
+	G('seo', 'Search engine titles (about 50 characters; the site name is added)', [
+		F('seo_home', 'Home page title (60 characters at most)', 'text', 'Aethra: CubeSats and AI for cleaner air in traffic'),
+		F('seo_problem', 'The problem: page title', 'text', 'Air pollution where traffic is heaviest'),
+		F('seo_how', 'How it works: page title', 'text', 'How it works: detect, decide, switch'),
+		F('seo_apps', 'Applications: page title', 'text', 'Applications for cities, fleets and OEMs'),
+		F('seo_contact', 'Contact: page title', 'text', 'Contact us'),
+	]),
 	G('hero', 'Hero', [
 		F('hero_eyebrow', 'Label above the title', 'text', 'Prototype phase'),
 		F('hero_title', 'Title', 'text', 'Cleaner air, right where traffic is heaviest'),
@@ -75,6 +82,7 @@ const IMAGE_SLOTS = [
 	{ slot: 'hero', label: 'Hero photo' },
 	{ slot: 'problem', label: 'Problem section photo' },
 	{ slot: 'status', label: 'Status section photo' },
+	{ slot: 'social', label: 'Social sharing image (1200 x 630, shown when the site is shared)' },
 ];
 
 const ROLES = ['Investor', 'Municipality', 'Fleet operator', 'Vehicle manufacturer', 'Mobility platform', 'Other'];

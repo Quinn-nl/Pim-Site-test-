@@ -96,13 +96,18 @@ function formToken() {
 	return `${ts}.${sig}`;
 }
 
-function checkFormToken(token, { minAge = 3, maxAge = 6 * 3600 } = {}) {
+/** 'ok' | 'fast' (sent within 2 s) | 'old' (over 24 h) | 'bad' (missing or forged). */
+function inspectFormToken(token) {
 	const [ts, sig] = String(token || '').split('.');
-	if (!ts || !sig) return false;
+	if (!ts || !sig) return 'bad';
 	const good = crypto.createHmac('sha256', store.getSecret()).update(ts).digest('hex');
-	if (!safeEqual(sig, good)) return false;
+	if (!safeEqual(sig, good)) return 'bad';
 	const age = Math.floor(Date.now() / 1000) - Number(ts);
-	return age >= minAge && age <= maxAge;
+	if (age < 2) return 'fast';
+	if (age > 24 * 3600) return 'old';
+	return 'ok';
 }
 
-module.exports = { COOKIE, hashPassword, verifyPassword, setPassword, checkPassword, hasAdmin, parseCookies, createSession, getSession, destroySession, destroyOtherSessions, cookieHeader, safeEqual, formToken, checkFormToken };
+const checkFormToken = (token) => inspectFormToken(token) === 'ok';
+
+module.exports = { COOKIE, hashPassword, verifyPassword, setPassword, checkPassword, hasAdmin, parseCookies, createSession, getSession, destroySession, destroyOtherSessions, cookieHeader, safeEqual, formToken, inspectFormToken, checkFormToken };

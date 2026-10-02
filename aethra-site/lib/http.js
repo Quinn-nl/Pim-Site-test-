@@ -20,6 +20,19 @@ function baseHeaders(extra = {}) {
 	return h;
 }
 
+const crypto = require('crypto');
+
+/** Public HTML: revalidated with an ETag so repeat visits cost a 304 instead of a full page. */
+function sendPage(req, res, html, { cache = true } = {}) {
+	if (!cache) return send(res, 200, html);
+	const etag = `W/"${crypto.createHash('sha1').update(html).digest('base64url').slice(0, 20)}"`;
+	if (req.headers['if-none-match'] === etag) {
+		res.writeHead(304, baseHeaders({ ETag: etag, 'Cache-Control': 'no-cache', Vary: 'Accept-Encoding' }));
+		return res.end();
+	}
+	return send(res, 200, html, { ETag: etag, 'Cache-Control': 'no-cache' });
+}
+
 const wantsGzip = (req) => /\bgzip\b/.test(String((req && req.headers['accept-encoding']) || ''));
 
 function send(res, status, body, headers = {}) {
@@ -72,7 +85,7 @@ async function readForm(req, limit = 200 * 1024) {
 	return out;
 }
 
-const TYPES = { '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.webp': 'image/webp', '.ico': 'image/x-icon', '.txt': 'text/plain; charset=utf-8' };
+const TYPES = { '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.woff2': 'font/woff2', '.jpg': 'image/jpeg', '.webp': 'image/webp', '.ico': 'image/x-icon', '.txt': 'text/plain; charset=utf-8' };
 
 function serveFile(res, root, relPath, cache) {
 	const req = res.req;
@@ -109,4 +122,4 @@ function serveFile(res, root, relPath, cache) {
 	return true;
 }
 
-module.exports = { baseHeaders, send, redirect, clientIp, readBody, readForm, serveFile };
+module.exports = { baseHeaders, send, sendPage, redirect, clientIp, readBody, readForm, serveFile };

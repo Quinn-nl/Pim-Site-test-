@@ -34,3 +34,4 @@ code { background: #e6ecf6; padding: .1rem .35rem; border-radius: 4px; }
 .tabs { display: flex; flex-wrap: wrap; gap: .5rem; margin: 1rem 0; }
 .tabs a { padding: .45rem .9rem; border: 1px solid var(--line); border-radius: 999px; background: #fff; color: var(--ink); text-decoration: none; font-weight: 600; font-size: .95rem; }
 .tabs a[aria-current="page"] { background: var(--ink); color: #fff; border-color: var(--ink); }
+.badge { display: inline-block; min-width: 1.4rem; padding: 0 .4rem; margin-left: .25rem; border-radius: 999px; background: #6ea8ff; color: #0b1b33; font-size: .8rem; font-weight: 700; text-align: center; }

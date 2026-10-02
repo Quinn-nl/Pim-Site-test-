@@ -8,7 +8,7 @@ Node.js 20+ only: no npm packages, no database, no external requests (fonts, scr
 cd aethra-site
 npm run set-password      # once: choose an admin password of at least 12 characters
 npm start                 # http://127.0.0.1:3000   (PORT / HOST can be set)
-npm test                  # 12 tests: security, languages, SEO, form, upload, admin
+npm test                  # 17 tests: security, languages, SEO, form, upload, admin
 ```
 Data (texts, photos, messages, password hash) lives in `aethra-site/data/` (git-ignored; set `DATA_DIR` to move it). **Back this folder up.**
 
@@ -29,9 +29,19 @@ Every page ends in one call to action; segment cards link to the contact form wi
 - **Messages:** contact-form inbox with delete; messages are deleted automatically after `RETENTION_DAYS` (default 365).
 - **Account:** change password.
 
+## Getting messages by e-mail
+Set these environment variables and every new message is also e-mailed to your team (it always stays in the admin inbox too):
+`SMTP_HOST`, `SMTP_PORT` (587 with STARTTLS, or 465), `SMTP_USER`, `SMTP_PASS`, `MAIL_FROM`, `MAIL_TO` (comma separated). Without `SMTP_HOST` nothing is sent. The mail provider then handles message contents, so name it in the privacy statement. A failed send is logged (without personal data) and never blocks the visitor. Reply-To is set to the visitor, so you can answer directly.
+
+## Photos
+Uploads are checked by structure, location data (EXIF) and other metadata are removed automatically, and the size is stored so the page does not jump while loading. The hero photo is loaded first for speed. Use photos about 2000 px wide; a 1200 x 630 image in the "Social sharing image" slot is used when the site is shared. The photo itself is not resized, so compress large files before uploading.
+
+## Back-ups
+`npm run backup` copies the data folder to `backups/<date-time>` and keeps the newest 14. Schedule it (cron) and also copy the folder off the server.
+
 ## Going live
 Run it behind an HTTPS reverse proxy (Caddy, nginx) and set:
-`SITE_URL` (your public address), `NODE_ENV=production` (Secure cookies and HSTS), `TRUST_PROXY=1` (correct client IP for rate limits), and keep a process manager (systemd/pm2) running `npm start`. Domain and hosting should be registered in the client's name. There is no outgoing mail: new messages appear in the admin inbox, so check it regularly (or ask for an email notification to be added with an SMTP provider).
+`SITE_URL` (your public address), `NODE_ENV=production` (Secure cookies and HSTS), `TRUST_PROXY=1` (correct client IP for rate limits), and keep a process manager (systemd/pm2) running `npm start`. Fonts (Exo 2, IBM Plex Sans and Mono, SIL Open Font License) are self-hosted in `public/fonts/`. Domain and hosting should be registered in the client's name. There is no outgoing mail: new messages appear in the admin inbox, so check it regularly (or ask for an email notification to be added with an SMTP provider).
 
 ## Security built in
 Scrypt password hash, rate-limited login, 8 h sessions with HttpOnly/SameSite=Strict cookies, CSRF tokens on every admin action, strict Content-Security-Policy (no inline scripts), output escaping, upload checked by file signature and stored under random names, signed form token + honeypot + per-IP limit on the contact form, path-traversal-safe static serving.

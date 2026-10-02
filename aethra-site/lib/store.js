@@ -137,10 +137,34 @@ function listMessages() {
 
 function addMessage(msg) {
 	const all = listMessages();
-	if (all.length >= 1000) return false;
-	all.push({ id: crypto.randomBytes(8).toString('hex'), at: new Date().toISOString(), ...msg });
+	if (all.length >= 1000) return null;
+	const entry = { id: crypto.randomBytes(8).toString('hex'), at: new Date().toISOString(), read: false, ...msg };
+	all.push(entry);
 	writeJson('messages.json', all);
-	return true;
+	return entry;
+}
+
+const unreadCount = () => readJson('messages.json', []).filter((m) => m.read === false).length;
+
+function markAllRead() {
+	const all = readJson('messages.json', []);
+	if (all.some((m) => m.read === false)) writeJson('messages.json', all.map((m) => ({ ...m, read: true })));
+}
+
+function patchMessage(id, patch) {
+	const all = readJson('messages.json', []);
+	writeJson('messages.json', all.map((m) => (m.id === id ? { ...m, ...patch } : m)));
+}
+
+/** CSV for the admin export. Cells that start like a formula are neutralised (CSV injection). */
+function messagesCsv() {
+	const cell = (v) => {
+		let t = String(v == null ? '' : v).replace(/\r?\n/g, ' ');
+		if (/^[=+\-@\t]/.test(t)) t = `'${t}`;
+		return `"${t.replace(/"/g, '""')}"`;
+	};
+	const rows = listMessages().map((m) => [m.at, m.lang, m.role, m.name, m.email, m.org, m.message].map(cell).join(','));
+	return '\ufeff' + ['Received,Language,Role,Name,Email,Organisation,Message', ...rows].join('\r\n') + '\r\n';
 }
 
 function deleteMessage(id) {
@@ -148,4 +172,4 @@ function deleteMessage(id) {
 	writeJson('messages.json', all.filter((m) => m.id !== id));
 }
 
-module.exports = { file, uploadsDir, ensureDirs, readJson, writeJson, getSecret, getContent, saveContent, setImage, listMessages, addMessage, deleteMessage, cleanValue };
+module.exports = { unreadCount, markAllRead, patchMessage, messagesCsv, file, uploadsDir, ensureDirs, readJson, writeJson, getSecret, getContent, saveContent, setImage, listMessages, addMessage, deleteMessage, cleanValue };

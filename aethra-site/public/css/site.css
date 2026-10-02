@@ -1,3 +1,10 @@
+@font-face { font-family: "Exo 2"; font-style: normal; font-weight: 600; font-display: swap; src: url("/fonts/exo-2-latin-600-normal.woff2") format("woff2"); }
+@font-face { font-family: "Exo 2"; font-style: normal; font-weight: 700; font-display: swap; src: url("/fonts/exo-2-latin-700-normal.woff2") format("woff2"); }
+@font-face { font-family: "IBM Plex Sans"; font-style: normal; font-weight: 400; font-display: swap; src: url("/fonts/ibm-plex-sans-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "IBM Plex Sans"; font-style: normal; font-weight: 600; font-display: swap; src: url("/fonts/ibm-plex-sans-latin-600-normal.woff2") format("woff2"); }
+@font-face { font-family: "IBM Plex Mono"; font-style: normal; font-weight: 400; font-display: swap; src: url("/fonts/ibm-plex-mono-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "IBM Plex Mono"; font-style: normal; font-weight: 500; font-display: swap; src: url("/fonts/ibm-plex-mono-latin-500-normal.woff2") format("woff2"); }
+
 
 :root {
 	--bg: #f7f9fc;
@@ -16,8 +23,9 @@
 	--glow: #6ea8ff;
 	--radius: 12px;
 	--wrap: 1120px;
-	--font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-	--mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+	--font: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+	--display: "Exo 2", "IBM Plex Sans", system-ui, sans-serif;
+	--mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 	--s-1: .5rem; --s-2: 1rem; --s-3: 1.5rem; --s-4: 2.5rem; --s-5: 4rem; --s-6: 6rem;
 }
 
@@ -26,7 +34,8 @@ html { scroll-behavior: smooth; scroll-padding-top: 72px; }
 body { margin: 0; font-family: var(--font); font-size: 1.0625rem; line-height: 1.6; color: var(--ink); background: var(--bg); -webkit-font-smoothing: antialiased; }
 img { max-width: 100%; height: auto; display: block; }
 a { color: var(--accent); text-underline-offset: 3px; }
-h1, h2, h3 { line-height: 1.15; margin: 0 0 var(--s-2); letter-spacing: -.01em; }
+h1, h2, h3 { font-family: var(--display); font-weight: 700; line-height: 1.15; margin: 0 0 var(--s-2); letter-spacing: -.005em; text-wrap: balance; }
+h3 { font-weight: 600; }
 p { margin: 0 0 var(--s-2); }
 
 .wrap { width: min(100% - 2rem, var(--wrap)); margin-inline: auto; }
@@ -247,3 +256,25 @@ p { margin: 0 0 var(--s-2); }
 	.js .site-nav .lang { padding: .75rem .25rem; }
 }
 @media (prefers-reduced-motion: reduce) { .sticky-cta { transition: none; } }
+
+/* Screen-reader text, badges and form states */
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.btn-outline { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
+.btn-outline:hover { background: var(--accent-soft); }
+.field.has-error input:not([type=checkbox]), .field.has-error select, .field.has-error textarea { border-color: #b42323; box-shadow: 0 0 0 1px #b42323; }
+.field-error { margin: 0; color: #9b1c1c; font-size: .9rem; font-weight: 600; }
+.field.check .field-error { grid-column: 2; }
+.notice ul { margin: .4rem 0 0; padding-left: 1.2rem; font-weight: 400; }
+.notice a { color: inherit; }
+.success { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: var(--s-4) var(--s-3); }
+.success h2 { font-size: 1.6rem; }
+.success h3 { font-size: 1.1rem; margin-top: var(--s-3); }
+.success ol { padding-left: 1.2rem; margin: 0 0 var(--s-2); }
+.success .hero-actions { margin-top: var(--s-3); }
+
+/* Larger touch targets */
+.site-footer nav a { display: inline-block; padding: .55rem 0; }
+@media (max-width: 860px) {
+	.lang a { padding: .7rem .8rem; min-width: 44px; text-align: center; }
+	.more { display: inline-block; padding: .5rem 0; }
+}

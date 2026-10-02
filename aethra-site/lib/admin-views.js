@@ -2,6 +2,7 @@
 const { GROUPS, IMAGE_SLOTS } = require('./fields');
 const { LANGS, LANG_NAMES } = require('./i18n');
 const { esc } = require('./views');
+const store = require('./store');
 
 function shell(title, active, csrf, inner, flash) {
 	const tab = (href, label, key) => `<a href="${href}"${active === key ? ' aria-current="page"' : ''}>${label}</a>`;
@@ -11,7 +12,7 @@ function shell(title, active, csrf, inner, flash) {
 <link rel="stylesheet" href="/css/admin.css"></head>
 <body>
 <header class="bar"><strong>Aethra admin</strong>
-<nav aria-label="Admin">${csrf ? `${tab('/admin', 'Content', 'content')}${tab('/admin/photos', 'Photos', 'photos')}${tab('/admin/privacy', 'Privacy statement', 'privacy')}${tab('/admin/messages', 'Messages', 'messages')}${tab('/admin/account', 'Account', 'account')}<a href="/" target="_blank" rel="noopener">View site</a>
+<nav aria-label="Admin">${csrf ? `${tab('/admin', 'Content', 'content')}${tab('/admin/photos', 'Photos', 'photos')}${tab('/admin/privacy', 'Privacy statement', 'privacy')}${tab('/admin/messages', `Messages${store.unreadCount() ? ` <span class="badge" aria-label="${store.unreadCount()} unread">${store.unreadCount()}</span>` : ''}`, 'messages')}${tab('/admin/account', 'Account', 'account')}<a href="/" target="_blank" rel="noopener">View site</a>
 <form method="post" action="/admin/logout"><input type="hidden" name="csrf" value="${esc(csrf)}"><button class="link" type="submit">Log out</button></form>` : ''}</nav></header>
 <main>${flash ? `<p class="flash ${flash.ok ? 'ok' : 'err'}" role="${flash.ok ? 'status' : 'alert'}">${flash.html || esc(flash.text)}</p>` : ''}${inner}</main>
 </body></html>`;
@@ -54,7 +55,7 @@ ${img ? `<img class="preview" src="/uploads/${esc(img.file)}" alt="">` : '<p cla
 <button type="submit" name="action" value="save">Save photo</button>${img ? ' <button type="submit" name="action" value="remove" class="danger">Remove</button>' : ''}
 </form></fieldset>`;
 	}).join('');
-	return shell('Photos', 'photos', session.csrf, `<h1>Photos</h1><p class="hint">Only upload images you have the right to use. AI-generated images may only be shown as atmosphere, never as the prototype itself. Remove location data (EXIF) from photos before uploading.</p>${items}`, flash);
+	return shell('Photos', 'photos', session.csrf, `<h1>Photos</h1><p class="hint">Only upload images you have the right to use. AI-generated images may only be shown as atmosphere, never as the prototype itself. Location data and other metadata are removed from uploaded photos automatically. Use photos about 2000 px wide (1200 x 630 for the sharing image); very large files make the site slower.</p>${items}`, flash);
 }
 
 function privacyPage(session, lang, privacy, flash) {
@@ -71,7 +72,7 @@ function messagesPage(session, messages, retention, flash) {
 <p class="meta">${esc(m.role)}${m.lang ? ' · ' + esc(String(m.lang).toUpperCase()) : ''}${m.org ? ' · ' + esc(m.org) : ''} · ${esc(new Date(m.at).toLocaleString('en-GB', { timeZone: 'Europe/Amsterdam' }))}</p>
 <p>${esc(m.message).replace(/\n/g, '<br>')}</p>
 <form method="post" action="/admin/messages/delete"><input type="hidden" name="csrf" value="${esc(session.csrf)}"><input type="hidden" name="id" value="${esc(m.id)}"><button class="danger" type="submit">Delete</button></form></article>`).join('') : '<p class="hint">No messages yet.</p>';
-	return shell('Messages', 'messages', session.csrf, `<h1>Messages</h1><p class="hint">Messages are kept here for ${retention} days and then deleted automatically. Delete them earlier on request.</p>${rows}`, flash);
+	return shell('Messages', 'messages', session.csrf, `<h1>Messages</h1><p class="hint">Messages are kept here for ${retention} days and then deleted automatically. Delete them earlier on request. <a href="/admin/messages.csv">Download as CSV</a></p>${rows}`, flash);
 }
 
 function accountPage(session, flash) {

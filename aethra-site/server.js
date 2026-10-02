@@ -3,8 +3,10 @@ const http = require('http');
 const cfg = require('./lib/config');
 const store = require('./lib/store');
 const auth = require('./lib/auth');
-const { send, redirect, clientIp, readBody, readForm, serveFile } = require('./lib/http');
-const { parseMultipart, detectImage } = require('./lib/multipart');
+const { send, sendPage, redirect, clientIp, readBody, readForm, serveFile } = require('./lib/http');
+const { inspectImage } = require('./lib/image');
+const mail = require('./lib/mail');
+const { parseMultipart } = require('./lib/multipart');
 const { createLimiter } = require('./lib/ratelimit');
 const { ROLES, GROUPS, IMAGE_SLOTS } = require('./lib/fields');
 const { LANGS, isLang, detectLang, UI } = require('./lib/i18n');
@@ -33,6 +35,17 @@ function requireAdmin(req, res) {
 
 function csrfOk(session, token) {
 	return !!token && auth.safeEqual(token, session.csrf);
+}
+
+/** E-mail the team about a new message. Failures are logged without personal data; the message stays in the inbox. */
+function notify(m) {
+	mail.sendMail({
+		subject: `New website message (${m.role}, ${String(m.lang).toUpperCase()})`,
+		text: `From: ${m.name} <${m.email}>\nOrganisation: ${m.org || '-'}\nRole: ${m.role}\nLanguage: ${m.lang}\n\n${m.message}\n`,
+		replyTo: m.email,
+	}).then((r) => {
+		if (!r.sent && r.reason !== 'not configured') console.error(`Mail notification failed: ${r.reason}`);
+	});
 }
 
 const LANG_COOKIE = 'aethra_lang';
@@ -78,14 +91,11 @@ async function handlePublic(req, res, url) {
 	if (get && page === '/contact') {
 		return send(res, 200, views.renderContact(content, { ...ctx, status: url.searchParams.get('contact') || '', token: auth.formToken(), role: url.searchParams.get('role') || '' }));
 	}
-	if (get && PAGE_RENDERERS[page]) return send(res, 200, PAGE_RENDERERS[page](content, ctx));
+	if (get && PAGE_RENDERERS[page]) return sendPage(req, res, PAGE_RENDERERS[page](content, ctx));
 
 	if (req.method === 'POST' && page === '/contact') {
-		const back = (s) => redirect(res, `/${lang}/contact?contact=${s}`);
 		const ip = clientIp(req);
 		const form = await readForm(req);
-		if (form.website || !auth.checkFormToken(form.token)) return back('sent'); // silent for bots
-		if (!contactLimiter.allow(ip)) return back('limit');
 		const msg = {
 			lang,
 			name: (form.name || '').trim().slice(0, 120),
@@ -94,8 +104,21 @@ async function handlePublic(req, res, url) {
 			role: ROLES.includes(form.role) ? form.role : 'Other',
 			message: (form.message || '').trim(),
 		};
-		if (!msg.name || !EMAIL.test(msg.email) || !msg.message || msg.message.length > 5000 || !form.consent) return back('invalid');
-		return back(store.addMessage(msg) ? 'sent' : 'error');
+		const again = (status, errors = {}, code = 200) => send(res, code, views.renderContact(content, { ...ctx, status, errors, token: auth.formToken(), form: msg }));
+		const token = auth.inspectFormToken(form.token);
+		if (form.website || token === 'bad') return redirect(res, `/${lang}/contact?contact=sent`); // bots get a quiet success
+		if (token !== 'ok') return again('expired');
+		if (!contactLimiter.allow(ip)) return again('limit', {}, 429);
+		const errors = {};
+		if (!msg.name) errors.name = true;
+		if (!EMAIL.test(msg.email)) errors.email = true;
+		if (!msg.message || msg.message.length > 5000) errors.message = true;
+		if (!form.consent) errors.consent = true;
+		if (Object.keys(errors).length) return again('invalid', errors, 422);
+		const saved = store.addMessage(msg);
+		if (!saved) return again('error', {}, 503);
+		notify(saved);
+		return redirect(res, `/${lang}/contact?contact=sent`);
 	}
 	return false;
 }
@@ -125,7 +148,14 @@ async function handleAdmin(req, res, url) {
 		if (p === '/admin') return send(res, 200, admin.contentPage(session, lang, c.values, flash));
 		if (p === '/admin/photos') return send(res, 200, admin.photosPage(session, c.images, flash));
 		if (p === '/admin/privacy') return send(res, 200, admin.privacyPage(session, lang, c.privacy, flash));
-		if (p === '/admin/messages') return send(res, 200, admin.messagesPage(session, store.listMessages(), cfg.RETENTION_DAYS, flash));
+		if (p === '/admin/messages.csv') {
+			return send(res, 200, store.messagesCsv(), { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': 'attachment; filename="aethra-messages.csv"' });
+		}
+		if (p === '/admin/messages') {
+			const html = admin.messagesPage(session, store.listMessages(), cfg.RETENTION_DAYS, flash);
+			store.markAllRead();
+			return send(res, 200, html);
+		}
 		if (p === '/admin/account') return send(res, 200, admin.accountPage(session, flash));
 		return false;
 	}
@@ -157,12 +187,12 @@ async function handleAdmin(req, res, url) {
 			}
 			return redirect(res, '/admin/photos?f=nofile');
 		}
-		const kind = upload.data.length <= cfg.MAX_IMAGE_BYTES && detectImage(upload.data);
-		if (!kind) return redirect(res, '/admin/photos?f=badimg');
-		const name = `${fields.slot}-${crypto.randomBytes(8).toString('hex')}.${kind.ext}`;
+		const img = upload.data.length <= cfg.MAX_IMAGE_BYTES && inspectImage(upload.data);
+		if (!img) return redirect(res, '/admin/photos?f=badimg');
+		const name = `${fields.slot}-${crypto.randomBytes(8).toString('hex')}.${img.ext}`;
 		store.ensureDirs();
-		require('fs').writeFileSync(require('path').join(store.uploadsDir(), name), upload.data, { mode: 0o600 });
-		store.setImage(fields.slot, { file: name, alt });
+		require('fs').writeFileSync(require('path').join(store.uploadsDir(), name), img.data, { mode: 0o600 });
+		store.setImage(fields.slot, { file: name, alt, w: img.width, h: img.height });
 		return redirect(res, '/admin/photos?f=saved');
 	}
 
@@ -204,11 +234,12 @@ function createServer() {
 	store.ensureDirs();
 	return http.createServer(async (req, res) => {
 		try {
+			if (req.method === 'HEAD') req.method = 'GET'; // Node drops the body of a HEAD response itself
 			const url = new URL(req.url, 'http://localhost');
 			let handled = false;
 			if (url.pathname === '/admin' || url.pathname.startsWith('/admin/')) handled = await handleAdmin(req, res, url);
 			else if (req.method === 'GET' && url.pathname.startsWith('/uploads/')) handled = serveFile(res, store.uploadsDir(), url.pathname.slice('/uploads/'.length), 'public, max-age=31536000, immutable');
-			else if (req.method === 'GET' && (url.pathname.startsWith('/css/') || url.pathname.startsWith('/js/') || url.pathname.startsWith('/img/'))) handled = serveFile(res, cfg.PUBLIC_DIR, url.pathname.slice(1), 'public, max-age=3600');
+			else if (req.method === 'GET' && (url.pathname.startsWith('/css/') || url.pathname.startsWith('/js/') || url.pathname.startsWith('/img/') || url.pathname.startsWith('/fonts/'))) handled = serveFile(res, cfg.PUBLIC_DIR, url.pathname.slice(1), url.pathname.startsWith('/fonts/') ? 'public, max-age=604800' : 'public, max-age=3600');
 			else handled = await handlePublic(req, res, url);
 			if (handled === false) {
 				const seg = /^\/([a-z]{2})(\/|$)/.exec(url.pathname);
@@ -225,7 +256,14 @@ function createServer() {
 }
 
 if (require.main === module) {
-	createServer().listen(cfg.PORT, cfg.HOST, () => console.log(`Aethra site on http://${cfg.HOST}:${cfg.PORT}`));
+	const server = createServer();
+	server.listen(cfg.PORT, cfg.HOST, () => console.log(`Aethra site on http://${cfg.HOST}:${cfg.PORT}`));
+	for (const sig of ['SIGTERM', 'SIGINT']) {
+		process.on(sig, () => {
+			server.close(() => process.exit(0));
+			setTimeout(() => process.exit(0), 5000).unref();
+		});
+	}
 }
 
 module.exports = { createServer };

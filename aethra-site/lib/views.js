@@ -29,12 +29,13 @@ const clip = (text, max = 155) => {
 };
 const jsonLd = (data) => JSON.stringify(data).replace(/</g, '\\u003c');
 
-function layout({ lang, page, title, description, body, v, siteUrl, noindex = false, graph = null, stickyCta = true }) {
+function layout({ lang, page, title, description, body, v, siteUrl, images = {}, noindex = false, graph = null, stickyCta = true }) {
 	const t = UI[lang];
 	const name = v.site_name;
 	const link = (p, label) => `<a href="${url(lang, p)}"${page === p ? ' aria-current="page"' : ''}>${esc(label)}</a>`;
 	const nav = [['/problem', t.nav_problem], ['/how-it-works', t.nav_how], ['/applications', t.nav_apps]];
 	const canonical = `${siteUrl}${url(lang, page)}`;
+	const social = images.social ? `${siteUrl}/uploads/${images.social.file}` : '';
 	const desc = clip(description);
 	const alternates = page === null || noindex ? '' : [
 		...LANGS.map((l) => `<link rel="alternate" hreflang="${l}" href="${esc(siteUrl + url(l, page))}">`),
@@ -58,10 +59,12 @@ ${desc ? `<meta property="og:description" content="${esc(desc)}">` : ''}
 <meta property="og:url" content="${esc(canonical)}">
 <meta property="og:locale" content="${OG_LOCALE[lang]}">
 ${LANGS.filter((l) => l !== lang).map((l) => `<meta property="og:locale:alternate" content="${OG_LOCALE[l]}">`).join('\n')}
-<meta name="twitter:card" content="summary">
+${social ? `<meta property="og:image" content="${esc(social)}">\n<meta name="twitter:card" content="summary_large_image">\n<meta name="twitter:image" content="${esc(social)}">` : '<meta name="twitter:card" content="summary">'}
 <meta name="theme-color" content="#0b1b33">
 <link rel="icon" href="/img/favicon.svg" type="image/svg+xml">
 ${graph ? `<script type="application/ld+json">${jsonLd(graph)}</script>` : ''}
+<link rel="preload" href="/fonts/exo-2-latin-700-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/fonts/ibm-plex-sans-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
 <script src="/js/init.js"></script>
 <link rel="stylesheet" href="/css/site.css">
 <script src="/js/site.js" defer></script>
@@ -80,7 +83,7 @@ ${graph ? `<script type="application/ld+json">${jsonLd(graph)}</script>` : ''}
 	</div>
 </header>
 ${body}
-${stickyCta && page !== '/contact' ? `<a class="sticky-cta" href="${url(lang, '/contact')}">${esc(v.hero_cta)}</a>` : ''}
+${stickyCta && page !== '/contact' ? `<aside aria-label="${esc(t.contact_aside)}"><a class="sticky-cta" href="${url(lang, '/contact')}">${esc(v.hero_cta)}</a></aside>` : ''}
 <footer class="site-footer">
 	<div class="wrap footer-inner">
 		<div><p class="footer-brand">${esc(name.toUpperCase())}</p><p class="footer-note">${esc(v.company_line)}</p></div>
@@ -100,10 +103,12 @@ const crumbs = (lang, siteUrl, v, page, label) => ({
 	],
 });
 
-function photo(images, slot, cls) {
+function photo(images, slot, cls, { priority = false } = {}) {
 	const img = images[slot];
 	if (!img) return '';
-	return `<img class="${cls}" src="/uploads/${esc(img.file)}" alt="${esc(img.alt || '')}" loading="lazy" decoding="async">`;
+	const size = img.w && img.h ? ` width="${Number(img.w)}" height="${Number(img.h)}"` : '';
+	const load = priority ? ' fetchpriority="high" decoding="async"' : ' loading="lazy" decoding="async"';
+	return `<img class="${cls}" src="/uploads/${esc(img.file)}" alt="${esc(img.alt || '')}"${size}${load}>`;
 }
 
 const pageHead = (kicker, title, lead) => `
@@ -132,7 +137,7 @@ const fact = (t, v, n) => `
 	</figcaption>
 </figure>`;
 
-const roadmap = (t) => `<ul><li class="done">${esc(t.rm[0])}</li><li class="current" aria-current="step">${esc(t.rm[1])}</li><li>${esc(t.rm[2])}</li><li>${esc(t.rm[3])}</li></ul>`;
+const roadmap = (t) => `<ul><li class="done">${esc(t.rm[0])}<span class="sr"> (${esc(t.rm_done)})</span></li><li class="current" aria-current="step">${esc(t.rm[1])}<span class="sr"> (${esc(t.rm_current)})</span></li><li>${esc(t.rm[2])}</li><li>${esc(t.rm[3])}</li></ul>`;
 
 function renderHome({ lang, values: v, images }, { siteUrl }) {
 	const t = UI[lang];
@@ -148,7 +153,7 @@ function renderHome({ lang, values: v, images }, { siteUrl }) {
 		<h1 id="hero-title">${esc(v.hero_title)}</h1>
 		<p class="lead">${esc(v.hero_text)}</p>
 		<p class="hero-actions"><a class="btn btn-light" href="${url(lang, '/contact')}">${esc(v.hero_cta)}</a><a class="btn btn-ghost" href="${url(lang, '/how-it-works')}">${esc(t.how_cta)}</a></p>
-		${photo(images, 'hero', 'photo hero-photo')}
+		${photo(images, 'hero', 'photo hero-photo', { priority: true })}
 	</div>
 </section>
 
@@ -195,7 +200,7 @@ ${ctaBand(lang, v)}
 		{ '@type': 'Organization', '@id': `${siteUrl}/#organization`, name: v.site_name, url: home, description: v.meta_description },
 		{ '@type': 'WebSite', '@id': `${siteUrl}/#website`, name: v.site_name, url: home, inLanguage: lang, publisher: { '@id': `${siteUrl}/#organization` } },
 	] };
-	return layout({ lang, page: '/', title: `${v.site_name}: ${v.hero_title}`, description: v.meta_description, body, v, siteUrl, graph });
+	return layout({ lang, page: '/', title: v.seo_home, description: v.meta_description, body, v, siteUrl, images, graph });
 }
 
 function renderProblem({ lang, values: v, images }, { siteUrl }) {
@@ -212,7 +217,7 @@ ${pageHead(t.k_problem, v.problem_title, v.problem_text)}
 </section>
 ${ctaBand(lang, v)}
 </main>`;
-	return layout({ lang, page: '/problem', title: `${v.problem_title} | ${v.site_name}`, description: v.problem_text, body, v, siteUrl, graph: { '@context': 'https://schema.org', ...crumbs(lang, siteUrl, v, '/problem', t.nav_problem) } });
+	return layout({ lang, page: '/problem', title: `${v.seo_problem} | ${v.site_name}`, description: v.problem_text, body, v, siteUrl, images, graph: { '@context': 'https://schema.org', ...crumbs(lang, siteUrl, v, '/problem', t.nav_problem) } });
 }
 
 function renderHow({ lang, values: v, images }, { siteUrl }) {
@@ -242,10 +247,10 @@ ${pageHead(t.k_how, v.steps_title, '')}
 </section>
 ${ctaBand(lang, v)}
 </main>`;
-	return layout({ lang, page: '/how-it-works', title: `${v.steps_title} | ${v.site_name}`, description: `${v.step1_text} ${v.step2_text} ${v.step3_text}`, body, v, siteUrl, graph: { '@context': 'https://schema.org', ...crumbs(lang, siteUrl, v, '/how-it-works', t.nav_how) } });
+	return layout({ lang, page: '/how-it-works', title: `${v.seo_how} | ${v.site_name}`, description: `${v.step1_text} ${v.step2_text} ${v.step3_text}`, body, v, siteUrl, images, graph: { '@context': 'https://schema.org', ...crumbs(lang, siteUrl, v, '/how-it-works', t.nav_how) } });
 }
 
-function renderApplications({ lang, values: v }, { siteUrl }) {
+function renderApplications({ lang, values: v, images }, { siteUrl }) {
 	const t = UI[lang];
 	const cards = [1, 2, 3, 4].map((n) => `
 		<article class="card">${icon(APP_ICONS[n - 1])}<h2>${esc(v[`app${n}_title`])}</h2><p>${esc(v[`app${n}_text`])}</p><p><a class="more" href="${url(lang, '/contact')}?role=${encodeURIComponent(APP_ROLES[n - 1])}">${esc(t.card_cta)}</a></p></article>`).join('');
@@ -258,40 +263,56 @@ ${pageHead(t.k_apps, v.apps_title, '')}
 </section>
 ${ctaBand(lang, v)}
 </main>`;
-	return layout({ lang, page: '/applications', title: `${v.apps_title} | ${v.site_name}`, description: [1, 2, 3, 4].map((n) => v[`app${n}_title`]).join(', ') + '. ' + v.meta_description, body, v, siteUrl, graph: { '@context': 'https://schema.org', ...crumbs(lang, siteUrl, v, '/applications', t.nav_apps) } });
+	return layout({ lang, page: '/applications', title: `${v.seo_apps} | ${v.site_name}`, description: [1, 2, 3, 4].map((n) => v[`app${n}_title`]).join(', ') + '. ' + v.meta_description, body, v, siteUrl, images, graph: { '@context': 'https://schema.org', ...crumbs(lang, siteUrl, v, '/applications', t.nav_apps) } });
 }
 
-function renderContact({ lang, values: v }, { siteUrl, status = '', token = '', role = '' }) {
+function renderContact({ lang, values: v, images }, { siteUrl, status = '', token = '', role = '', form = {}, errors = {} }) {
 	const t = UI[lang];
-	const notice = { sent: ['ok', t.n_sent], invalid: ['err', t.n_invalid], error: ['err', t.n_error], limit: ['err', t.n_limit] }[status];
+	const selected = ROLES.includes(form.role || role) ? (form.role || role) : '';
+	const errorKeys = Object.keys(errors);
 	const consent = esc(t.f_consent).replace('{link}', `<a href="${url(lang, '/privacy')}">${esc(t.privacy_link)}</a>`);
-	const selected = ROLES.includes(role) ? role : '';
-	const body = `
-<main id="main">
-${pageHead(t.k_contact, v.contact_title, v.contact_text)}
-<section class="section">
-	<div class="wrap narrow-form">
-		${notice ? `<p class="notice notice-${notice[0]}" role="${notice[0] === 'ok' ? 'status' : 'alert'}">${esc(notice[1])}</p>` : ''}
-		${status === 'sent' ? '' : `<p class="reply-note">${esc(v.contact_reply)}</p>`}
-		<form class="form" method="post" action="${url(lang, '/contact')}">
+	const msg = { sent: ['ok', t.n_sent], error: ['err', t.n_error], limit: ['err', t.n_limit], expired: ['err', t.n_expired] }[status];
+	const errText = { name: t.e_name, email: t.e_email, message: t.e_msg, consent: t.e_consent };
+	const field = (key, id, label, input, extra = '') => `<div class="field${errors[key] ? ' has-error' : ''}"${extra}><label for="${id}">${esc(label)}</label>${input}${errors[key] ? `<p class="field-error" id="e-${key}">${esc(errText[key])}</p>` : ''}</div>`;
+	const bad = (key) => (errors[key] ? ` aria-invalid="true" aria-describedby="e-${key}"` : '');
+	const summary = errorKeys.length ? `<div class="notice notice-err" role="alert"><strong>${esc(t.n_invalid)}</strong><ul>${errorKeys.map((k) => `<li><a href="#f-${k === 'message' ? 'msg' : k}">${esc(errText[k])}</a></li>`).join('')}</ul></div>` : '';
+	const success = `
+		<div class="success" role="status">
+			<h2>${esc(t.ok_title)}</h2>
+			<p>${esc(t.n_sent)}</p>
+			<h3>${esc(t.ok_next)}</h3>
+			<ol><li>${esc(t.ok_1)}</li><li>${esc(t.ok_2)}</li></ol>
+			<p class="reply-note">${esc(v.contact_reply)}</p>
+			<p class="hero-actions"><a class="btn" href="${url(lang)}">${esc(t.ok_home)}</a><a class="btn btn-outline" href="${url(lang, '/how-it-works')}">${esc(t.ok_how)}</a></p>
+		</div>`;
+	const formHtml = `
+		${msg ? `<p class="notice notice-${msg[0]}" role="${msg[0] === 'ok' ? 'status' : 'alert'}">${esc(msg[1])}</p>` : ''}
+		${summary}
+		<p class="reply-note">${esc(v.contact_reply)}</p>
+		<form class="form" method="post" action="${url(lang, '/contact')}" novalidate>
 			<input type="hidden" name="token" value="${esc(token)}">
 			<div class="hp" aria-hidden="true"><label>Website <input type="text" name="website" tabindex="-1" autocomplete="off"></label></div>
-			<div class="field"><label for="f-role">${esc(t.f_role)}</label><select id="f-role" name="role">${ROLES.map((r) => `<option value="${esc(r)}"${r === selected ? ' selected' : ''}>${esc(t.roles[r])}</option>`).join('')}</select></div>
-			<div class="field"><label for="f-name">${esc(t.f_name)} *</label><input id="f-name" name="name" type="text" autocomplete="name" maxlength="120" required></div>
-			<div class="field"><label for="f-email">${esc(t.f_email)} *</label><input id="f-email" name="email" type="email" autocomplete="email" maxlength="200" required></div>
-			<div class="field"><label for="f-org">${esc(t.f_org)}</label><input id="f-org" name="organisation" type="text" autocomplete="organization" maxlength="160"></div>
-			<div class="field"><label for="f-msg">${esc(t.f_msg)} *</label><textarea id="f-msg" name="message" rows="5" maxlength="5000" required></textarea></div>
-			<div class="field check"><input id="f-consent" name="consent" type="checkbox" value="1" required><label for="f-consent">${consent}</label></div>
+			${field('role', 'f-role', t.f_role, `<select id="f-role" name="role">${ROLES.map((r) => `<option value="${esc(r)}"${r === selected ? ' selected' : ''}>${esc(t.roles[r])}</option>`).join('')}</select>`)}
+			${field('name', 'f-name', `${t.f_name} *`, `<input id="f-name" name="name" type="text" autocomplete="name" maxlength="120" required value="${esc(form.name)}"${bad('name')}>`)}
+			${field('email', 'f-email', `${t.f_email} *`, `<input id="f-email" name="email" type="email" autocomplete="email" maxlength="200" required value="${esc(form.email)}"${bad('email')}>`)}
+			${field('org', 'f-org', t.f_org, `<input id="f-org" name="organisation" type="text" autocomplete="organization" maxlength="160" value="${esc(form.org)}">`)}
+			${field('message', 'f-msg', `${t.f_msg} *`, `<textarea id="f-msg" name="message" rows="5" maxlength="5000" required${bad('message')}>${esc(form.message)}</textarea>`)}
+			<div class="field check${errors.consent ? ' has-error' : ''}"><input id="f-consent" name="consent" type="checkbox" value="1" required${bad('consent')}><label for="f-consent">${consent}</label>${errors.consent ? `<p class="field-error" id="e-consent">${esc(errText.consent)}</p>` : ''}</div>
 			<button class="btn" type="submit">${esc(t.f_send)}</button>
 			<p class="trust">${esc(t.f_trust)}</p>
-		</form>
+		</form>`;
+	const body = `
+<main id="main">
+${pageHead(t.k_contact, v.contact_title, status === 'sent' ? '' : v.contact_text)}
+<section class="section">
+	<div class="wrap narrow-form">${status === 'sent' ? success : formHtml}
 	</div>
 </section>
 </main>`;
-	return layout({ lang, page: '/contact', title: `${v.contact_title} | ${v.site_name}`, description: v.contact_text, body, v, siteUrl, stickyCta: false, noindex: false });
+	return layout({ lang, page: '/contact', title: `${v.seo_contact} | ${v.site_name}`, description: v.contact_text, body, v, siteUrl, images, stickyCta: false });
 }
 
-function renderPrivacy({ lang, values: v, privacy }, { siteUrl }) {
+function renderPrivacy({ lang, values: v, privacy, images }, { siteUrl }) {
 	const t = UI[lang];
 	const blocks = privacy.split(/\n{2,}|\n(?=# )/).map((b) => b.trim()).filter(Boolean).map((b) => {
 		if (b.startsWith('# ')) {
@@ -301,7 +322,7 @@ function renderPrivacy({ lang, values: v, privacy }, { siteUrl }) {
 		return `<p>${esc(b.replace(/\n/g, ' '))}</p>`;
 	}).join('\n');
 	const body = `<main id="main" class="wrap prose page-main"><h1>${esc(t.privacy_title)}</h1>\n${blocks}</main>`;
-	return layout({ lang, page: '/privacy', title: `${t.privacy_title} | ${v.site_name}`, description: '', body, v, siteUrl, stickyCta: false });
+	return layout({ lang, page: '/privacy', title: `${t.privacy_title} | ${v.site_name}`, description: '', body, v, siteUrl, images, stickyCta: false });
 }
 
 function renderNotFound({ lang, values: v }, { siteUrl }) {

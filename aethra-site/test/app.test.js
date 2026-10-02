@@ -11,7 +11,22 @@ const store = require('../lib/store');
 const { parseMultipart, detectImage } = require('../lib/multipart');
 const { createServer } = require('../server');
 
-const PNG = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(64, 1)]);
+const zlib = require('zlib');
+const crc32 = (buf) => { let r = 0xffffffff; for (const x of buf) { let c = (r ^ x) & 255; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; r = c ^ (r >>> 8); } return (r ^ 0xffffffff) >>> 0; };
+const pngChunk = (type, data) => { const len = Buffer.alloc(4); len.writeUInt32BE(data.length); const td = Buffer.concat([Buffer.from(type), data]); const c = Buffer.alloc(4); c.writeUInt32BE(crc32(td)); return Buffer.concat([len, td, c]); };
+function makePng(w = 4, h = 3, extra = []) {
+	const ihdr = Buffer.alloc(13); ihdr.writeUInt32BE(w, 0); ihdr.writeUInt32BE(h, 4); ihdr[8] = 8; ihdr[9] = 2;
+	const raw = Buffer.alloc(h * (1 + w * 3));
+	return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), pngChunk('IHDR', ihdr), ...extra, pngChunk('IDAT', zlib.deflateSync(raw)), pngChunk('IEND', Buffer.alloc(0))]);
+}
+const PNG = makePng();
+/** JPEG skeleton: SOI, APP1 (fake EXIF with GPS text), SOF0, SOS + data, EOI. */
+function makeJpeg(w, h) {
+	const app1 = Buffer.concat([Buffer.from([0xff, 0xe1, 0x00, 0x14]), Buffer.from('Exif\0\0GPS-SECRET-1', 'latin1')]);
+	const sof = Buffer.from([0xff, 0xc0, 0x00, 0x0b, 0x08, h >> 8, h & 255, w >> 8, w & 255, 0x01, 0x01, 0x11, 0x00]);
+	const sos = Buffer.from([0xff, 0xda, 0x00, 0x08, 0x01, 0x01, 0x00, 0x00, 0x3f, 0x00, 0x12, 0x34, 0xff, 0xd9]);
+	return Buffer.concat([Buffer.from([0xff, 0xd8]), app1, sof, sos]);
+}
 let base;
 let server;
 let cookie = '';
@@ -64,33 +79,62 @@ test('login sets hardened cookie and CSRF is enforced', async () => {
 	assert.equal(badUrl.status, 400);
 });
 
-test('contact form: bots dropped, valid message stored, shown in admin, deletable', async () => {
-	const token = /name="token" value="([^"]+)"/.exec(await (await fetch(base + '/en/contact')).text())[1];
-	// Too fast (token younger than 3 seconds) is silently dropped.
-	await post('/en/contact', { token, name: 'Fast', email: 'a@b.nl', message: 'hi', consent: '1' });
-	assert.equal(store.listMessages().length, 0);
-	// Age the token by signing one in the past.
+test('contact form: bots dropped, errors keep input, valid message stored, shown in admin, deletable', async () => {
+	const tokenOf = async () => /name="token" value="([^"]+)"/.exec(await (await fetch(base + '/en/contact')).text())[1];
 	const crypto = require('crypto');
-	const ts = String(Math.floor(Date.now() / 1000) - 30);
-	const old = `${ts}.${crypto.createHmac('sha256', store.getSecret()).update(ts).digest('hex')}`;
-	const missingConsent = await post('/en/contact', { token: old, name: 'A', email: 'a@b.nl', message: 'hi' });
-	assert.match(missingConsent.headers.get('location'), /contact=invalid/);
+	const aged = (secs) => { const ts = String(Math.floor(Date.now() / 1000) - secs); return `${ts}.${crypto.createHmac('sha256', store.getSecret()).update(ts).digest('hex')}`; };
+	const old = aged(30);
+	// Sent within two seconds: not stored, but the visitor sees a message and keeps their text.
+	const fast = await post('/en/contact', { token: await tokenOf(), name: 'Fast', email: 'a@b.nl', message: 'keep me', consent: '1' });
+	assert.equal(fast.status, 200);
+	const fastHtml = await fast.text();
+	assert.ok(fastHtml.includes('keep me') && fastHtml.includes('expired'));
+	assert.equal(store.listMessages().length, 0);
+	// Missing consent: 422 with an inline error and the typed values preserved.
+	const bad = await post('/en/contact', { token: old, name: 'Anna', email: 'bad-email', message: 'hello', role: 'Investor' });
+	assert.equal(bad.status, 422);
+	const badHtml = await bad.text();
+	assert.ok(badHtml.includes('value="Anna"') && badHtml.includes('hello'));
+	assert.ok(badHtml.includes('Enter a valid email address.') && badHtml.includes('Tick the box to agree.'));
+	assert.match(badHtml, /<option value="Investor" selected>/);
+	// Honeypot and forged tokens look like success but store nothing.
 	const honey = await post('/en/contact', { token: old, name: 'Bot', email: 'a@b.nl', message: 'hi', consent: '1', website: 'x' });
 	assert.match(honey.headers.get('location'), /contact=sent/);
-	assert.equal(store.listMessages().length, 0);
-	const good = await post('/en/contact', { token: old, name: 'Pat <b>', email: 'pat@example.org', organisation: 'City', role: 'Municipality', message: 'Hello\nthere', consent: '1' });
-	assert.match(good.headers.get('location'), /contact=sent/);
-	const html = await (await fetch(base + '/admin/messages', { headers: { cookie } })).text();
-	assert.ok(html.includes('Pat &lt;b&gt;'));
-	const id = store.listMessages()[0].id;
-	await post('/admin/messages/delete', { csrf, id });
-	assert.equal(store.listMessages().length, 0);
 	const forged = await post('/en/contact', { token: 'x.y', name: 'A', email: 'a@b.nl', message: 'hi', consent: '1' });
 	assert.match(forged.headers.get('location'), /contact=sent/);
 	assert.equal(store.listMessages().length, 0);
+	// An expired token (over 24 h) asks the visitor to send again.
+	const stale = await post('/en/contact', { token: aged(90000), name: 'Slow', email: 'a@b.nl', message: 'old form', consent: '1' });
+	assert.ok((await stale.text()).includes('old form'));
+	// A valid message is stored, shows the thank-you page, and appears in the admin inbox.
+	const good = await post('/en/contact', { token: old, name: 'Pat <b>', email: 'pat@example.org', organisation: 'City', role: 'Municipality', message: 'Hello\nthere', consent: '1' });
+	assert.match(good.headers.get('location'), /contact=sent/);
+	const thanks = await (await fetch(base + '/en/contact?contact=sent')).text();
+	assert.ok(thanks.includes('Message sent') && !thanks.includes('<form'));
+	assert.equal(store.unreadCount(), 1);
+	const nav = await (await fetch(base + '/admin/photos', { headers: { cookie } })).text();
+	assert.match(nav, /class="badge"/);
+	const html = await (await fetch(base + '/admin/messages', { headers: { cookie } })).text();
+	assert.ok(html.includes('Pat &lt;b&gt;'));
+	assert.equal(store.unreadCount(), 0);
+	const id = store.listMessages()[0].id;
+	await post('/admin/messages/delete', { csrf, id });
+	assert.equal(store.listMessages().length, 0);
 });
 
-test('photo upload validates content, serves safely, and can be removed', async () => {
+test('CSV export neutralises spreadsheet formulas', async () => {
+	store.addMessage({ lang: 'en', role: 'Other', name: '=HYPERLINK("http://evil")', email: 'x@y.nl', org: '+1', message: 'a "quoted"\nline' });
+	const res = await fetch(base + '/admin/messages.csv', { headers: { cookie } });
+	assert.match(res.headers.get('content-disposition'), /attachment/);
+	const csv = await res.text();
+	assert.ok(csv.includes('"\'=HYPERLINK'));
+	assert.ok(csv.includes('"\'+1"'));
+	assert.ok(csv.includes('a ""quoted"" line'));
+	for (const m of store.listMessages()) await post('/admin/messages/delete', { csrf, id: m.id });
+	assert.equal((await fetch(base + '/admin/messages.csv', { redirect: 'manual' })).status, 303);
+});
+
+test('photo upload validates structure, strips metadata, records size, and can be removed', async () => {
 	const send = async (file, extra = {}) => {
 		const fd = new FormData();
 		fd.set('csrf', csrf);
@@ -100,18 +144,101 @@ test('photo upload validates content, serves safely, and can be removed', async 
 		if (file) fd.set('file', new Blob([file]), 'a.png');
 		return fetch(base + '/admin/photos', { method: 'POST', redirect: 'manual', headers: { cookie }, body: fd });
 	};
-	const fake = await send(Buffer.from('<?php echo 1; ?>'));
-	assert.match(fake.headers.get('location'), /badimg/);
-	const ok = await send(PNG);
-	assert.match(ok.headers.get('location'), /saved/);
+	assert.match((await send(Buffer.from('<?php echo 1; ?>'))).headers.get('location'), /badimg/);
+	assert.match((await send(Buffer.concat([PNG.subarray(0, 8), Buffer.alloc(64, 1)]))).headers.get('location'), /badimg/);
+	assert.match((await send(makePng(7000, 10))).headers.get('location'), /badimg/);
+	const withText = makePng(4, 3, [pngChunk('tEXt', Buffer.from('GPS\0PNG-SECRET'))]);
+	assert.match((await send(withText)).headers.get('location'), /saved/);
 	const home = await (await fetch(base + '/en/')).text();
-	const src = /src="(\/uploads\/hero-[0-9a-f]+\.png)"/.exec(home)[1];
+	const tag = /<img class="photo hero-photo"[^>]*>/.exec(home)[0];
+	assert.match(tag, /width="4" height="3"/);
+	assert.match(tag, /fetchpriority="high"/);
+	assert.ok(!tag.includes('loading="lazy"'));
+	const src = /src="(\/uploads\/hero-[0-9a-f]+\.png)"/.exec(tag)[1];
 	const img = await fetch(base + src);
 	assert.equal(img.headers.get('content-type'), 'image/png');
+	assert.ok(!Buffer.from(await img.arrayBuffer()).includes('PNG-SECRET'));
 	assert.equal((await fetch(base + '/uploads/..%2Fsecret.key')).status, 404);
 	assert.equal((await fetch(base + '/js/../../data/secret.key')).status, 404);
 	await send(null, { action: 'remove' });
 	assert.equal((await fetch(base + src)).status, 404);
+});
+
+test('JPEG metadata is removed and the size is read', () => {
+	const { inspectImage } = require('../lib/image');
+	const src = makeJpeg(640, 480);
+	assert.ok(src.includes('GPS-SECRET-1'));
+	const out = inspectImage(src);
+	assert.equal(out.ext, 'jpg');
+	assert.equal(out.width, 640);
+	assert.equal(out.height, 480);
+	assert.ok(!out.data.includes('GPS-SECRET-1'));
+	assert.equal(inspectImage(src.subarray(0, 10)), null);
+});
+
+test('social image becomes og:image and a large Twitter card', async () => {
+	const fd = new FormData();
+	fd.set('csrf', csrf); fd.set('slot', 'social'); fd.set('alt', '');
+	fd.set('file', new Blob([makePng(1200, 630)]), 's.png');
+	await fetch(base + '/admin/photos', { method: 'POST', redirect: 'manual', headers: { cookie }, body: fd });
+	const html = await (await fetch(base + '/nl/problem')).text();
+	assert.match(html, /property="og:image" content="http:\/\/127\.0\.0\.1:\d+\/uploads\/social-[0-9a-f]+\.png"/);
+	assert.match(html, /twitter:card" content="summary_large_image"/);
+	const body = new FormData();
+	body.set('csrf', csrf); body.set('slot', 'social'); body.set('action', 'remove');
+	await fetch(base + '/admin/photos', { method: 'POST', redirect: 'manual', headers: { cookie }, body });
+});
+
+test('e-mail notification is sent over SMTP when configured', async () => {
+	const net = require('net');
+	const mail = require('../lib/mail');
+	const received = [];
+	const smtp = net.createServer((sock) => {
+		let data = false, buf = '';
+		sock.write('220 test ESMTP\r\n');
+		sock.on('data', (d) => {
+			buf += d.toString();
+			if (data) { if (buf.endsWith('\r\n.\r\n')) { received.push(buf); data = false; buf = ''; sock.write('250 queued\r\n'); } return; }
+			for (const line of buf.split('\r\n').slice(0, -1)) {
+				received.push(line);
+				if (/^EHLO/.test(line)) sock.write('250-test\r\n250 AUTH PLAIN\r\n');
+				else if (/^AUTH/.test(line)) sock.write('235 ok\r\n');
+				else if (/^(MAIL|RCPT)/.test(line)) sock.write('250 ok\r\n');
+				else if (line === 'DATA') { data = true; sock.write('354 go\r\n'); buf = ''; return; }
+				else if (line === 'QUIT') sock.end('221 bye\r\n');
+			}
+			buf = '';
+		});
+	});
+	await new Promise((r) => smtp.listen(0, '127.0.0.1', r));
+	assert.deepEqual(await mail.sendMail({ subject: 's', text: 't' }), { sent: false, reason: 'not configured' });
+	Object.assign(process.env, { SMTP_HOST: '127.0.0.1', SMTP_PORT: String(smtp.address().port), SMTP_USER: 'u', SMTP_PASS: 'p', MAIL_FROM: 'site@example.org', MAIL_TO: 'team@example.org' });
+	const result = await mail.sendMail({ subject: 'New message \u00e9\r\nBcc: evil@example.org', text: 'Hello world', replyTo: 'pat@example.org' });
+	for (const k of ['SMTP_HOST', 'SMTP_PORT', 'SMTP_USER', 'SMTP_PASS', 'MAIL_FROM', 'MAIL_TO']) delete process.env[k];
+	smtp.close();
+	assert.equal(result.sent, true);
+	const log = received.join('\n');
+	assert.ok(log.includes('RCPT TO:<team@example.org>'));
+	assert.ok(log.includes('Reply-To: pat@example.org'));
+	assert.ok(!/^Bcc:/m.test(log), 'header injection is neutralised');
+	assert.ok(log.includes(Buffer.from('Hello world').toString('base64')));
+});
+
+test('titles stay within search limits, HEAD works and pages revalidate with ETag', async () => {
+	for (const l of ['en', 'nl', 'de', 'fr']) for (const p of ['/', '/problem', '/how-it-works', '/applications', '/contact']) {
+		const html = await (await fetch(base + `/${l}${p === '/' ? '/' : p}`)).text();
+		const title = /<title>([^<]*)<\/title>/.exec(html)[1].replace(/&amp;/g, '&').replace(/&#39;/g, "'");
+		assert.ok(title.length <= 62, `${l}${p}: ${title.length} ${title}`);
+	}
+	const head = await fetch(base + '/en/', { method: 'HEAD' });
+	assert.equal(head.status, 200);
+	assert.equal((await head.text()), '');
+	const res = await fetch(base + '/en/problem');
+	const etag = res.headers.get('etag');
+	assert.ok(etag);
+	assert.equal(res.headers.get('cache-control'), 'no-cache');
+	assert.equal((await fetch(base + '/en/problem', { headers: { 'if-none-match': etag } })).status, 304);
+	assert.equal((await fetch(base + '/en/contact')).headers.get('cache-control'), 'no-store');
 });
 
 test('login is rate limited and password change works', async () => {
