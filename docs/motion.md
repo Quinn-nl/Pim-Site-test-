@@ -40,4 +40,4 @@ Hero entrance, number counters, card hover lifts, pulsing roadmap dot, extra sli
 Audit history: `plans/` (001 to 004, all done).
 
 ## Review log
-`/review-animations` found two blocking issues (global smooth scroll on keyboard jumps; 300 ms press on the sticky button caused by overriding rules) and seven smaller ones. All fixed and re-measured: keyboard jumps are instant, press is 120 ms, hidden button is not focusable, menu has an exit, deck keyboard navigation does not animate.
+`/review-animations` found two blocking issues (global smooth scroll on keyboard jumps; 300 ms press on the sticky button caused by overriding rules) and seven smaller ones. All fixed and re-measured: keyboard jumps are instant, press is 120 ms, hidden button is not focusable, menu has an exit, deck keyboard navigation does not animate. Side effect found and fixed while re-measuring: without smooth scroll an instant jump skipped the reveal observer, so skipped cards stayed invisible; `site.js` now reveals everything that ends up above the viewport.

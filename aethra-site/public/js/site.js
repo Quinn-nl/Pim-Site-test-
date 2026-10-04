@@ -1,16 +1,36 @@
 (function () {
 	'use strict';
 	var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-	var items = document.querySelectorAll('[data-reveal]');
+	var items = Array.prototype.slice.call(document.querySelectorAll('[data-reveal]'));
+	var pending = items.slice();
+	var revealed = function (el) {
+		el.classList.add('is-visible');
+		var k = pending.indexOf(el);
+		if (k > -1) pending.splice(k, 1);
+	};
 	if (reduce || !('IntersectionObserver' in window)) {
-		items.forEach(function (el) { el.classList.add('is-visible'); });
+		items.forEach(revealed);
 	} else {
 		var io = new IntersectionObserver(function (entries) {
 			entries.forEach(function (entry) {
-				if (entry.isIntersecting) { entry.target.classList.add('is-visible'); io.unobserve(entry.target); }
+				if (entry.isIntersecting) { revealed(entry.target); io.unobserve(entry.target); }
 			});
 		}, { threshold: 0.12 });
 		items.forEach(function (el) { io.observe(el); });
+		// An instant jump (End key, anchor, restored scroll position) can skip items without ever intersecting:
+		// anything that ended up above the viewport is shown straight away so nothing stays invisible.
+		var sweep = function () {
+			for (var i = pending.length - 1; i >= 0; i--) {
+				if (pending[i].getBoundingClientRect().bottom < 0) { io.unobserve(pending[i]); revealed(pending[i]); }
+			}
+		};
+		var ticking = false;
+		window.addEventListener('scroll', function () {
+			if (ticking || !pending.length) return;
+			ticking = true;
+			requestAnimationFrame(function () { ticking = false; sweep(); });
+		}, { passive: true });
+		sweep();
 	}
 	var toggle = document.querySelector('.nav-toggle');
 	var nav = document.getElementById('site-nav');
