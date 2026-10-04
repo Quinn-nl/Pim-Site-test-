@@ -3,7 +3,9 @@
   "version": "1.0.0",
   "private": true,
   "description": "Single-page website for Aethra with a built-in admin panel. No runtime dependencies.",
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "start": "node server.js",
     "set-password": "node scripts/set-password.js",
@@ -13,6 +15,9 @@
     "seo:compare": "node scripts/seo-audit.cjs --compare",
     "indexnow": "node scripts/indexnow.cjs",
     "backup": "node scripts/backup.js",
-    "test": "node --test test/*.test.js"
+    "test": "node --test test/*.test.js",
+    "directus:init": "node scripts/directus-init.cjs",
+    "directus": "npm --prefix directus start",
+    "directus:setup": "node scripts/directus-setup.cjs"
   }
 }

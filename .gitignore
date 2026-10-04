@@ -5,3 +5,8 @@
 .agents/skills/seo/ms-playwright
 .agents/skills/seo/runtime-state.json
 __pycache__/
+
+# Directus trial (admin panel at /admin2): installed on demand, holds secrets and its own database
+aethra-site/directus/node_modules/
+aethra-site/directus/data/
+aethra-site/directus/.env

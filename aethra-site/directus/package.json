@@ -1,0 +1,22 @@
+{
+  "name": "aethra-directus",
+  "private": true,
+  "description": "Directus (admin panel trial). Kept apart so the site itself stays dependency-free.",
+  "scripts": {
+    "start": "node node_modules/directus/cli.js start",
+    "bootstrap": "node node_modules/directus/cli.js bootstrap"
+  },
+  "dependencies": {
+    "directus": "12.4.1"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "sqlite3",
+      "better-sqlite3",
+      "isolated-vm",
+      "esbuild",
+      "sharp",
+      "argon2"
+    ]
+  }
+}

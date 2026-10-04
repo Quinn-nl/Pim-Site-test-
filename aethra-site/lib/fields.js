@@ -103,6 +103,9 @@ const GROUPS = [
 	...audienceFields(),
 ];
 
+/** Texts that may legitimately be empty (an empty value is then kept instead of falling back to the default). */
+const OPTIONAL = /^(about_text|p\d_(name|role|bio|link)|company_details|linkedin_url|today_enabled|status_note|contact_reply|company_line|home_problem_line|status_short|cta_text|meta_description|fact\d_url|fact\d_source)$/;
+
 const FIELDS = Object.fromEntries(GROUPS.flatMap((g) => g.fields).map((f) => [f.key, f]));
 const DEFAULTS = Object.fromEntries(Object.values(FIELDS).map((f) => [f.key, f.default]));
 
@@ -115,4 +118,4 @@ const IMAGE_SLOTS = [
 
 const ROLES = ['Investor', 'Municipality', 'Fleet operator', 'Vehicle manufacturer', 'Mobility platform', 'Other'];
 
-module.exports = { GROUPS, FIELDS, DEFAULTS, IMAGE_SLOTS, ROLES };
+module.exports = { GROUPS, FIELDS, DEFAULTS, IMAGE_SLOTS, ROLES, OPTIONAL };

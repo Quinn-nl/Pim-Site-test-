@@ -652,3 +652,55 @@ test('improvements: versioned immutable assets, favicon redirect, Content-Signal
 	assert.equal(await key.text(), 'abcdef123456');
 	delete process.env.INDEXNOW_KEY;
 });
+
+test('Directus: proxy is off by default; content overlay keeps defaults for empty values and ignores unknown keys', async () => {
+	assert.equal((await fetch(base + '/admin2/admin/')).status, 404);
+	const dc = require('../lib/directus-content');
+	process.env.DIRECTUS_URL = 'http://directus.test';
+	process.env.DIRECTUS_TOKEN = 'token';
+	const rows = [{ language: 'en', hero_title: 'From Directus', hero_cta: '', status_note: '', evil_key: 'x', privacy: 'Directus privacy text' }, { language: 'nl', hero_title: null }];
+	let seen;
+	const nlBefore = store.getContent('nl').values.hero_title;
+	const langs = await dc.refresh(async (url, opts) => { seen = { url, auth: opts.headers.Authorization }; return { ok: true, json: async () => ({ data: rows }) }; });
+	assert.deepEqual(langs.sort(), ['en', 'nl']);
+	assert.equal(seen.url, 'http://directus.test/items/site_content?limit=-1');
+	assert.equal(seen.auth, 'Bearer token');
+	const en = store.getContent('en');
+	assert.equal(en.values.hero_title, 'From Directus');
+	assert.ok(en.values.hero_cta.length > 0, 'empty required text falls back to the default');
+	assert.equal(en.values.status_note, '', 'optional text may be emptied');
+	assert.equal(en.values.evil_key, undefined);
+	assert.equal(en.privacy, 'Directus privacy text');
+	assert.equal(store.getContent('nl').values.hero_title, nlBefore, 'a null value from Directus changes nothing');
+	await assert.rejects(() => dc.refresh(async () => ({ ok: false, status: 500 })), /500/);
+	store.setRemote({});
+	delete process.env.DIRECTUS_URL;
+	delete process.env.DIRECTUS_TOKEN;
+});
+
+test('Directus: /admin2 proxy strips the prefix, adds noindex, keeps /admin as our own panel', async () => {
+	const http = require('http');
+	const upstream = http.createServer((req, res) => { res.writeHead(200, { 'Content-Type': 'text/plain', 'X-Seen-Path': req.url }); res.end('directus says hi'); });
+	await new Promise((r) => upstream.listen(0, '127.0.0.1', r));
+	process.env.DIRECTUS_URL = `http://127.0.0.1:${upstream.address().port}`;
+	delete require.cache[require.resolve('../server')];
+	const { createServer: create2 } = require('../server');
+	const s2 = create2();
+	await new Promise((r) => s2.listen(0, '127.0.0.1', r));
+	const b2 = `http://127.0.0.1:${s2.address().port}`;
+	const r = await fetch(b2 + '/admin2/admin/login?x=1');
+	assert.equal(r.headers.get('x-seen-path'), '/admin/login?x=1');
+	assert.equal(await r.text(), 'directus says hi');
+	assert.equal(r.headers.get('x-robots-tag'), 'noindex, nofollow');
+	assert.equal(r.headers.get('content-security-policy'), null, "Directus brings its own CSP");
+	const bare = await fetch(b2 + '/admin2', { redirect: 'manual' });
+	assert.equal(bare.status, 302);
+	assert.match(bare.headers.get('location'), /\/admin2\/admin\/$/);
+	const ours = await fetch(b2 + '/admin');
+	assert.match(await ours.text(), /Aethra admin|Log in/);
+	assert.match(ours.headers.get('content-security-policy') || '', /default-src 'none'/);
+	s2.close();
+	upstream.close();
+	delete process.env.DIRECTUS_URL;
+	delete require.cache[require.resolve('../server')];
+});

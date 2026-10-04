@@ -73,3 +73,7 @@ Admin > Account > Two-step verification > Set up. Scan the QR code with any auth
 ## Context page (hidden by default)
 
 `/en/eco-mode-today` (and NL/DE/FR) summarises which geofenced eco-mode products exist today (each statement links its source) and what is still missing. It is **not published** until someone checks the sources and types `yes` in Admin > Content > "Page: geofenced eco mode today". Edit the English field, the other languages follow their own text. While off, the page returns 404 and is absent from the footer, sitemap and llms.txt. No claims about Aethra's results, no "first" or "only".
+
+## Admin panel trial: Directus at /admin2
+
+`/admin` is our own panel. `/admin2` opens [Directus](https://directus.com) when `DIRECTUS_URL` is set (a trial of an open-source panel). How to start it, what was built and an honest comparison are in `docs/directus-trial.md`. Short version: `npm run directus:init`, `npm run directus`, `npm run directus:setup`, then start the site with `DIRECTUS_URL=http://127.0.0.1:8055`. Add `CONTENT_SOURCE=directus` and `DIRECTUS_TOKEN` (from `directus/.env`) to let the website read its texts from Directus.

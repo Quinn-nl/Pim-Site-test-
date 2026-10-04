@@ -17,6 +17,7 @@ const { LANGS, isLang, detectLang, UI } = require('./lib/i18n');
 const views = require('./lib/views');
 const admin = require('./lib/admin-views');
 const crypto = require('crypto');
+const directusProxy = process.env.DIRECTUS_URL ? require('./lib/directus-proxy').create(process.env.DIRECTUS_URL) : null;
 
 const loginLimiter = createLimiter(5, 15 * 60 * 1000);
 const accountLimiter = createLimiter(5, 15 * 60 * 1000);
@@ -381,6 +382,10 @@ function createServer() {
 			if (req.method === 'HEAD') req.method = 'GET'; // Node drops the body of a HEAD response itself
 			const url = new URL(req.url, 'http://localhost');
 			let handled = false;
+			if (directusProxy && directusProxy.matches(url.pathname)) { // /admin2: Directus trial
+				if (url.pathname === '/admin2' || url.pathname === '/admin2/') return redirect(res, '/admin2/admin/', {}, 302);
+				return directusProxy.handle(req, res);
+			}
 			if (url.pathname === '/admin' || url.pathname.startsWith('/admin/')) handled = await handleAdmin(req, res, url);
 			else if (req.method === 'GET' && url.pathname.startsWith('/uploads/')) handled = serveFile(res, store.uploadsDir(), url.pathname.slice('/uploads/'.length), 'public, max-age=31536000, immutable');
 			else if (req.method === 'GET' && (url.pathname.startsWith('/css/') || url.pathname.startsWith('/js/') || url.pathname.startsWith('/img/') || url.pathname.startsWith('/fonts/') || url.pathname.startsWith('/deck/'))) handled = serveFile(res, cfg.PUBLIC_DIR, url.pathname.slice(1), url.pathname.startsWith('/fonts/') ? 'public, max-age=604800' : (url.searchParams.has('v') ? 'public, max-age=31536000, immutable' : 'public, max-age=3600'));
@@ -400,6 +405,7 @@ function createServer() {
 }
 
 if (require.main === module) {
+	if (require('./lib/directus-content').start()) console.log('Content source: Directus (read-only, refreshed in the background)');
 	const server = createServer();
 	server.headersTimeout = 15000;
 	server.requestTimeout = 30000; // slow-loris: a request must complete within 30 s

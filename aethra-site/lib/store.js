@@ -7,7 +7,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const cfg = require('./config');
-const { FIELDS, IMAGE_SLOTS } = require('./fields');
+const { FIELDS, IMAGE_SLOTS, OPTIONAL } = require('./fields');
 const { LANGS, defaultsFor, PRIVACY } = require('./i18n');
 
 const file = (name) => path.join(cfg.DATA_DIR, name);
@@ -79,13 +79,34 @@ function normalise(saved) {
 	};
 }
 
+/* Optional external source (Directus): texts per language, refreshed in the background by lib/directus-content.js. */
+let remote = {};
+let remoteActive = false;
+const setRemote = (map) => { remote = map || {}; remoteActive = true; };
+const remoteState = () => ({ active: remoteActive, languages: Object.keys(remote) });
+
+/** Keeps only known fields; empty values fall back to the local text unless the field may be empty. */
+function remoteValues(row) {
+	const out = {};
+	for (const [key, raw] of Object.entries(row || {})) {
+		const field = FIELDS[key];
+		if (!field || raw == null) continue;
+		const v = cleanValue(field, raw);
+		if (v === null) continue;
+		if (v === '' && !OPTIONAL.test(key)) continue;
+		out[key] = v;
+	}
+	return out;
+}
+
 function getContent(lang = 'en') {
 	const saved = normalise(readJson('content.json', {}));
+	const r = remote[lang] || null;
 	return {
 		lang,
-		values: { ...defaultsFor(lang), ...(saved.values[lang] || {}) },
+		values: { ...defaultsFor(lang), ...(saved.values[lang] || {}), ...(r ? remoteValues(r) : {}) },
 		images: saved.images,
-		privacy: saved.privacy[lang] || PRIVACY[lang] || PRIVACY.en,
+		privacy: (r && typeof r.privacy === 'string' && r.privacy.trim()) || saved.privacy[lang] || PRIVACY[lang] || PRIVACY.en,
 	};
 }
 
@@ -178,4 +199,4 @@ function deleteMessage(id) {
 	writeJson('messages.json', all.filter((m) => m.id !== id));
 }
 
-module.exports = { markRead, unreadCount, markAllRead, patchMessage, messagesCsv, file, uploadsDir, ensureDirs, readJson, writeJson, getSecret, getContent, saveContent, setImage, listMessages, addMessage, deleteMessage, cleanValue };
+module.exports = { setRemote, remoteState, markRead, unreadCount, markAllRead, patchMessage, messagesCsv, file, uploadsDir, ensureDirs, readJson, writeJson, getSecret, getContent, saveContent, setImage, listMessages, addMessage, deleteMessage, cleanValue };

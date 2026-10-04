@@ -47,8 +47,9 @@ function langTabs(base, lang) {
 }
 
 function contentPage(session, lang, values, flash) {
+	const remote = store.remoteState().active ? '<p class="flash err" role="status">Content source is Directus: texts are edited at <a href="/admin2">/admin2</a>. Changes saved on this page are overridden by Directus where Directus has a value.</p>' : '';
 	const groups = GROUPS.map((g) => `<fieldset><legend>${esc(g.title)}</legend>${g.fields.map((f) => field(f, values[f.key])).join('')}</fieldset>`).join('');
-	return shell('Content', 'content', session.csrf, `<h1>Page content</h1><p class="hint">Edit the texts per language and save. Changes appear on the site immediately. Visitors see the language of their browser, and can switch.</p>${langTabs('/admin', lang)}
+	return shell('Content', 'content', session.csrf, `${remote}<h1>Page content</h1><p class="hint">Edit the texts per language and save. Changes appear on the site immediately. Visitors see the language of their browser, and can switch.</p>${langTabs('/admin', lang)}
 <form method="post" action="/admin/content"><input type="hidden" name="csrf" value="${esc(session.csrf)}"><input type="hidden" name="lang" value="${esc(lang)}">${groups}<div class="sticky"><button type="submit">Save changes</button></div></form>`, flash);
 }
 
