@@ -3,6 +3,17 @@ const { ROLES } = require('./fields');
 const { LANGS, LANG_NAMES, OG_LOCALE, UI } = require('./i18n');
 const { AUDIENCES, labelFor } = require('./audiences');
 
+/** Asset URL with a content version: browsers cache it for a year and still pick up changes at once. */
+const versions = new Map();
+const asset = (p) => {
+	if (!versions.has(p)) {
+		let ver = '1';
+		try { const st = require('fs').statSync(require('path').join(__dirname, '..', 'public', p)); ver = `${st.size.toString(36)}${Math.floor(st.mtimeMs / 1000).toString(36)}`; } catch (e) { /* missing: unversioned */ }
+		versions.set(p, ver);
+	}
+	return `${p}?v=${versions.get(p)}`;
+};
+
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 const LOGO = '<svg class="logo-mark" viewBox="0 0 32 32" width="28" height="28" aria-hidden="true" focusable="false"><g transform="translate(16 16) rotate(-28)"><defs><mask id="am"><rect x="-16" y="-16" width="32" height="32" fill="#fff"/><path d="M-14 0A14 5.5 0 0 0 14 0" fill="none" stroke="#000" stroke-width="4.2"/></mask></defs><path d="M-14 0A14 5.5 0 0 1 14 0" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle r="6" fill="currentColor" mask="url(#am)"/><path d="M-14 0A14 5.5 0 0 0 14 0" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><rect x="6.6" y="-6.1" width="3.8" height="3.8" rx=".6" fill="currentColor" transform="rotate(32 8.5 -4.2)"/></g></svg>';
@@ -89,10 +100,10 @@ ${socialSize ? `<meta property="og:image:width" content="${socialSize[0]}">
 ${graph ? `<script type="application/ld+json">${jsonLd(graph)}</script>` : ''}
 <link rel="preload" href="/fonts/exo-2-latin-700-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/fonts/ibm-plex-sans-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
-<script src="/js/init.js"></script>
-<link rel="stylesheet" href="/css/design-tokens.css">
-<link rel="stylesheet" href="/css/site.css">
-<script src="/js/site.js" defer></script>
+<script src="${asset('/js/init.js')}"></script>
+<link rel="stylesheet" href="${asset('/css/design-tokens.css')}">
+<link rel="stylesheet" href="${asset('/css/site.css')}">
+<script src="${asset('/js/site.js')}" defer></script>
 </head>
 <body>
 <a class="skip-link" href="#main">${esc(t.skip)}</a>
@@ -358,7 +369,7 @@ ${pageHead(t.k_contact, v.contact_title, status === 'sent' ? '' : v.contact_text
 	</div>
 </section>
 </main>`;
-	return layout({ lang, page: '/contact', title: `${v.seo_contact} | ${v.site_name}`, description: v.contact_text, body, v, siteUrl, images, stickyCta: false });
+	return layout({ lang, page: '/contact', title: `${v.seo_contact} | ${v.site_name}`, description: v.contact_text, body, v, siteUrl, images, stickyCta: false, graph: { '@context': 'https://schema.org', '@graph': [crumbs(lang, siteUrl, v, '/contact', t.nav_contact), { '@type': 'ContactPage', name: v.contact_title, url: siteUrl + url(lang, '/contact'), inLanguage: lang }] } });
 }
 
 function renderAudience({ lang, values: v, images }, { siteUrl }, slug) {
@@ -366,7 +377,7 @@ function renderAudience({ lang, values: v, images }, { siteUrl }, slug) {
 	const a = AUDIENCES.find((x) => x.slug === slug);
 	const k = (n) => v[`aud_${slug}_${n}`];
 	const pageKey = `/for/${slug}`;
-	const faq = [1, 2].map((n) => ({ q: k(`q${n}`), a: k(`a${n}`) })).filter((f) => f.q && f.a);
+	const faq = [1, 2, 3].map((n) => ({ q: k(`q${n}`), a: k(`a${n}`) })).filter((f) => f.q && f.a);
 	const others = AUDIENCES.filter((x) => x.slug !== slug);
 	const body = `
 <main id="main">
@@ -460,4 +471,4 @@ function renderSitemap(siteUrl, lastmod, extra = []) {
 	return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">\n${entries.join('\n')}\n</urlset>\n`;
 }
 
-module.exports = { renderToday, setToday, esc, url, setCarry, renderAudience, PAGES, renderHome, renderProblem, renderHow, renderApplications, renderContact, renderPrivacy, renderNotFound, renderSitemap };
+module.exports = { asset, renderToday, setToday, esc, url, setCarry, renderAudience, PAGES, renderHome, renderProblem, renderHow, renderApplications, renderContact, renderPrivacy, renderNotFound, renderSitemap };

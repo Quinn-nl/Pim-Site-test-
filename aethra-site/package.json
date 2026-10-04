@@ -11,6 +11,7 @@
     "seo": "node scripts/seo-audit.cjs",
     "seo:baseline": "node scripts/seo-audit.cjs --baseline",
     "seo:compare": "node scripts/seo-audit.cjs --compare",
+    "indexnow": "node scripts/indexnow.cjs",
     "backup": "node scripts/backup.js",
     "test": "node --test test/*.test.js"
   }

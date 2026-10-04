@@ -10,7 +10,7 @@ const F = (key, label, type, def) => ({ key, label, type, default: def });
 const GROUPS = [
 	G('site', 'Site', [
 		F('site_name', 'Site name', 'text', 'Aethra'),
-		F('meta_description', 'Search description', 'textarea', 'Aethra develops CubeSats and AI that help vehicles switch to an eco mode in areas with high air pollution.'),
+		F('meta_description', 'Search description', 'textarea', 'Aethra develops CubeSats and AI that help vehicles switch to an eco mode in areas with high air pollution. Prototype phase, open to conversations.'),
 		F('company_line', 'Footer company line', 'text', 'Company details will follow.'),
 	]),
 	G('home', 'Home page extras', [

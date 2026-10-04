@@ -90,7 +90,7 @@ async function handlePublic(req, res, url) {
 	if (get && url.pathname === '/robots.txt') {
 		// Search and answer bots stay allowed. Training-only bots are blocked unless AI_TRAINING=allow (a licensing choice, it does not affect search or AI answers).
 		const training = process.env.AI_TRAINING === 'allow' ? '' : `${['GPTBot', 'ClaudeBot', 'Google-Extended', 'CCBot', 'Applebot-Extended'].map((b) => `User-agent: ${b}`).join('\n')}\nDisallow: /\n\n`;
-		return send(res, 200, `${training}User-agent: *\nAllow: /\nDisallow: /admin\n\nSitemap: ${siteUrl}/sitemap.xml\n`, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'public, max-age=3600' });
+		return send(res, 200, `${training}User-agent: *\nAllow: /\nDisallow: /admin\nContent-Signal: search=yes, ai-input=yes, ai-train=${process.env.AI_TRAINING === 'allow' ? 'yes' : 'no'}\n\nSitemap: ${siteUrl}/sitemap.xml\n`, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'public, max-age=3600' });
 	}
 	if (get && url.pathname === '/sitemap.xml') {
 		let modified = new Date();
@@ -108,6 +108,9 @@ async function handlePublic(req, res, url) {
 		const expires = new Date(Date.now() + 365 * 86400000).toISOString();
 		return send(res, 200, `Contact: ${process.env.SECURITY_CONTACT}\nExpires: ${expires}\nPreferred-Languages: en, nl\nCanonical: ${siteUrl}/.well-known/security.txt\n`, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'public, max-age=3600' });
 	}
+	if (get && url.pathname === '/favicon.ico') return redirect(res, '/img/favicon.svg', { 'Cache-Control': 'public, max-age=86400' }, 301);
+	const indexNowKey = String(process.env.INDEXNOW_KEY || '');
+	if (get && /^[A-Za-z0-9-]{8,128}$/.test(indexNowKey) && url.pathname === `/${indexNowKey}.txt`) return send(res, 200, indexNowKey, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'public, max-age=86400' });
 	if (get && url.pathname === '/healthz') return send(res, 200, 'ok', { 'Content-Type': 'text/plain' });
 
 	if (DEV_TOGGLE && get && url.pathname === '/__data') {
@@ -380,7 +383,7 @@ function createServer() {
 			let handled = false;
 			if (url.pathname === '/admin' || url.pathname.startsWith('/admin/')) handled = await handleAdmin(req, res, url);
 			else if (req.method === 'GET' && url.pathname.startsWith('/uploads/')) handled = serveFile(res, store.uploadsDir(), url.pathname.slice('/uploads/'.length), 'public, max-age=31536000, immutable');
-			else if (req.method === 'GET' && (url.pathname.startsWith('/css/') || url.pathname.startsWith('/js/') || url.pathname.startsWith('/img/') || url.pathname.startsWith('/fonts/') || url.pathname.startsWith('/deck/'))) handled = serveFile(res, cfg.PUBLIC_DIR, url.pathname.slice(1), url.pathname.startsWith('/fonts/') ? 'public, max-age=604800' : 'public, max-age=3600');
+			else if (req.method === 'GET' && (url.pathname.startsWith('/css/') || url.pathname.startsWith('/js/') || url.pathname.startsWith('/img/') || url.pathname.startsWith('/fonts/') || url.pathname.startsWith('/deck/'))) handled = serveFile(res, cfg.PUBLIC_DIR, url.pathname.slice(1), url.pathname.startsWith('/fonts/') ? 'public, max-age=604800' : (url.searchParams.has('v') ? 'public, max-age=31536000, immutable' : 'public, max-age=3600'));
 			else handled = await handlePublic(req, res, url);
 			if (handled === false) {
 				const seg = /^\/([a-z]{2})(\/|$)/.exec(url.pathname);

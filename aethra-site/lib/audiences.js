@@ -100,6 +100,101 @@ const AUDIENCES = [
 ];
 
 /** Admin field definitions and per-language defaults generated from the data above. */
+/* Third question per audience: how to take part. Authored per audience, no claims, no technique. */
+const EXTRA_FAQ = {
+ "municipalities": {
+  "en": [
+   "How could a municipality get involved?",
+   "Start with a conversation about where your hotspots are and what you want to learn. Aethra is in the prototype phase, so this is about shaping a possible pilot together, not about buying a product."
+  ],
+  "nl": [
+   "Hoe kan een gemeente meedoen?",
+   "Begin met een gesprek over waar uw hotspots liggen en wat u wilt leren. Aethra is in de prototypefase, dus het gaat om samen een mogelijke pilot vormgeven, niet om het kopen van een product."
+  ],
+  "de": [
+   "Wie kann eine Kommune mitmachen?",
+   "Beginnen Sie mit einem Gespräch darüber, wo Ihre Hotspots liegen und was Sie lernen möchten. Aethra befindet sich in der Prototypphase; es geht also darum, gemeinsam einen möglichen Pilot zu gestalten, nicht darum, ein Produkt zu kaufen."
+  ],
+  "fr": [
+   "Comment une commune peut-elle participer ?",
+   "Commencez par un échange sur l’emplacement de vos points sensibles et sur ce que vous souhaitez apprendre. Aethra est en phase de prototype : il s’agit de construire ensemble un éventuel projet pilote, pas d’acheter un produit."
+  ]
+ },
+ "fleets": {
+  "en": [
+   "What does it cost?",
+   "There is no price yet. Aethra is in the prototype phase and nothing is for sale. We want to understand what you would need before we talk about terms."
+  ],
+  "nl": [
+   "Wat kost het?",
+   "Er is nog geen prijs. Aethra is in de prototypefase en er is niets te koop. Wij willen eerst begrijpen wat u nodig heeft voordat we over voorwaarden praten."
+  ],
+  "de": [
+   "Was kostet es?",
+   "Es gibt noch keinen Preis. Aethra befindet sich in der Prototypphase und nichts ist käuflich. Wir möchten zuerst verstehen, was Sie brauchen, bevor wir über Konditionen sprechen."
+  ],
+  "fr": [
+   "Combien cela coûte-t-il ?",
+   "Il n’y a pas encore de prix. Aethra est en phase de prototype et rien n’est à vendre. Nous voulons d’abord comprendre vos besoins avant de parler de conditions."
+  ]
+ },
+ "manufacturers": {
+  "en": [
+   "How would Aethra work with vehicle manufacturers?",
+   "That is still open. We want to learn how your vehicles handle drive modes and what any integration would need to respect, before anything is defined."
+  ],
+  "nl": [
+   "Hoe zou Aethra met voertuigfabrikanten samenwerken?",
+   "Dat staat nog open. Wij willen leren hoe uw voertuigen met rijmodi omgaan en waar een eventuele integratie rekening mee moet houden, voordat iets wordt vastgelegd."
+  ],
+  "de": [
+   "Wie würde Aethra mit Fahrzeugherstellern zusammenarbeiten?",
+   "Das ist noch offen. Wir möchten zunächst verstehen, wie Ihre Fahrzeuge mit Fahrmodi umgehen und was eine mögliche Integration berücksichtigen muss, bevor etwas festgelegt wird."
+  ],
+  "fr": [
+   "Comment Aethra travaillerait-elle avec les constructeurs ?",
+   "Cela reste ouvert. Nous voulons d’abord comprendre comment vos véhicules gèrent les modes de conduite et ce qu’une éventuelle intégration devrait respecter, avant de définir quoi que ce soit."
+  ]
+ },
+ "platforms": {
+  "en": [
+   "What would a mobility platform get from Aethra?",
+   "The aim is that vehicles on your platform adapt to local air quality without extra effort for operators. What that looks like for your platform is something we want to explore together in the prototype phase."
+  ],
+  "nl": [
+   "Wat zou een mobiliteitsplatform aan Aethra hebben?",
+   "Het streven is dat voertuigen op uw platform zich aanpassen aan de lokale luchtkwaliteit zonder extra moeite voor aanbieders. Hoe dat er voor uw platform uitziet, willen wij samen verkennen in de prototypefase."
+  ],
+  "de": [
+   "Was hätte eine Mobilitätsplattform von Aethra?",
+   "Das Ziel ist, dass sich Fahrzeuge auf Ihrer Plattform ohne Mehraufwand für Betreiber an die lokale Luftqualität anpassen. Wie das für Ihre Plattform aussieht, möchten wir gemeinsam in der Prototypphase erkunden."
+  ],
+  "fr": [
+   "Que gagnerait une plateforme de mobilité avec Aethra ?",
+   "L’objectif est que les véhicules de votre plateforme s’adaptent à la qualité de l’air locale sans effort supplémentaire pour les opérateurs. À quoi cela ressemblerait pour votre plateforme, nous voulons l’explorer ensemble en phase de prototype."
+  ]
+ },
+ "investors": {
+  "en": [
+   "What can I expect from a conversation?",
+   "An honest picture of the project, its stage and what we still have to prove. There are no test results to share yet, and nothing on this website is an offer."
+  ],
+  "nl": [
+   "Wat kan ik van een gesprek verwachten?",
+   "Een eerlijk beeld van het project, de fase en wat wij nog moeten aantonen. Er zijn nog geen testresultaten om te delen, en niets op deze website is een aanbod."
+  ],
+  "de": [
+   "Was kann ich von einem Gespräch erwarten?",
+   "Ein ehrliches Bild des Projekts, seines Stands und dessen, was wir noch belegen müssen. Es gibt noch keine Testergebnisse, und nichts auf dieser Website ist ein Angebot."
+  ],
+  "fr": [
+   "À quoi puis-je m’attendre lors d’un échange ?",
+   "À une image honnête du projet, de son stade et de ce que nous devons encore démontrer. Il n’y a pas encore de résultats d’essais à partager, et rien sur ce site n’est une offre."
+  ]
+ }
+};
+for (const a of AUDIENCES) for (const l of Object.keys(a.i18n)) a.i18n[l].faq.push(EXTRA_FAQ[a.slug][l]);
+
 function audienceFields() {
 	return AUDIENCES.map((a) => {
 		const e = a.i18n.en;

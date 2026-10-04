@@ -341,12 +341,12 @@ test('audience pages: one per audience and language, FAQ markup, links and title
 		const html = await res.text();
 		assert.equal(res.status, 200, `${l}/${a.slug}`);
 		assert.equal((html.match(/<h1[ >]/g) || []).length, 1);
-		assert.equal((html.match(/<details>/g) || []).length, 2);
+		assert.equal((html.match(/<details>/g) || []).length, 3);
 		const title = /<title>([^<]*)<\/title>/.exec(html)[1].replace(/&amp;/g, '&').replace(/&#39;/g, "'");
 		assert.ok(title.length <= 62, `${l}/${a.slug}: ${title.length} ${title}`);
 		assert.ok(html.includes(`href="/${l}/contact?role=${encodeURIComponent(a.role)}"`), 'CTA preselects the role');
 		const ld = JSON.parse(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/.exec(html)[1]);
-		assert.ok(ld['@graph'].some((n) => n['@type'] === 'FAQPage' && n.mainEntity.length === 2));
+		assert.ok(ld['@graph'].some((n) => n['@type'] === 'FAQPage' && n.mainEntity.length === 3));
 		assert.ok(html.includes(`hreflang="x-default"`));
 	}
 	const inv = await (await fetch(base + '/en/for/investors')).text();
@@ -632,4 +632,23 @@ test('technical: one URL per page (trailing slash redirects), language redirect 
 	assert.equal((await fetch(base + '/en/problem', { redirect: 'manual' })).status, 200);
 	assert.equal((await fetch(base + '/en/', { redirect: 'manual' })).status, 200);
 	assert.equal((await fetch(base + '/', { redirect: 'manual', headers: { 'accept-language': 'de' } })).status, 302);
+});
+
+test('improvements: versioned immutable assets, favicon redirect, Content-Signal, ContactPage, IndexNow key file', async () => {
+	const html = await (await fetch(base + '/en/')).text();
+	const m = /href="(\/css\/site\.css\?v=[a-z0-9]+)"/.exec(html);
+	assert.ok(m, 'versioned stylesheet link');
+	const css = await fetch(base + m[1]);
+	assert.equal(css.headers.get('cache-control'), 'public, max-age=31536000, immutable');
+	assert.equal((await fetch(base + '/css/site.css')).headers.get('cache-control'), 'public, max-age=3600');
+	const ico = await fetch(base + '/favicon.ico', { redirect: 'manual' });
+	assert.equal(ico.status, 301);
+	assert.match(await (await fetch(base + '/robots.txt')).text(), /Disallow: \/admin\nContent-Signal: search=yes, ai-input=yes, ai-train=no/);
+	assert.match(await (await fetch(base + '/en/contact')).text(), /"@type":"ContactPage"/);
+	assert.equal((await fetch(base + '/abcdef123456.txt')).status, 404);
+	process.env.INDEXNOW_KEY = 'abcdef123456';
+	const key = await fetch(base + '/abcdef123456.txt');
+	assert.equal(key.status, 200);
+	assert.equal(await key.text(), 'abcdef123456');
+	delete process.env.INDEXNOW_KEY;
 });

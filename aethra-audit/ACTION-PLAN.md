@@ -21,3 +21,17 @@ Each item: why, how we would know it failed, and a leading indicator to watch.
 
 ## Guardrails (never trade away for SEO)
 No emission-reduction claims without test data; no technical "how"; no offer of shares or returns; no external scripts, fonts or trackers.
+
+## Implemented from this plan and the audits (5 October 2026)
+- Home meta description extended (all 4 languages); privacy meta description; contact titles; `og:image:alt`.
+- Third Q&A per audience page ("how to take part", "what does it cost", ...): authored per audience, no claims, no technique. Pages grew by about 25 words and the FAQ structured data by one question each.
+- Organization logo + optional `sameAs` and `founder`; ContactPage structured data.
+- Trailing-slash URLs 301 to one URL; `/favicon.ico` redirects to the SVG icon.
+- Versioned asset URLs (`?v=...`) cached for one year as `immutable`; unversioned requests keep the 1-hour cache.
+- robots.txt: training-only AI bots blocked (`AI_TRAINING=allow` to change) and a `Content-Signal` line that matches that choice.
+- IndexNow support: `INDEXNOW_KEY` serves the key file, `npm run indexnow` submits all sitemap URLs (needs the live domain).
+- "Who is behind Aethra" block (hidden until filled in) and the sourced context page (hidden until published).
+- `npm run seo`, `seo:baseline`, `seo:compare` for repeatable checks.
+
+## Still needs input or a live site (not done on purpose)
+Names and company details; real photos; domain, HTTPS and `SITE_URL`; Search Console and Bing Webmaster; checking the context page's sources and switching it on; native-speaker review of NL/DE/FR; real pilot data for an evidence page; question-style headings (copy decision for the client).
