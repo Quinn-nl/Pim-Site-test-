@@ -154,7 +154,7 @@ const ctaBand = (lang, v) => `
 </section>`;
 
 const fact = (t, v, n) => `
-<figure class="fact">
+<figure class="fact" data-reveal>
 	<p class="fact-value">${esc(v[`fact${n}_value`])}</p>
 	<figcaption>${esc(v[`fact${n}_label`])}
 		${v[`fact${n}_source`] || v[`fact${n}_url`] ? `<span class="source">${esc(t.source)}: ${v[`fact${n}_url`] ? `<a href="${esc(v[`fact${n}_url`])}" rel="noopener noreferrer" target="_blank">${esc(v[`fact${n}_source`] || v[`fact${n}_url`])}</a>` : esc(v[`fact${n}_source`])}</span>` : ''}
@@ -247,7 +247,7 @@ ${ctaBand(lang, v)}
 function renderHow({ lang, values: v, images }, { siteUrl }) {
 	const t = UI[lang];
 	const steps = [1, 2, 3].map((n) => `
-		<li class="step">${icon(STEP_ICONS[n - 1])}<span class="step-num" aria-hidden="true">0${n}</span><h2>${esc(v[`step${n}_title`])}</h2><p>${esc(v[`step${n}_text`])}</p></li>`).join('');
+		<li class="step" data-reveal>${icon(STEP_ICONS[n - 1])}<span class="step-num" aria-hidden="true">0${n}</span><h2>${esc(v[`step${n}_title`])}</h2><p>${esc(v[`step${n}_text`])}</p></li>`).join('');
 	const body = `
 <main id="main">
 ${pageHead(t.k_how, v.steps_title, '')}
@@ -279,7 +279,7 @@ function renderApplications({ lang, values: v, images }, { siteUrl }) {
 	const cards = [1, 2, 3, 4].map((n) => {
 		const a = AUDIENCES[n - 1];
 		return `
-		<article class="card">${icon(APP_ICONS[n - 1])}<h2>${esc(v[`app${n}_title`])}</h2><p>${esc(v[`app${n}_text`])}</p><p class="card-links"><a class="more" href="${link(lang, '/for/' + a.slug)}">${esc(t.learn_more)}</a><a class="more" href="${link(lang, '/contact')}${carry ? '&amp;' : '?'}role=${encodeURIComponent(APP_ROLES[n - 1])}">${esc(t.card_cta)}</a></p></article>`;
+		<article class="card" data-reveal>${icon(APP_ICONS[n - 1])}<h2>${esc(v[`app${n}_title`])}</h2><p>${esc(v[`app${n}_text`])}</p><p class="card-links"><a class="more" href="${link(lang, '/for/' + a.slug)}">${esc(t.learn_more)}</a><a class="more" href="${link(lang, '/contact')}${carry ? '&amp;' : '?'}role=${encodeURIComponent(APP_ROLES[n - 1])}">${esc(t.card_cta)}</a></p></article>`;
 	}).join('');
 	const inv = AUDIENCES[4];
 	const body = `
@@ -356,7 +356,7 @@ ${pageHead(`${t.aud_for} ${labelFor(a, lang).toLowerCase()}`, k('title'), k('lea
 <section class="section" aria-labelledby="points-title">
 	<div class="wrap">
 		<h2 id="points-title" class="sr">${esc(k('title'))}</h2>
-		<ul class="points">${[1, 2, 3].map((n) => `<li>${icon('check')}<p>${esc(k(`p${n}`))}</p></li>`).join('')}</ul>
+		<ul class="points">${[1, 2, 3].map((n) => `<li data-reveal>${icon('check')}<p>${esc(k(`p${n}`))}</p></li>`).join('')}</ul>
 		<p class="hero-actions"><a class="btn" href="${link(lang, '/contact')}${carry ? '&amp;' : '?'}role=${encodeURIComponent(a.role)}">${esc(v.hero_cta)}</a><a class="btn btn-outline" href="${link(lang, '/how-it-works')}">${esc(t.how_cta)}</a></p>
 	</div>
 </section>
