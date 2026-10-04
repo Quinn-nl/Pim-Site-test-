@@ -8,6 +8,8 @@ const { inspectImage } = require('./lib/image');
 const mail = require('./lib/mail');
 const stats = require('./lib/stats');
 const { AUDIENCES } = require('./lib/audiences');
+const worst = require('./lib/worst-case');
+const DEV_TOGGLE = process.env.DEV_TOGGLE === '1' && process.env.NODE_ENV !== 'production';
 const { parseMultipart } = require('./lib/multipart');
 const { createLimiter } = require('./lib/ratelimit');
 const { ROLES, GROUPS, IMAGE_SLOTS } = require('./lib/fields');
@@ -98,6 +100,12 @@ async function handlePublic(req, res, url) {
 	}
 	if (get && url.pathname === '/healthz') return send(res, 200, 'ok', { 'Content-Type': 'text/plain' });
 
+	if (DEV_TOGGLE && get && url.pathname === '/__data') {
+		const mode = ['demo', 'worst', 'empty'].includes(url.searchParams.get('mode')) ? url.searchParams.get('mode') : 'demo';
+		const back = String(url.searchParams.get('back') || '/');
+		return redirect(res, back.startsWith('/') && !back.startsWith('//') ? back : '/', { 'Set-Cookie': `aethra_dev_data=${mode}; Path=/; SameSite=Lax` });
+	}
+
 	// Auto-detect: the bare address and legacy paths go to the visitor's language.
 	if (get && url.pathname === '/') return redirect(res, `/${visitorLang(req)}/`, { ...LANG_VARY, 'Cache-Control': 'private, no-store' }, 302);
 	if (get && LEGACY.has(url.pathname)) return redirect(res, `/${visitorLang(req)}${url.pathname}${url.search}`, LANG_VARY, 302);
@@ -109,6 +117,11 @@ async function handlePublic(req, res, url) {
 	if (get && !m[2]) return redirect(res, `/${lang}/`, {}, 301);
 	if (page.length > 1 && page.endsWith('/')) page = page.slice(0, -1);
 	const content = store.getContent(lang);
+	if (DEV_TOGGLE) {
+		const mode = auth.parseCookies(req.headers.cookie).aethra_dev_data || 'demo';
+		content.values = worst.overlay(mode, content.values);
+		res.devToggle = worst.toggleHtml(mode, url.pathname + url.search);
+	}
 	const attribution = stats.sourceOf(url, req.headers.referer, req.headers.host);
 	const utm = { source: stats.tag(url.searchParams.get('utm_source')), campaign: stats.tag(url.searchParams.get('utm_campaign')) };
 	views.setCarry(utm);
@@ -197,8 +210,13 @@ async function handleAdmin(req, res, url) {
 			return send(res, 200, store.messagesCsv(), { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': 'attachment; filename="aethra-messages.csv"' });
 		}
 		if (p === '/admin/messages') {
-			const html = admin.messagesPage(session, store.listMessages(), cfg.RETENTION_DAYS, flash);
-			store.markAllRead();
+			const per = 50;
+			const all = store.listMessages();
+			const pages = Math.max(1, Math.ceil(all.length / per));
+			const page = Math.min(pages, Math.max(1, parseInt(url.searchParams.get('page'), 10) || 1));
+			const shown = all.slice((page - 1) * per, page * per);
+			const html = admin.messagesPage(session, shown, cfg.RETENTION_DAYS, flash, { page, pages, total: all.length });
+			store.markRead(shown.map((m) => m.id));
 			return send(res, 200, html);
 		}
 		if (p === '/admin/account') return send(res, 200, admin.accountPage(session, flash));

@@ -62,7 +62,7 @@ function layout({ lang, page, title, description, body, v, siteUrl, images = {},
 <html lang="${lang}">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
 <title>${esc(title)}</title>
 ${desc ? `<meta name="description" content="${esc(desc)}">` : ''}
 <meta name="robots" content="${noindex ? 'noindex, follow' : 'index, follow, max-image-preview:large'}">
@@ -76,7 +76,8 @@ ${desc ? `<meta property="og:description" content="${esc(desc)}">` : ''}
 <meta property="og:locale" content="${OG_LOCALE[lang]}">
 ${LANGS.filter((l) => l !== lang).map((l) => `<meta property="og:locale:alternate" content="${OG_LOCALE[l]}">`).join('\n')}
 ${social ? `<meta property="og:image" content="${esc(social)}">\n<meta name="twitter:card" content="summary_large_image">\n<meta name="twitter:image" content="${esc(social)}">` : '<meta name="twitter:card" content="summary">'}
-<meta name="theme-color" content="#0b1b33">
+<meta name="color-scheme" content="light">
+<meta name="theme-color" content="#f7f9fc">
 <link rel="icon" href="/img/favicon.svg" type="image/svg+xml">
 ${graph ? `<script type="application/ld+json">${jsonLd(graph)}</script>` : ''}
 <link rel="preload" href="/fonts/exo-2-latin-700-normal.woff2" as="font" type="font/woff2" crossorigin>
@@ -102,7 +103,7 @@ ${body}
 ${stickyCta && page !== '/contact' ? `<aside aria-label="${esc(t.contact_aside)}"><a class="sticky-cta" href="${link(lang, '/contact')}">${esc(v.hero_cta)}</a></aside>` : ''}
 <footer class="site-footer">
 	<div class="wrap footer-inner">
-		<div><p class="footer-brand">${esc(name.toUpperCase())}</p><p class="footer-note">${esc(v.company_line)}</p></div>
+		<div><p class="footer-brand">${esc(name.toUpperCase())}</p>${v.company_line ? `<p class="footer-note">${esc(v.company_line)}</p>` : ''}</div>
 		<nav aria-label="${esc(t.footer_nav)}">${nav.map(([p, l]) => navLink(p, l)).join('')}${navLink('/contact', t.nav_contact)}${navLink('/privacy', t.privacy)}</nav>
 	</div>
 	<div class="wrap footer-audiences"><nav aria-label="${esc(t.aud_other)}">${AUDIENCES.map((a) => `<a href="${link(lang, '/for/' + a.slug)}"${page === '/for/' + a.slug ? ' aria-current="page"' : ''}>${esc(labelFor(a, lang))}</a>`).join('')}</nav></div>
@@ -141,7 +142,7 @@ const pageHead = (kicker, title, lead) => `
 const ctaBand = (lang, v) => `
 <section class="cta-band" aria-labelledby="cta-title">
 	<div class="wrap cta-inner">
-		<div><h2 id="cta-title">${esc(v.cta_title)}</h2><p>${esc(v.cta_text)}</p></div>
+		<div><h2 id="cta-title">${esc(v.cta_title)}</h2>${v.cta_text ? `<p>${esc(v.cta_text)}</p>` : ''}</div>
 		<a class="btn btn-light" href="${link(lang, '/contact')}">${esc(v.hero_cta)}</a>
 	</div>
 </section>`;
@@ -150,7 +151,7 @@ const fact = (t, v, n) => `
 <figure class="fact">
 	<p class="fact-value">${esc(v[`fact${n}_value`])}</p>
 	<figcaption>${esc(v[`fact${n}_label`])}
-		<span class="source">${esc(t.source)}: ${v[`fact${n}_url`] ? `<a href="${esc(v[`fact${n}_url`])}" rel="noopener noreferrer" target="_blank">${esc(v[`fact${n}_source`])}</a>` : esc(v[`fact${n}_source`])}</span>
+		${v[`fact${n}_source`] || v[`fact${n}_url`] ? `<span class="source">${esc(t.source)}: ${v[`fact${n}_url`] ? `<a href="${esc(v[`fact${n}_url`])}" rel="noopener noreferrer" target="_blank">${esc(v[`fact${n}_source`] || v[`fact${n}_url`])}</a>` : esc(v[`fact${n}_source`])}</span>` : ''}
 	</figcaption>
 </figure>`;
 
@@ -166,9 +167,9 @@ function renderHome({ lang, values: v, images }, { siteUrl }) {
 <section class="hero" aria-labelledby="hero-title">
 	<div class="hero-sky" aria-hidden="true"></div>
 	<div class="wrap hero-inner">
-		<p class="eyebrow">${esc(v.hero_eyebrow)}</p>
+		${v.hero_eyebrow ? `<p class="eyebrow">${esc(v.hero_eyebrow)}</p>` : ''}
 		<h1 id="hero-title">${esc(v.hero_title)}</h1>
-		<p class="lead">${esc(v.hero_text)}</p>
+		${v.hero_text ? `<p class="lead">${esc(v.hero_text)}</p>` : ''}
 		<p class="hero-actions"><a class="btn btn-light" href="${link(lang, '/contact')}">${esc(v.hero_cta)}</a><a class="btn btn-ghost" href="${link(lang, '/how-it-works')}">${esc(t.how_cta)}</a></p>
 		${photo(images, 'hero', 'photo hero-photo', { priority: true })}
 	</div>
@@ -207,7 +208,7 @@ function renderHome({ lang, values: v, images }, { siteUrl }) {
 <section class="status-band" aria-label="${esc(t.k_status)}">
 	<div class="wrap status-inner">
 		<div class="status-track" aria-label="${esc(t.phase)}">${roadmap(t)}</div>
-		<p>${esc(v.status_short)}</p>
+		${v.status_short ? `<p>${esc(v.status_short)}</p>` : ''}
 	</div>
 </section>
 ${ctaBand(lang, v)}
@@ -256,7 +257,7 @@ ${pageHead(t.k_how, v.steps_title, '')}
 			<p class="kicker">${esc(t.k_status)}</p>
 			<h2 id="status-title">${esc(v.status_title)}</h2>
 			<p class="section-lead">${esc(v.status_text)}</p>
-			<p class="status-note">${esc(v.status_note)}</p>
+			${v.status_note ? `<p class="status-note">${esc(v.status_note)}</p>` : ''}
 			${photo(images, 'status', 'photo section-photo')}
 		</div>
 		<div class="status-track" aria-label="${esc(t.phase)}">${roadmap(t)}</div>
@@ -304,21 +305,21 @@ function renderContact({ lang, values: v, images }, { siteUrl, status = '', toke
 			<p>${esc(t.n_sent)}</p>
 			<h3>${esc(t.ok_next)}</h3>
 			<ol><li>${esc(t.ok_1)}</li><li>${esc(t.ok_2)}</li></ol>
-			<p class="reply-note">${esc(v.contact_reply)}</p>
+			${v.contact_reply ? `<p class="reply-note">${esc(v.contact_reply)}</p>` : ''}
 			<p class="hero-actions"><a class="btn" href="${link(lang)}">${esc(t.ok_home)}</a><a class="btn btn-outline" href="${link(lang, '/how-it-works')}">${esc(t.ok_how)}</a></p>
 		</div>`;
 	const formHtml = `
 		${msg ? `<p class="notice notice-${msg[0]}" role="${msg[0] === 'ok' ? 'status' : 'alert'}">${esc(msg[1])}</p>` : ''}
 		${summary}
-		<p class="reply-note">${esc(v.contact_reply)}</p>
+		${v.contact_reply ? `<p class="reply-note">${esc(v.contact_reply)}</p>` : ''}
 		<form class="form" method="post" action="${url(lang, '/contact')}" novalidate>
 			<input type="hidden" name="token" value="${esc(token)}">
 			${utm.source ? `<input type="hidden" name="utm_source" value="${esc(utm.source)}">` : ''}${utm.campaign ? `<input type="hidden" name="utm_campaign" value="${esc(utm.campaign)}">` : ''}
 			<div class="hp" aria-hidden="true"><label>Website <input type="text" name="website" tabindex="-1" autocomplete="off"></label></div>
 			${field('role', 'f-role', t.f_role, `<select id="f-role" name="role">${ROLES.map((r) => `<option value="${esc(r)}"${r === selected ? ' selected' : ''}>${esc(t.roles[r])}</option>`).join('')}</select>`)}
-			${field('name', 'f-name', `${t.f_name} *`, `<input id="f-name" name="name" type="text" autocomplete="name" maxlength="120" required value="${esc(form.name)}"${bad('name')}>`)}
-			${field('email', 'f-email', `${t.f_email} *`, `<input id="f-email" name="email" type="email" autocomplete="email" maxlength="200" required value="${esc(form.email)}"${bad('email')}>`)}
-			${field('org', 'f-org', t.f_org, `<input id="f-org" name="organisation" type="text" autocomplete="organization" maxlength="160" value="${esc(form.org)}">`)}
+			${field('name', 'f-name', `${t.f_name} *`, `<input id="f-name" name="name" type="text" autocomplete="name" autocapitalize="words" enterkeyhint="next" maxlength="120" required value="${esc(form.name)}"${bad('name')}>`)}
+			${field('email', 'f-email', `${t.f_email} *`, `<input id="f-email" name="email" type="email" autocomplete="email" autocapitalize="none" autocorrect="off" spellcheck="false" inputmode="email" enterkeyhint="next" maxlength="200" required value="${esc(form.email)}"${bad('email')}>`)}
+			${field('org', 'f-org', t.f_org, `<input id="f-org" name="organisation" type="text" autocomplete="organization" autocapitalize="words" enterkeyhint="next" maxlength="160" value="${esc(form.org)}">`)}
 			${field('message', 'f-msg', `${t.f_msg} *`, `<textarea id="f-msg" name="message" rows="5" maxlength="5000" required${bad('message')}>${esc(form.message)}</textarea>`)}
 			<div class="field check${errors.consent ? ' has-error' : ''}"><input id="f-consent" name="consent" type="checkbox" value="1" required${bad('consent')}><label for="f-consent">${consent}</label>${errors.consent ? `<p class="field-error" id="e-consent">${esc(errText.consent)}</p>` : ''}</div>
 			<button class="btn" type="submit">${esc(t.f_send)}</button>

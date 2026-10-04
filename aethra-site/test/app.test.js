@@ -442,6 +442,22 @@ test('visitor confirmation mail: sent once per address, fixed text, can be disab
 	for (const m of store.listMessages()) store.deleteMessage(m.id);
 });
 
+test('admin messages are paginated and counts are formatted; dev toggle is absent in normal runs', async () => {
+	for (let i = 0; i < 120; i++) store.addMessage({ lang: 'en', role: 'Other', name: `Person ${i}`, email: `p${i}@example.org`, org: '', message: 'm' });
+	const first = await (await fetch(base + '/admin/messages', { headers: { cookie } })).text();
+	assert.equal((first.match(/class="card msg"/g) || []).length, 50);
+	assert.ok(first.includes('Page 1 of 3') && first.includes('(120)'));
+	assert.ok(first.includes('/admin/messages?page=2'));
+	assert.equal(store.unreadCount(), 70, 'only the messages shown are marked read');
+	const last = await (await fetch(base + '/admin/messages?page=3', { headers: { cookie } })).text();
+	assert.equal((last.match(/class="card msg"/g) || []).length, 20);
+	assert.equal((await (await fetch(base + '/admin/messages?page=999', { headers: { cookie } })).text()).includes('Page 3 of 3'), true);
+	for (const m of store.listMessages()) store.deleteMessage(m.id);
+	const home = await (await fetch(base + '/en/')).text();
+	assert.ok(!home.includes('dev-toggle'), 'the stress-data switch only exists with DEV_TOGGLE=1');
+	assert.equal((await fetch(base + '/__data?mode=worst', { redirect: 'manual' })).status, 404);
+});
+
 test('llms.txt describes the site for AI search', async () => {
 	const txt = await (await fetch(base + '/llms.txt')).text();
 	assert.ok(txt.startsWith('# Aethra'));

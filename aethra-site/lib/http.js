@@ -36,6 +36,7 @@ function sendPage(req, res, html, { cache = true } = {}) {
 const wantsGzip = (req) => /\bgzip\b/.test(String((req && req.headers['accept-encoding']) || ''));
 
 function send(res, status, body, headers = {}) {
+	if (res.devToggle && typeof body === 'string' && body.includes('</body>')) body = body.replace('</body>', `${res.devToggle}</body>`);
 	const h = baseHeaders({ 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', Vary: 'Accept-Encoding', ...headers });
 	if (typeof body === 'string' && body.length > 1024 && wantsGzip(res.req)) {
 		body = zlib.gzipSync(body);

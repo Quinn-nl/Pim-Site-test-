@@ -4,10 +4,12 @@ const { LANGS, LANG_NAMES } = require('./i18n');
 const { esc } = require('./views');
 const store = require('./store');
 
+const nf = (n) => new Intl.NumberFormat('en-GB').format(n);
+
 function shell(title, active, csrf, inner, flash) {
 	const tab = (href, label, key) => `<a href="${href}"${active === key ? ' aria-current="page"' : ''}>${label}</a>`;
 	return `<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex, nofollow"><link rel="icon" href="/img/favicon.svg" type="image/svg+xml"><title>${esc(title)} | Admin</title>
 <link rel="stylesheet" href="/css/admin.css"></head>
 <body>
@@ -67,17 +69,17 @@ ${langTabs('/admin/privacy', lang)}
 <div class="sticky"><button type="submit">Save</button></div></form>`, flash);
 }
 
-function messagesPage(session, messages, retention, flash) {
+function messagesPage(session, messages, retention, flash, pager = { page: 1, pages: 1, total: messages.length }) {
 	const rows = messages.length ? messages.map((m) => `<article class="card msg"><p class="who"><strong>${esc(m.name)}</strong> &lt;<a href="mailto:${esc(m.email)}">${esc(m.email)}</a>&gt;</p>
 <p class="meta">${esc(m.role)}${m.source && m.source !== 'direct' ? ' · ' + esc(m.source) + (m.campaign ? ' / ' + esc(m.campaign) : '') : ''}${m.lang ? ' · ' + esc(String(m.lang).toUpperCase()) : ''}${m.org ? ' · ' + esc(m.org) : ''} · ${esc(new Date(m.at).toLocaleString('en-GB', { timeZone: 'Europe/Amsterdam' }))}</p>
 <p>${esc(m.message).replace(/\n/g, '<br>')}</p>
 <form method="post" action="/admin/messages/delete"><input type="hidden" name="csrf" value="${esc(session.csrf)}"><input type="hidden" name="id" value="${esc(m.id)}"><button class="danger" type="submit">Delete</button></form></article>`).join('') : '<p class="hint">No messages yet.</p>';
-	return shell('Messages', 'messages', session.csrf, `<h1>Messages</h1><p class="hint">Messages are kept here for ${retention} days and then deleted automatically. Delete them earlier on request. <a href="/admin/messages.csv">Download as CSV</a></p>${rows}`, flash);
+	return shell('Messages', 'messages', session.csrf, `<h1>Messages${pager.total ? ` <span class="count">(${nf(pager.total)})</span>` : ''}</h1><p class="hint">Messages are kept here for ${retention} days and then deleted automatically. Delete them earlier on request. <a href="/admin/messages.csv">Download as CSV</a></p>${rows}${pager.pages > 1 ? `<nav class="tabs" aria-label="Pages">${pager.page > 1 ? `<a href="/admin/messages?page=${pager.page - 1}">Newer</a>` : ''}<span class="hint">Page ${pager.page} of ${pager.pages}</span>${pager.page < pager.pages ? `<a href="/admin/messages?page=${pager.page + 1}">Older</a>` : ''}</nav>` : ''}`, flash);
 }
 
 function table(headers, rows, empty) {
 	if (!rows.length) return `<p class="hint">${esc(empty)}</p>`;
-	return `<div class="scroll"><table><thead><tr>${headers.map((h, i) => `<th scope="col"${i ? ' class="num"' : ''}>${esc(h)}</th>`).join('')}</tr></thead><tbody>${rows.map((r) => `<tr>${r.map((c, i) => (i ? `<td class="num">${esc(c)}</td>` : `<th scope="row">${esc(c)}</th>`)).join('')}</tr>`).join('')}</tbody></table></div>`;
+	return `<div class="scroll"><table><thead><tr>${headers.map((h, i) => `<th scope="col"${i ? ' class="num"' : ''}>${esc(h)}</th>`).join('')}</tr></thead><tbody>${rows.map((r) => `<tr>${r.map((c, i) => (i ? `<td class="num">${esc(typeof c === 'number' ? nf(c) : c)}</td>` : `<th scope="row">${esc(c)}</th>`)).join('')}</tr>`).join('')}</tbody></table></div>`;
 }
 
 function chart(sum) {
@@ -94,9 +96,9 @@ function statsPage(session, sum, days) {
 <p class="hint">Anonymous page views, counted without cookies or IP addresses. Visitors who send Do Not Track are not counted, and unique visitors cannot be measured. Use these numbers for trends, not exact counts.</p>
 <nav class="tabs" aria-label="Period">${ranges}</nav>
 <div class="kpis">
-<div class="kpi"><span class="kpi-v">${sum.views}</span><span>Page views</span></div>
-<div class="kpi"><span class="kpi-v">${sum.contactViews}</span><span>Contact page views</span></div>
-<div class="kpi"><span class="kpi-v">${sum.sent}</span><span>Messages sent</span></div>
+<div class="kpi"><span class="kpi-v">${nf(sum.views)}</span><span>Page views</span></div>
+<div class="kpi"><span class="kpi-v">${nf(sum.contactViews)}</span><span>Contact page views</span></div>
+<div class="kpi"><span class="kpi-v">${nf(sum.sent)}</span><span>Messages sent</span></div>
 <div class="kpi"><span class="kpi-v">${pct(sum.sent, sum.contactViews)}</span><span>Contact page to message</span></div>
 </div>
 <section class="card"><h2>Page views per day</h2>${chart(sum)}</section>

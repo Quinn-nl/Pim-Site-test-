@@ -151,6 +151,12 @@ function markAllRead() {
 	if (all.some((m) => m.read === false)) writeJson('messages.json', all.map((m) => ({ ...m, read: true })));
 }
 
+function markRead(ids) {
+	const set = new Set(ids);
+	const all = readJson('messages.json', []);
+	if (all.some((m) => set.has(m.id) && m.read === false)) writeJson('messages.json', all.map((m) => (set.has(m.id) ? { ...m, read: true } : m)));
+}
+
 function patchMessage(id, patch) {
 	const all = readJson('messages.json', []);
 	writeJson('messages.json', all.map((m) => (m.id === id ? { ...m, ...patch } : m)));
@@ -172,4 +178,4 @@ function deleteMessage(id) {
 	writeJson('messages.json', all.filter((m) => m.id !== id));
 }
 
-module.exports = { unreadCount, markAllRead, patchMessage, messagesCsv, file, uploadsDir, ensureDirs, readJson, writeJson, getSecret, getContent, saveContent, setImage, listMessages, addMessage, deleteMessage, cleanValue };
+module.exports = { markRead, unreadCount, markAllRead, patchMessage, messagesCsv, file, uploadsDir, ensureDirs, readJson, writeJson, getSecret, getContent, saveContent, setImage, listMessages, addMessage, deleteMessage, cleanValue };

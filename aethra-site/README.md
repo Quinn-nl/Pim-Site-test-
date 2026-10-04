@@ -8,7 +8,7 @@ Node.js 20+ only: no npm packages, no database, no external requests (fonts, scr
 cd aethra-site
 npm run set-password      # once: choose an admin password of at least 12 characters
 npm start                 # http://127.0.0.1:3000   (PORT / HOST can be set)
-npm test                  # 21 tests: security, languages, SEO, form, upload, admin
+npm test                  # 22 tests: security, languages, SEO, form, upload, admin
 ```
 Data (texts, photos, messages, password hash) lives in `aethra-site/data/` (git-ignored; set `DATA_DIR` to move it). **Back this folder up.**
 
@@ -24,6 +24,9 @@ Data (texts, photos, messages, password hash) lives in `aethra-site/data/` (git-
 - **Statistics** (admin > Statistics): anonymous page views per day, top pages, sources and campaigns, language, contact-page-to-message rate and messages by role. No cookies, no IP addresses, no visitor identifiers; Do Not Track and Global Privacy Control are respected; crawlers are not counted. Tag links with `?utm_source=linkedin&utm_campaign=launch`: the tags stay on internal links while a visitor browses (no storage needed) and are saved on the message, so the CSV shows which campaign produced which lead.
 - **Confirmation e-mail** to the visitor (fixed text in their language, once per address per day) when SMTP is set. Switch off with `AUTO_REPLY=0`.
 - `/llms.txt` summarises the site for AI search tools.
+
+## Testing layout with worst-case data
+Start with `DEV_TOGGLE=1` (ignored when `NODE_ENV=production`): a small switch appears at the bottom of every public page to flip between **Demo data**, **Worst case** (every text twice as long, huge numbers, long site name and source) and **Empty** (optional texts cleared). `scripts/stress-test.cjs` runs this over every page, language and width (needs Playwright) and reports overflow. Long words hyphenate or break instead of overflowing; empty optional fields hide their labels.
 
 ## Conversion
 Every page ends in one call to action; segment cards link to the contact form with the right role preselected; the form asks for the minimum, says when you will reply (editable) and what happens with the details; a fixed contact button appears on phones. No analytics are installed on purpose: the admin inbox shows each message with its role and language.
