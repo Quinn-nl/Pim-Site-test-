@@ -136,12 +136,17 @@ const js = `(function () {
 		else if (e.key === 'Home') show(0, true);
 		else if (e.key === 'End') show(slides.length - 1, true);
 	});
-	var x0 = null;
-	document.addEventListener('touchstart', function (e) { x0 = e.touches[0].clientX; }, { passive: true });
+	// Swipe: horizontal intent must dominate (vertical scrolling inside a slide must not change slides);
+	// a quick flick counts even when short.
+	var t0 = null;
+	document.addEventListener('touchstart', function (e) { t0 = { x: e.touches[0].clientX, y: e.touches[0].clientY, t: Date.now() }; }, { passive: true });
 	document.addEventListener('touchend', function (e) {
-		if (x0 === null) return;
-		var dx = e.changedTouches[0].clientX - x0; x0 = null;
-		if (Math.abs(dx) > 50) show(i + (dx < 0 ? 1 : -1), true);
+		if (!t0) return;
+		var dx = e.changedTouches[0].clientX - t0.x, dy = e.changedTouches[0].clientY - t0.y;
+		var speed = Math.abs(dx) / Math.max(1, Date.now() - t0.t);
+		t0 = null;
+		var horizontal = Math.abs(dx) > Math.abs(dy) * 1.5;
+		if (horizontal && (Math.abs(dx) > 50 || (Math.abs(dx) > 20 && speed > 0.3))) show(i + (dx < 0 ? 1 : -1), true);
 	}, { passive: true });
 	var start = parseInt((location.hash || '').slice(1), 10);
 	show(isNaN(start) ? 0 : start - 1, false);

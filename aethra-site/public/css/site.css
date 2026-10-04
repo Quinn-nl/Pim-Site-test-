@@ -341,3 +341,15 @@ h1 { overflow-wrap: anywhere; }
 @keyframes pop-in-soft { from { opacity: 0; } }
 .success { animation: pop-in 260ms var(--ease-out); }
 @media (prefers-reduced-motion: reduce) { .success { animation: pop-in-soft 160ms ease; } }
+
+/* apple-design: size-specific tracking and leading, and respect for transparency and contrast preferences */
+.hero h1, .page-head h1 { letter-spacing: -.02em; line-height: 1.06; }
+.section h2, .cta-inner h2 { letter-spacing: -.012em; line-height: 1.12; }
+h3 { letter-spacing: 0; }
+.site-header { backdrop-filter: blur(16px) saturate(160%); }
+@media (prefers-reduced-transparency: reduce) { .site-header { background: var(--bg); backdrop-filter: none; } }
+@media (prefers-contrast: more) {
+	.site-header { background: var(--bg); backdrop-filter: none; border-bottom-color: var(--ink); }
+	.card, .fact, .points li, .faq details, .form, .chips li { border-color: var(--ink-soft); }
+	:root { --muted: var(--slate-700); }
+}
