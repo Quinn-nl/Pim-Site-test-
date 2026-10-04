@@ -30,6 +30,22 @@
 			document.cookie = 'aethra_lang=' + a.getAttribute('data-lang') + '; Path=/; Max-Age=31536000; SameSite=Lax' + secure;
 		});
 	});
+	// After a failed or finished submit, move focus to the message so screen readers announce it.
+	var focusTarget = document.querySelector('[data-autofocus]');
+	if (focusTarget) focusTarget.focus();
+
+	// Show progress and block double submits; restore the button when the page comes back from history.
+	var form = document.querySelector('form.form');
+	if (form) {
+		var submit = form.querySelector('button[type=submit]');
+		var label = submit && submit.textContent;
+		form.addEventListener('submit', function () {
+			if (submit.disabled) return;
+			submit.disabled = true;
+			submit.textContent = submit.getAttribute('data-sending') || label;
+		});
+		window.addEventListener('pageshow', function () { submit.disabled = false; submit.textContent = label; });
+	}
 	var sticky = document.querySelector('.sticky-cta');
 	var header = document.querySelector('.site-header');
 	if (header) {

@@ -83,6 +83,7 @@ ${graph ? `<script type="application/ld+json">${jsonLd(graph)}</script>` : ''}
 <link rel="preload" href="/fonts/exo-2-latin-700-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/fonts/ibm-plex-sans-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
 <script src="/js/init.js"></script>
+<link rel="stylesheet" href="/css/tokens.css">
 <link rel="stylesheet" href="/css/site.css">
 <script src="/js/site.js" defer></script>
 </head>
@@ -298,9 +299,9 @@ function renderContact({ lang, values: v, images }, { siteUrl, status = '', toke
 	const errText = { name: t.e_name, email: t.e_email, message: t.e_msg, consent: t.e_consent };
 	const field = (key, id, label, input, extra = '') => `<div class="field${errors[key] ? ' has-error' : ''}"${extra}><label for="${id}">${esc(label)}</label>${input}${errors[key] ? `<p class="field-error" id="e-${key}">${esc(errText[key])}</p>` : ''}</div>`;
 	const bad = (key) => (errors[key] ? ` aria-invalid="true" aria-describedby="e-${key}"` : '');
-	const summary = errorKeys.length ? `<div class="notice notice-err" role="alert"><strong>${esc(t.n_invalid)}</strong><ul>${errorKeys.map((k) => `<li><a href="#f-${k === 'message' ? 'msg' : k}">${esc(errText[k])}</a></li>`).join('')}</ul></div>` : '';
+	const summary = errorKeys.length ? `<div class="notice notice-err" id="error-summary" tabindex="-1" data-autofocus role="alert"><strong>${esc(t.n_invalid)}</strong><ul>${errorKeys.map((k) => `<li><a href="#f-${k === 'message' ? 'msg' : k}">${esc(errText[k])}</a></li>`).join('')}</ul></div>` : '';
 	const success = `
-		<div class="success" role="status">
+		<div class="success" tabindex="-1" data-autofocus role="status">
 			<h2>${esc(t.ok_title)}</h2>
 			<p>${esc(t.n_sent)}</p>
 			<h3>${esc(t.ok_next)}</h3>
@@ -309,10 +310,11 @@ function renderContact({ lang, values: v, images }, { siteUrl, status = '', toke
 			<p class="hero-actions"><a class="btn" href="${link(lang)}">${esc(t.ok_home)}</a><a class="btn btn-outline" href="${link(lang, '/how-it-works')}">${esc(t.ok_how)}</a></p>
 		</div>`;
 	const formHtml = `
-		${msg ? `<p class="notice notice-${msg[0]}" role="${msg[0] === 'ok' ? 'status' : 'alert'}">${esc(msg[1])}</p>` : ''}
+		${msg ? `<p class="notice notice-${msg[0]}" tabindex="-1" data-autofocus role="${msg[0] === 'ok' ? 'status' : 'alert'}">${esc(msg[1])}</p>` : ''}
 		${summary}
 		${v.contact_reply ? `<p class="reply-note">${esc(v.contact_reply)}</p>` : ''}
 		<form class="form" method="post" action="${url(lang, '/contact')}" novalidate>
+			<p class="required-note">${esc(t.f_required)}</p>
 			<input type="hidden" name="token" value="${esc(token)}">
 			${utm.source ? `<input type="hidden" name="utm_source" value="${esc(utm.source)}">` : ''}${utm.campaign ? `<input type="hidden" name="utm_campaign" value="${esc(utm.campaign)}">` : ''}
 			<div class="hp" aria-hidden="true"><label>Website <input type="text" name="website" tabindex="-1" autocomplete="off"></label></div>
@@ -322,7 +324,7 @@ function renderContact({ lang, values: v, images }, { siteUrl, status = '', toke
 			${field('org', 'f-org', t.f_org, `<input id="f-org" name="organisation" type="text" autocomplete="organization" autocapitalize="words" enterkeyhint="next" maxlength="160" value="${esc(form.org)}">`)}
 			${field('message', 'f-msg', `${t.f_msg} *`, `<textarea id="f-msg" name="message" rows="5" maxlength="5000" required${bad('message')}>${esc(form.message)}</textarea>`)}
 			<div class="field check${errors.consent ? ' has-error' : ''}"><input id="f-consent" name="consent" type="checkbox" value="1" required${bad('consent')}><label for="f-consent">${consent}</label>${errors.consent ? `<p class="field-error" id="e-consent">${esc(errText.consent)}</p>` : ''}</div>
-			<button class="btn" type="submit">${esc(t.f_send)}</button>
+			<button class="btn" type="submit" data-sending="${esc(t.f_sending)}">${esc(t.f_send)}</button>
 			<p class="trust">${esc(t.f_trust)}</p>
 		</form>`;
 	const body = `

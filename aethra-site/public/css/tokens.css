@@ -1,0 +1,87 @@
+/*
+ * Design tokens, shared by the public site and the admin panel.
+ * Three layers: primitive (raw values) -> semantic (purpose) -> component (per-component).
+ * Components must use semantic or component tokens, never raw colours.
+ */
+:root {
+	/* 1. Primitives */
+	--white: #ffffff;
+	--paper: #f7f9fc;
+	--mist: #f4f7fc;
+	--steel-300: #b8c6de;
+	--slate-200: #dbe3ef;
+	--slate-300: #9fb0cb;
+	--slate-500: #5a6a85;
+	--slate-700: #3b4b66;
+	--navy-950: #060f20;
+	--navy-900: #0b1b33;
+	--navy-850: #1c2e4f;
+	--navy-800: #12294d;
+	--navy-700: #28406b;
+	--navy-600: #4a6aa3;
+	--blue-900: #123a7a;
+	--blue-700: #164aa8;
+	--blue-600: #1f5fd1;
+	--blue-400: #6ea8ff;
+	--blue-200: #cfe0ff;
+	--blue-100: #e3ecff;
+	--blue-50: #e8f0fe;
+	--green-50: #e6f6ec;
+	--green-900: #11512b;
+	--red-50: #fdeaea;
+	--red-600: #b42323;
+	--red-800: #7a1616;
+	--red-700: #9b1c1c;
+
+	/* 2. Semantic */
+	--bg: var(--paper);
+	--surface: var(--white);
+	--ink: var(--navy-900);
+	--ink-soft: var(--slate-700);
+	--muted: var(--slate-500);
+	--line: var(--slate-200);
+	--accent: var(--blue-600);
+	--accent-hover: var(--blue-700);
+	--accent-ink: var(--white);
+	--accent-soft: var(--blue-50);
+	--space-0: var(--navy-950);
+	--space: var(--navy-900);
+	--space-2: var(--navy-800);
+	--space-line: var(--navy-850);
+	--on-space: var(--mist);
+	--on-space-soft: var(--steel-300);
+	--glow: var(--blue-400);
+	--star: var(--blue-200);
+	--track: var(--navy-700);
+	--track-active: var(--navy-600);
+	--cta-from: var(--blue-900);
+	--cta-to: var(--blue-600);
+	--on-cta-soft: var(--blue-100);
+	--success-bg: var(--green-50);
+	--success-ink: var(--green-900);
+	--danger-bg: var(--red-50);
+	--danger-ink: var(--red-800);
+	--danger-text: var(--red-700);
+	--danger-strong: var(--red-600);
+
+	/* 3. Component */
+	--btn-bg: var(--accent);
+	--btn-bg-hover: var(--accent-hover);
+	--btn-ink: var(--accent-ink);
+	--btn-light-bg: var(--white);
+	--btn-light-ink: var(--space);
+	--input-bg: var(--white);
+	--input-border: var(--slate-300);
+	--input-border-error: var(--danger-strong);
+	--card-bg: var(--surface);
+	--card-border: var(--line);
+	--footer-bg: var(--space-0);
+
+	/* Shape, layout, type and spacing */
+	--radius: 12px;
+	--wrap: 1120px;
+	--font: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+	--display: "Exo 2", "IBM Plex Sans", system-ui, sans-serif;
+	--mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+	--s-1: .5rem; --s-2: 1rem; --s-3: 1.5rem; --s-4: 2.5rem; --s-5: 4rem; --s-6: 6rem;
+}
