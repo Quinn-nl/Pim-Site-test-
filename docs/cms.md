@@ -23,6 +23,14 @@ Open `http://localhost:3000/admin2`. The first account created is always an admi
 - Pages (**Website > Pages**) are written per language, with drafts. Only published pages appear on the site, in the sitemap (with hreflang) and optionally in the footer.
 - Rich text is converted to safe HTML (headings, lists, quotes, bold/italic, http(s)/mailto links); nothing else is passed through.
 
+## Handy to know
+
+- The dashboard groups texts per page (Home, The problem, How it works, Applications, Contact, Audience pages, Extra pages, Settings). The icon next to Save opens the live page.
+- Edits show on the website within a second (the CMS tells the site; `SITE_REFRESH_TOKEN` in `payload/.env` is the shared secret). If the token was added later, restart the CMS once.
+- Messages: search on name, e-mail, organisation and text; tick Handled when replied. The dashboard shows how many are unhandled.
+- Pages: the address is filled in from the heading when left empty; drafts autosave; photos need a description.
+- GraphQL is switched off, uploads are limited to 8 MB, and editors do not see the Users list.
+
 ## Security
 
 - Roles: `admin` (everything), `editor` (content and messages), `site` (API key used by the website, only creates messages and reads content).

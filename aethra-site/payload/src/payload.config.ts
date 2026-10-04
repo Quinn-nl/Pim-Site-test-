@@ -36,9 +36,15 @@ export default buildConfig({
   admin: {
     user: Users.slug,
     importMap: { baseDir: path.resolve(dirname) },
-    meta: { titleSuffix: ' | Aethra admin' },
+    meta: { titleSuffix: ' | Aethra admin', description: 'Edit the Aethra website' },
+    dateFormat: 'dd-MM-yyyy HH:mm',
+    components: { beforeDashboard: ['/components/BeforeDashboard'] },
   },
-  collections: [Pages, Messages, Media, Users],
+  collections: [Messages, Pages, Media, Users],
+  graphQL: { disable: true }, // not used; one less door
+  upload: { limits: { fileSize: 8 * 1024 * 1024 } },
+  cors: [process.env.PAYLOAD_PUBLIC_SERVER_URL || 'http://localhost:3000'],
+  csrf: [process.env.PAYLOAD_PUBLIC_SERVER_URL || 'http://localhost:3000', 'http://localhost:3000', 'http://127.0.0.1:3000'],
   globals: [...SiteContent, Privacy, Photos],
   // Only what the website can render: headings, bold, italic, lists, quotes and links.
   editor: lexicalEditor({

@@ -115,6 +115,14 @@ async function handlePublic(req, res, url) {
 	if (get && url.pathname === '/favicon.ico') return redirect(res, '/img/favicon.svg', { 'Cache-Control': 'public, max-age=86400' }, 301);
 	const indexNowKey = String(process.env.INDEXNOW_KEY || '');
 	if (get && /^[A-Za-z0-9-]{8,128}$/.test(indexNowKey) && url.pathname === `/${indexNowKey}.txt`) return send(res, 200, indexNowKey, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'public, max-age=86400' });
+	// The CMS calls this after every save so changes show up at once (the background poll stays as a safety net)
+	if (req.method === 'POST' && url.pathname === '/api/cms-refresh' && process.env.CMS_URL && process.env.CMS_REFRESH_TOKEN) {
+		const given = Buffer.from(String(req.headers['x-refresh-token'] || ''));
+		const want = Buffer.from(String(process.env.CMS_REFRESH_TOKEN));
+		if (given.length !== want.length || !require('crypto').timingSafeEqual(given, want)) return send(res, 403, 'forbidden', { 'Content-Type': 'text/plain' });
+		require('./lib/payload-content').refresh().catch(() => {});
+		return send(res, 202, 'ok', { 'Content-Type': 'text/plain', 'Cache-Control': 'no-store' });
+	}
 	if (get && url.pathname === '/healthz') return send(res, 200, 'ok', { 'Content-Type': 'text/plain' });
 
 	if (DEV_TOGGLE && get && url.pathname === '/__data') {

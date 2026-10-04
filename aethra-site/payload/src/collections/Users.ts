@@ -6,7 +6,7 @@ const production = process.env.NODE_ENV === 'production'
 
 export const Users: CollectionConfig = {
   slug: 'users',
-  admin: { useAsTitle: 'email', defaultColumns: ['email', 'role', 'updatedAt'], group: 'Admin' },
+  admin: { useAsTitle: 'email', defaultColumns: ['email', 'role', 'updatedAt'], group: 'Admin', hidden: ({ user }) => (user as { role?: string } | null)?.role !== 'admin', description: 'People who can log in. Give each person their own account. Roles are explained in docs/cms.md.' },
   auth: {
     tokenExpiration: 8 * 60 * 60,
     maxLoginAttempts: 5,

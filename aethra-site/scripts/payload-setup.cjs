@@ -70,13 +70,18 @@ async function main() {
 	console.log(`\nTexts written: ${written} (group x language). Existing texts were left alone${RESEED ? ' except with --reseed' : ''}.`);
 
 	// The website's own account (API key) for the contact inbox.
-	if (!env.CMS_API_KEY) {
+	let keyWorks = false;
+	if (env.CMS_API_KEY) { // a key left over from an earlier database no longer works
+		try { const me = await fetch(`${BASE}/users/me`, { headers: { Authorization: `users API-Key ${env.CMS_API_KEY}` } }); const j = await me.json(); keyWorks = !!(j && j.user && j.user.role === 'site'); } catch (e) { keyWorks = false; }
+	}
+	if (!keyWorks) {
 		const siteEmail = 'website@example.com';
 		const apiKey = crypto.randomBytes(24).toString('hex');
 		const existing = (await api('GET', `/users?where[email][equals]=${encodeURIComponent(siteEmail)}&limit=1`)).data;
 		if (existing && existing.docs && existing.docs[0]) await api('PATCH', `/users/${existing.docs[0].id}`, { enableAPIKey: true, apiKey });
 		else await api('POST', '/users', { email: siteEmail, password: crypto.randomBytes(18).toString('base64url') + 'aA1!', role: 'site', enableAPIKey: true, apiKey });
-		fs.appendFileSync(ENV_FILE, `CMS_API_KEY=${apiKey}\n`);
+		const kept = fs.readFileSync(ENV_FILE, 'utf8').split(/\r?\n/).filter((l) => l && !l.startsWith('CMS_API_KEY='));
+		fs.writeFileSync(ENV_FILE, `${kept.join('\n')}\nCMS_API_KEY=${apiKey}\n`);
 		console.log('Created the "website" account; its API key is stored in payload/.env (CMS_API_KEY).');
 	}
 	console.log('Done. Open /admin2 on the website to edit the content.');

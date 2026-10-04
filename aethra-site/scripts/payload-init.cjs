@@ -42,6 +42,7 @@ if (fs.existsSync(envFile)) {
 		`PAYLOAD_PUBLIC_SERVER_URL=${site}`,
 		`CMS_ADMIN_EMAIL=${email}`,
 		`CMS_ADMIN_PASSWORD=${password}`,
+		`SITE_REFRESH_TOKEN=${crypto.randomBytes(24).toString('hex')}`,
 	].join('\n') + '\n', { mode: 0o600 });
 	console.log(`Created payload/.env. Administrator: ${email} / ${password}  (also stored in that file; change the password after the first login).`);
 }
