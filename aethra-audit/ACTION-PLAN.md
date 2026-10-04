@@ -3,7 +3,7 @@
 Each item: why, how we would know it failed, and a leading indicator to watch.
 
 ## Phase 1: before launch (week 1)
-1. **Decide the AI crawler policy (client).** Options per purpose: search/answer engines (OAI-SearchBot, Claude-SearchBot, PerplexityBot, Googlebot) and training (GPTBot, ClaudeBot, Google-Extended, CCBot, Applebot-Extended). Blocking training does not remove the site from search answers. *Failed if:* a search bot is blocked by accident. *Indicator:* robots.txt checked with `npm run seo` after the change.
+1. **AI crawler policy (BUILT with a default the client can change).** Search/answer bots stay allowed; training-only bots (GPTBot, ClaudeBot, Google-Extended, CCBot, Applebot-Extended) are blocked. `AI_TRAINING=allow` turns the block off. Options per purpose: search/answer engines (OAI-SearchBot, Claude-SearchBot, PerplexityBot, Googlebot) and training (GPTBot, ClaudeBot, Google-Extended, CCBot, Applebot-Extended). Blocking training does not remove the site from search answers. *Failed if:* a search bot is blocked by accident. *Indicator:* robots.txt checked with `npm run seo` after the change.
 2. **Domain, HTTPS, `SITE_URL`, `NODE_ENV=production`** (Secure cookies, HSTS). *Failed if:* canonicals still point to `aethra.example`. *Indicator:* `SITE_URL=https://real-domain npm run seo` shows 0 errors.
 3. **Search Console and Bing Webmaster**: verify, submit `/sitemap.xml`. *Indicator:* indexed pages vs 44 submitted.
 4. **Fill the LinkedIn company link** in Admin > Content > Contact (feeds `sameAs`). *Indicator:* Organization JSON-LD contains `sameAs`.

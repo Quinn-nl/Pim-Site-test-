@@ -153,7 +153,9 @@ async function main() {
 	if (!/<lastmod>\d{4}-\d{2}-\d{2}/.test(sm.body)) add('warn', '/sitemap.xml', 'no lastmod');
 	const rb = await get(port, '/robots.txt');
 	if (!/Sitemap: https?:\/\//.test(rb.body)) add('error', '/robots.txt', 'no absolute Sitemap line');
-	if (/Disallow:\s*\/\s*$/m.test(rb.body)) add('error', '/robots.txt', 'blocks the whole site');
+	const star = (/User-agent:\s*\*\s*\n([\s\S]*?)(?:\n\s*\n|$)/.exec(rb.body) || [, ''])[1];
+	if (/^Disallow:\s*\/\s*$/m.test(star)) add('error', '/robots.txt', 'blocks the whole site for all crawlers');
+	for (const bot of ['OAI-SearchBot', 'Claude-SearchBot', 'PerplexityBot', 'Googlebot', 'Bingbot']) if (new RegExp(`User-agent:\\s*${bot}\\b`, 'i').test(rb.body)) add('warn', '/robots.txt', `${bot} has its own rule: check that search access is intended`);
 	const ll = await get(port, '/llms.txt');
 	if (ll.status !== 200) add('info', '/llms.txt', 'missing (optional; Google ignores it)');
 	const nf = await get(port, '/en/does-not-exist');

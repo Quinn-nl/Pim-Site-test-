@@ -42,14 +42,14 @@
       "hash": "250fec845f5f4d68"
     },
     "/en/contact": {
-      "title": "Contact us | Aethra",
+      "title": "Contact: city, fleet, OEM or investor | Aethra",
       "description": "City, fleet, manufacturer, platform or investor: send us a message and we will reply.",
       "h1": "Let us talk",
       "canonical": "https://aethra.example/en/contact",
       "robots": "index, follow, max-image-preview:large",
       "ld": "",
       "words": 80,
-      "hash": "a51fb2f4020ba2b0"
+      "hash": "49330f76e7c384da"
     },
     "/en/privacy": {
       "title": "Privacy statement | Aethra",
@@ -152,14 +152,14 @@
       "hash": "367551468edbdb71"
     },
     "/nl/contact": {
-      "title": "Contact opnemen | Aethra",
+      "title": "Contact: gemeente, wagenpark of investeerder | Aethra",
       "description": "Gemeente, wagenpark, fabrikant, platform of investeerder: stuur ons een bericht en wij reageren.",
       "h1": "Laten we praten",
       "canonical": "https://aethra.example/nl/contact",
       "robots": "index, follow, max-image-preview:large",
       "ld": "",
       "words": 77,
-      "hash": "1991c3c9f52a96ce"
+      "hash": "8d1907d4c07d243c"
     },
     "/nl/privacy": {
       "title": "Privacyverklaring | Aethra",
@@ -262,14 +262,14 @@
       "hash": "2d6e55be823e4ae9"
     },
     "/de/contact": {
-      "title": "Kontakt aufnehmen | Aethra",
+      "title": "Kontakt: Kommune, Flotte, Hersteller oder Investor | Aethra",
       "description": "Kommune, Flotte, Hersteller, Plattform oder Investor: Senden Sie uns eine Nachricht, wir antworten.",
       "h1": "Lassen Sie uns sprechen",
       "canonical": "https://aethra.example/de/contact",
       "robots": "index, follow, max-image-preview:large",
       "ld": "",
       "words": 78,
-      "hash": "2060b82c7d7e7804"
+      "hash": "25438d207daabdf0"
     },
     "/de/privacy": {
       "title": "Datenschutzerklärung | Aethra",
@@ -372,14 +372,14 @@
       "hash": "bbd79f0c0d935526"
     },
     "/fr/contact": {
-      "title": "Nous contacter | Aethra",
+      "title": "Contact : commune, flotte ou investisseur | Aethra",
       "description": "Commune, flotte, constructeur, plateforme ou investisseur : envoyez-nous un message, nous vous répondrons.",
       "h1": "Parlons-en",
       "canonical": "https://aethra.example/fr/contact",
       "robots": "index, follow, max-image-preview:large",
       "ld": "",
       "words": 83,
-      "hash": "0314f83a2f064994"
+      "hash": "cbce2009c28f2c22"
     },
     "/fr/privacy": {
       "title": "Politique de confidentialité | Aethra",

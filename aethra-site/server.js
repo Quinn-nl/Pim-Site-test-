@@ -86,7 +86,9 @@ async function handlePublic(req, res, url) {
 	const get = req.method === 'GET';
 
 	if (get && url.pathname === '/robots.txt') {
-		return send(res, 200, `User-agent: *\nAllow: /\nDisallow: /admin\n\nSitemap: ${siteUrl}/sitemap.xml\n`, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'public, max-age=3600' });
+		// Search and answer bots stay allowed. Training-only bots are blocked unless AI_TRAINING=allow (a licensing choice, it does not affect search or AI answers).
+		const training = process.env.AI_TRAINING === 'allow' ? '' : `${['GPTBot', 'ClaudeBot', 'Google-Extended', 'CCBot', 'Applebot-Extended'].map((b) => `User-agent: ${b}`).join('\n')}\nDisallow: /\n\n`;
+		return send(res, 200, `${training}User-agent: *\nAllow: /\nDisallow: /admin\n\nSitemap: ${siteUrl}/sitemap.xml\n`, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'public, max-age=3600' });
 	}
 	if (get && url.pathname === '/sitemap.xml') {
 		let modified = new Date();

@@ -24,7 +24,7 @@ const GROUPS = [
 		F('seo_problem', 'The problem: page title', 'text', 'Air pollution where traffic is heaviest'),
 		F('seo_how', 'How it works: page title', 'text', 'How it works: detect, decide, switch'),
 		F('seo_apps', 'Applications: page title', 'text', 'Applications for cities, fleets and OEMs'),
-		F('seo_contact', 'Contact: page title', 'text', 'Contact us'),
+		F('seo_contact', 'Contact: page title', 'text', 'Contact: city, fleet, OEM or investor'),
 	]),
 	G('hero', 'Hero', [
 		F('hero_eyebrow', 'Label above the title', 'text', 'Prototype phase'),

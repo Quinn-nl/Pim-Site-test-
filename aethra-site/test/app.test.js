@@ -594,3 +594,14 @@ test('who is behind the company: hidden until filled in, then shown with Person 
 	store.saveContent({ lang: 'en', values: { p1_name: '', p1_role: '', p1_bio: '', p1_link: '', company_details: '' } });
 	assert.ok(!(await (await fetch(base + '/en/')).text()).includes('id="about-title"'));
 });
+
+test('robots.txt: search bots allowed, training bots blocked unless AI_TRAINING=allow', async () => {
+	const txt = await (await fetch(base + '/robots.txt')).text();
+	for (const bot of ['GPTBot', 'ClaudeBot', 'Google-Extended', 'CCBot', 'Applebot-Extended']) assert.match(txt, new RegExp(`User-agent: ${bot}\\n`));
+	for (const bot of ['OAI-SearchBot', 'Claude-SearchBot', 'PerplexityBot', 'Googlebot', 'Applebot\\n']) assert.ok(!new RegExp(`User-agent: ${bot}`).test(txt), `${bot} must stay allowed`);
+	assert.match(txt, /User-agent: \*\nAllow: \/\nDisallow: \/admin/);
+	assert.ok(txt.indexOf('GPTBot') < txt.indexOf('User-agent: *'));
+	process.env.AI_TRAINING = 'allow';
+	assert.ok(!/GPTBot/.test(await (await fetch(base + '/robots.txt')).text()));
+	delete process.env.AI_TRAINING;
+});
