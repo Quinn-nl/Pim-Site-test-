@@ -88,7 +88,7 @@ ${graph ? `<script type="application/ld+json">${jsonLd(graph)}</script>` : ''}
 <link rel="preload" href="/fonts/exo-2-latin-700-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/fonts/ibm-plex-sans-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
 <script src="/js/init.js"></script>
-<link rel="stylesheet" href="/css/tokens.css">
+<link rel="stylesheet" href="/css/design-tokens.css">
 <link rel="stylesheet" href="/css/site.css">
 <script src="/js/site.js" defer></script>
 </head>

@@ -12,7 +12,7 @@
 | Primary Font | Exo 2 |
 | Voice | Factual, Calm, Precise, Open |
 
-What Aethra is: CubeSats and AI that help vehicles switch to an eco mode in areas with high air pollution. Stage: prototype phase. Audiences: municipalities, fleet operators, vehicle manufacturers, mobility platforms, investors. Languages: English (source), Dutch, German, French. Headline (client-approved): "Cleaner air, right where traffic is heaviest". Source of truth for values: `aethra-site/public/css/tokens.css`.
+What Aethra is: CubeSats and AI that help vehicles switch to an eco mode in areas with high air pollution. Stage: prototype phase. Audiences: municipalities, fleet operators, vehicle manufacturers, mobility platforms, investors. Languages: English (source), Dutch, German, French. Headline (client-approved): "Cleaner air, right where traffic is heaviest". Source of truth for values: `aethra-site/public/css/design-tokens.css`.
 
 ---
 

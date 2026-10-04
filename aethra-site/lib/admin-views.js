@@ -11,7 +11,7 @@ function shell(title, active, csrf, inner, flash) {
 	return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex, nofollow"><link rel="icon" href="/img/favicon.svg" type="image/svg+xml"><title>${esc(title)} | Admin</title>
-<link rel="stylesheet" href="/css/tokens.css"><link rel="stylesheet" href="/css/admin.css"></head>
+<link rel="stylesheet" href="/css/design-tokens.css"><link rel="stylesheet" href="/css/admin.css"></head>
 <body>
 <header class="bar"><strong>Aethra admin</strong>
 <nav aria-label="Admin">${csrf ? `${tab('/admin', 'Content', 'content')}${tab('/admin/photos', 'Photos', 'photos')}${tab('/admin/privacy', 'Privacy statement', 'privacy')}${tab('/admin/stats', 'Statistics', 'stats')}${tab('/admin/messages', `Messages${store.unreadCount() ? ` <span class="badge" aria-label="${store.unreadCount()} unread">${store.unreadCount()}</span>` : ''}`, 'messages')}${tab('/admin/account', 'Account', 'account')}<a href="/" target="_blank" rel="noopener">View site</a>

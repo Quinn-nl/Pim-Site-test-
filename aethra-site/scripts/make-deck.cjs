@@ -41,7 +41,7 @@ function deck(lang) {
 <meta name="robots" content="noindex">
 <link rel="icon" href="/img/favicon.svg" type="image/svg+xml">
 <title>${esc(v.site_name)}: ${esc(d.deck)}</title>
-<link rel="stylesheet" href="/css/tokens.css">
+<link rel="stylesheet" href="/css/design-tokens.css">
 <link rel="stylesheet" href="/deck/deck.css">
 <script src="/deck/deck.js" defer></script>
 </head>
