@@ -112,7 +112,7 @@ ${stickyCta && page !== '/contact' ? `<aside aria-label="${esc(t.contact_aside)}
 <footer class="site-footer">
 	<div class="wrap footer-inner">
 		<div><p class="footer-brand">${esc(name.toUpperCase())}</p>${v.company_line ? `<p class="footer-note">${esc(v.company_line)}</p>` : ''}</div>
-		<nav aria-label="${esc(t.footer_nav)}">${nav.map(([p, l]) => navLink(p, l)).join('')}${navLink('/contact', t.nav_contact)}${navLink('/privacy', t.privacy)}</nav>
+		<nav aria-label="${esc(t.footer_nav)}">${nav.map(([p, l]) => navLink(p, l)).join('')}${todayOn ? navLink('/eco-mode-today', t.nav_today) : ''}${navLink('/contact', t.nav_contact)}${navLink('/privacy', t.privacy)}</nav>
 	</div>
 	<div class="wrap footer-audiences"><nav aria-label="${esc(t.aud_other)}">${AUDIENCES.map((a) => `<a href="${link(lang, '/for/' + a.slug)}"${page === '/for/' + a.slug ? ' aria-current="page"' : ''}>${esc(labelFor(a, lang))}</a>`).join('')}</nav></div>
 	<div class="wrap footer-bottom"><small>&copy; ${new Date().getFullYear()} ${esc(name)}. ${esc(t.disclaimer)}</small></div>
@@ -399,6 +399,39 @@ ${aboutBlock(v)}${ctaBand(lang, v)}
 	return layout({ lang, page: pageKey, title: `${k('seo')} | ${v.site_name}`, description: `${k('title')}. ${k('lead')}`, body, v, siteUrl, images, graph });
 }
 
+const TODAY_SOURCES = [
+	['Ford Media Center', 'https://media.ford.com/content/fordmedia/feu/en/news/2020/07/06/supporting-cleaner-air-for-cities--schools-and-play-areas--ford-.html'],
+	['The Star', 'https://www.thestar.co.uk/lifestyle/cars/bmw-hybrids-will-now-automatically-switch-to-ev-mode-in-low-emissions-zones-2938446'],
+	['Fleet News', 'https://www.fleetnews.co.uk/news/environment/2017/08/21/poor-air-quality-could-make-cars-switch-to-ev-mode-automatically'],
+];
+const TODAY_MORE = ['European Commission, Urban Mobility Observatory: geofencing', 'https://urban-mobility-observatory.transport.ec.europa.eu/resources/case-studies/geofencing-new-tool-make-urban-transport-safer-and-more-sustainable_et'];
+
+/** Context page: what geofenced eco mode already exists and what is missing. Every statement is sourced; nothing about Aethra's results. */
+function renderToday({ lang, values: v, images }, { siteUrl }) {
+	const t = UI[lang];
+	const items = TODAY_SOURCES.map(([name, href], i) => `<li class="point" data-reveal><p>${esc(v[`today_item${i + 1}`])}</p><p class="source">${esc(t.source)}: <a href="${esc(href)}" rel="noopener noreferrer" target="_blank">${esc(name)}</a></p></li>`).join('');
+	const body = `
+<main id="main">
+${pageHead(t.k_today, v.today_title, v.today_lead)}
+<section class="section" aria-labelledby="today-exists">
+	<div class="wrap prose">
+		<h2 id="today-exists">${esc(v.today_exists_title)}</h2>
+		<ul class="today-list">${items}</ul>
+	</div>
+</section>
+<section class="section section-tint" aria-labelledby="today-gap">
+	<div class="wrap prose">
+		<h2 id="today-gap">${esc(v.today_gap_title)}</h2>
+		<p>${esc(v.today_gap_text)}</p>
+		<p class="source">${esc(t.more_title)}: <a href="${esc(TODAY_MORE[1])}" rel="noopener noreferrer" target="_blank">${esc(TODAY_MORE[0])}</a></p>
+		<p><a class="more" href="${link(lang, '/how-it-works')}">${esc(t.read_how)}</a></p>
+	</div>
+</section>
+${ctaBand(lang, v)}
+</main>`;
+	return layout({ lang, page: '/eco-mode-today', title: `${v.seo_today} | ${v.site_name}`, description: v.today_lead, body, v, siteUrl, images, graph: { '@context': 'https://schema.org', ...crumbs(lang, siteUrl, v, '/eco-mode-today', t.nav_today) } });
+}
+
 function renderPrivacy({ lang, values: v, privacy, images }, { siteUrl }) {
 	const t = UI[lang];
 	const blocks = privacy.split(/\n{2,}|\n(?=# )/).map((b) => b.trim()).filter(Boolean).map((b) => {
@@ -417,12 +450,14 @@ function renderNotFound({ lang, values: v }, { siteUrl }) {
 	return layout({ lang, page: null, title: `${t.nf_title} | ${v.site_name}`, description: '', noindex: true, v, siteUrl, stickyCta: false, body: `<main id="main" class="wrap prose page-main"><h1>${esc(t.nf_title)}</h1><p><a href="${link(lang)}">${esc(t.nf_back)}</a></p></main>` });
 }
 
+let todayOn = false;
+const setToday = (on) => { todayOn = !!on; };
 const PAGES = ['/', '/problem', '/how-it-works', '/applications', ...AUDIENCES.map((a) => `/for/${a.slug}`), '/contact', '/privacy'];
 
-function renderSitemap(siteUrl, lastmod) {
+function renderSitemap(siteUrl, lastmod, extra = []) {
 	const alt = (page) => [...LANGS.map((l) => `<xhtml:link rel="alternate" hreflang="${l}" href="${esc(siteUrl + url(l, page))}"/>`), `<xhtml:link rel="alternate" hreflang="x-default" href="${esc(siteUrl + '/')}"/>`].join('');
-	const entries = PAGES.flatMap((page) => LANGS.map((l) => `<url><loc>${esc(siteUrl + url(l, page))}</loc><lastmod>${lastmod}</lastmod>${alt(page)}</url>`));
+	const entries = [...PAGES, ...extra].flatMap((page) => LANGS.map((l) => `<url><loc>${esc(siteUrl + url(l, page))}</loc><lastmod>${lastmod}</lastmod>${alt(page)}</url>`));
 	return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">\n${entries.join('\n')}\n</urlset>\n`;
 }
 
-module.exports = { esc, url, setCarry, renderAudience, PAGES, renderHome, renderProblem, renderHow, renderApplications, renderContact, renderPrivacy, renderNotFound, renderSitemap };
+module.exports = { renderToday, setToday, esc, url, setCarry, renderAudience, PAGES, renderHome, renderProblem, renderHow, renderApplications, renderContact, renderPrivacy, renderNotFound, renderSitemap };

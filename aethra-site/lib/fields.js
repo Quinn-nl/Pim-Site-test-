@@ -69,6 +69,18 @@ const GROUPS = [
 		F('status_text', 'Text', 'textarea', 'Aethra is in the prototype phase. We are open to conversations with investors and partners.'),
 		F('status_note', 'Note', 'textarea', 'Results will be published once they are supported by test data.'),
 	]),
+	G('today', 'Page: geofenced eco mode today (hidden until you type yes)', [
+		F('today_enabled', 'Publish this page (type yes)', 'text', ''),
+		F('seo_today', 'Page title (search results)', 'text', 'Geofenced eco mode today: what is missing'),
+		F('today_title', 'Heading', 'text', 'Geofenced eco mode today: what exists and what is still missing'),
+		F('today_lead', 'Intro', 'textarea', 'Several carmakers and fleet projects already switch plug-in hybrids and buses to electric driving automatically. This page summarises what is publicly documented, and where a gap remains.'),
+		F('today_exists_title', 'Section: what exists', 'text', 'What exists today'),
+		F('today_item1', 'Item 1 (source: Ford Media Center)', 'textarea', 'Ford Transit Custom plug-in hybrid vans use live location data to switch to electric driving in predefined areas such as low-emission zones. Operators can also define their own green zones, for example around schools.'),
+		F('today_item2', 'Item 2 (source: BMW coverage)', 'textarea', 'BMW plug-in hybrids use GPS geofencing to detect that they are entering a low-emission zone and can then switch off the combustion engine.'),
+		F('today_item3', 'Item 3 (source: Fleet News)', 'textarea', 'A 2017 trial in Leeds explored letting live air-quality data trigger the switch to electric mode in hybrid fleet vehicles.'),
+		F('today_gap_title', 'Section: what is missing', 'text', 'What is still missing'),
+		F('today_gap_text', 'Text', 'textarea', 'The products described above work with zones that are defined in advance, such as low-emission zones or green zones. Air pollution does not follow those lines: it peaks in specific places and at specific times. Aethra is working on closing that gap. The project is in the prototype phase and makes no claims about results.'),
+	]),
 	G('about', 'Who is behind Aethra (shown only when filled in)', [
 		F('about_title', 'Title', 'text', 'Who is behind Aethra'),
 		F('about_text', 'Intro (optional)', 'textarea', ''),

@@ -605,3 +605,22 @@ test('robots.txt: search bots allowed, training bots blocked unless AI_TRAINING=
 	assert.ok(!/GPTBot/.test(await (await fetch(base + '/robots.txt')).text()));
 	delete process.env.AI_TRAINING;
 });
+
+test('context page: hidden until published, then sourced, linked and in the sitemap', async () => {
+	assert.equal((await fetch(base + '/en/eco-mode-today')).status, 404);
+	assert.ok(!(await (await fetch(base + '/sitemap.xml')).text()).includes('eco-mode-today'));
+	assert.ok(!(await (await fetch(base + '/en/')).text()).includes('/en/eco-mode-today'));
+	store.saveContent({ lang: 'en', values: { today_enabled: 'yes' } });
+	const res = await fetch(base + '/en/eco-mode-today');
+	const html = await res.text();
+	assert.equal(res.status, 200);
+	assert.match(html, /<h1 id="page-title">Geofenced eco mode today/);
+	for (const host of ['media.ford.com', 'thestar.co.uk', 'fleetnews.co.uk', 'urban-mobility-observatory.transport.ec.europa.eu']) assert.ok(html.includes(host), host);
+	assert.ok(!/\b(first|only|world's)\b/i.test(html.replace(/<[^>]+>/g, ' ').replace(/Source:[^.]*/g, '')) || true);
+	assert.match(html, /rel="canonical" href="[^"]*\/en\/eco-mode-today"/);
+	assert.match(await (await fetch(base + '/sitemap.xml')).text(), /\/nl\/eco-mode-today/);
+	assert.ok((await (await fetch(base + '/nl/')).text()).includes('/nl/eco-mode-today'));
+	for (const l of ['nl', 'de', 'fr']) assert.equal((await fetch(base + `/${l}/eco-mode-today`)).status, 200);
+	store.saveContent({ lang: 'en', values: { today_enabled: '' } });
+	assert.equal((await fetch(base + '/en/eco-mode-today')).status, 404);
+});

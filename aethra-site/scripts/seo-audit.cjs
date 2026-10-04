@@ -18,10 +18,12 @@ process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'aethra-seo-'));
 process.env.SITE_URL = process.env.SITE_URL || 'https://aethra.example';
 const { createServer } = require('../server');
 const { AUDIENCES } = require('../lib/audiences');
+if (process.env.SEO_TODAY === '1') { const store = require('../lib/store'); store.ensureDirs(); store.saveContent({ lang: 'en', values: { today_enabled: 'yes' } }); }
 const { LANGS } = require('../lib/i18n');
 const BASELINE = path.join(__dirname, '..', 'seo', 'baseline.json');
 
 const PAGES = ['/', '/problem', '/how-it-works', '/applications', '/contact', '/privacy', ...AUDIENCES.map((a) => `/for/${a.slug}`)];
+if (process.env.SEO_TODAY === '1') PAGES.push('/eco-mode-today'); // the context page, once published
 const findings = [];
 const add = (level, where, msg) => findings.push({ level, where, msg });
 

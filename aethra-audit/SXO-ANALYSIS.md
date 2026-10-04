@@ -57,7 +57,7 @@ Consequences:
 
 ## 7. Priority actions
 1. **Fill in "Who is behind Aethra"** (people, company details): lifts Trust for every persona; highest impact.
-2. **One factual explainer page**, e.g. "Geofenced eco mode today: what exists and what is still missing", citing Ford, BMW, Brighton & Hove and Leeds and naming the gap in plain words (fixed zones vs where pollution peaks). Matches the SERP page type, builds authority with sources, makes no claim about Aethra's performance and reveals no technique. **Needs Pim's approval** (positioning) before building.
+2. **One factual explainer page** (BUILT, hidden until the sources are checked and `today_enabled` = yes), e.g. "Geofenced eco mode today: what exists and what is still missing", citing Ford, BMW, Brighton & Hove and Leeds and naming the gap in plain words (fixed zones vs where pollution peaks). Matches the SERP page type, builds authority with sources, makes no claim about Aethra's performance and reveals no technique. **Needs Pim's approval** (positioning) before building.
 3. **Remove any "first/only" wording** (none found in the current copy; keep it that way).
 4. **Photos/diagram** (real, not generated) to lift media richness.
 5. After launch: check Search Console queries; if the explainer ranks, add the next-journey question pages (what a clean-air zone is, why hotspots differ) from real queries.

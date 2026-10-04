@@ -69,8 +69,10 @@ function notify(m) {
 }
 
 const LANG_COOKIE = 'aethra_lang';
-const PAGE_RENDERERS = { '/': views.renderHome, '/problem': views.renderProblem, '/how-it-works': views.renderHow, '/applications': views.renderApplications, '/privacy': views.renderPrivacy };
+const PAGE_RENDERERS = { '/': views.renderHome, '/problem': views.renderProblem, '/how-it-works': views.renderHow, '/applications': views.renderApplications, '/privacy': views.renderPrivacy, '/eco-mode-today': views.renderToday };
 const LEGACY = new Set(['/problem', '/how-it-works', '/applications', '/contact', '/privacy']);
+/** The context page is published only when the English content has today_enabled = yes (sources are checked by a person first). */
+const todayOn = () => String(store.getContent('en').values.today_enabled || '').trim().toLowerCase() === 'yes';
 
 function siteUrlFor(req) {
 	if (cfg.SITE_URL) return cfg.SITE_URL;
@@ -93,13 +95,13 @@ async function handlePublic(req, res, url) {
 	if (get && url.pathname === '/sitemap.xml') {
 		let modified = new Date();
 		try { modified = require('fs').statSync(store.file('content.json')).mtime; } catch (e) { /* no edits yet */ }
-		return send(res, 200, views.renderSitemap(siteUrl, modified.toISOString().slice(0, 10)), { 'Content-Type': 'application/xml; charset=utf-8', 'Cache-Control': 'public, max-age=3600' });
+		return send(res, 200, views.renderSitemap(siteUrl, modified.toISOString().slice(0, 10), todayOn() ? ['/eco-mode-today'] : []), { 'Content-Type': 'application/xml; charset=utf-8', 'Cache-Control': 'public, max-age=3600' });
 	}
 	if (get && url.pathname === '/llms.txt') {
 		const v = store.getContent('en').values;
 		const lines = [`# ${v.site_name}`, '', `> ${v.meta_description}`, '', 'Status: prototype phase. Informational website; not an offer of securities or financial products.', ''];
 		for (const l of LANGS) lines.push(`- [${l.toUpperCase()}: ${store.getContent(l).values.hero_title}](${siteUrl}/${l}/)`);
-		lines.push('', '## Pages (English)', ...['/problem', '/how-it-works', '/applications', ...AUDIENCES.map((a) => `/for/${a.slug}`), '/contact'].map((p) => `- ${siteUrl}/en${p}`), '');
+		lines.push('', '## Pages (English)', ...['/problem', '/how-it-works', '/applications', ...AUDIENCES.map((a) => `/for/${a.slug}`), ...(todayOn() ? ['/eco-mode-today'] : []), '/contact'].map((p) => `- ${siteUrl}/en${p}`), '');
 		return send(res, 200, lines.join('\n'), { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'public, max-age=3600' });
 	}
 	if (get && url.pathname === '/.well-known/security.txt' && process.env.SECURITY_CONTACT) {
@@ -130,6 +132,8 @@ async function handlePublic(req, res, url) {
 		content.values = worst.overlay(mode, content.values);
 		res.devToggle = worst.toggleHtml(mode, url.pathname + url.search);
 	}
+	views.setToday(todayOn());
+	if (page === '/eco-mode-today' && !todayOn()) return false;
 	const attribution = stats.sourceOf(url, req.headers.referer, req.headers.host);
 	const utm = { source: stats.tag(url.searchParams.get('utm_source')), campaign: stats.tag(url.searchParams.get('utm_campaign')) };
 	views.setCarry(utm);

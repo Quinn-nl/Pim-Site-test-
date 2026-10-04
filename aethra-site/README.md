@@ -69,3 +69,7 @@ Admin > Account > Two-step verification > Set up. Scan the QR code with any auth
 ## SEO checks
 
 `npm run seo` checks every page in every language (titles, descriptions, H1, canonical, hreflang mesh, Open Graph, JSON-LD, images, internal links, sitemap, robots, 404, headers) and exits with an error when something is wrong. `npm run seo:baseline` saves the current state (`seo/baseline.json`); `npm run seo:compare` after a change lists what moved (title, canonical, robots, structured data, word count). Run it before every release. The SEO skills in `.claude/skills/seo*` add deeper audits.
+
+## Context page (hidden by default)
+
+`/en/eco-mode-today` (and NL/DE/FR) summarises which geofenced eco-mode products exist today (each statement links its source) and what is still missing. It is **not published** until someone checks the sources and types `yes` in Admin > Content > "Page: geofenced eco mode today". Edit the English field, the other languages follow their own text. While off, the page returns 404 and is absent from the footer, sitemap and llms.txt. No claims about Aethra's results, no "first" or "only".
