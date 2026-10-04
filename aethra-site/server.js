@@ -318,6 +318,9 @@ async function handleAdmin(req, res, url) {
 	}
 	if (p === '/admin/2fa/start') {
 		if (auth.twoFactorEnabled()) return redirect(res, '/admin/account');
+		if (!accountLimiter.allow(clientIp(req))) return send(res, 429, 'Too many attempts', { 'Content-Type': 'text/plain' });
+		if (!auth.checkPassword(form.current || '')) return send(res, 400, admin.accountPage(session, { ok: false, text: 'Password is not correct.' }, { enabled: false }));
+		accountLimiter.clear(clientIp(req));
 		auth.beginTwoFactor();
 		return redirect(res, '/admin/account');
 	}
@@ -329,11 +332,18 @@ async function handleAdmin(req, res, url) {
 		auth.destroyOtherSessions(req);
 		return send(res, 200, admin.accountPage(session, { ok: true, text: 'Two-step verification is on.' }, { codes }));
 	}
+	if (p === '/admin/2fa/recovery') {
+		if (!accountLimiter.allow(clientIp(req))) return send(res, 429, 'Too many attempts', { 'Content-Type': 'text/plain' });
+		if (!auth.twoFactorEnabled() || !auth.checkPassword(form.current || '') || !auth.verifySecondFactor(form.code)) return send(res, 400, admin.accountPage(session, { ok: false, text: 'Password or code is not correct.' }, { enabled: auth.twoFactorEnabled(), left: auth.recoveryLeft() }));
+		accountLimiter.clear(clientIp(req));
+		return send(res, 200, admin.accountPage(session, { ok: true, text: 'New recovery codes created. The old ones no longer work.' }, { codes: auth.regenerateRecoveryCodes() }));
+	}
 	if (p === '/admin/2fa/disable') {
 		if (!accountLimiter.allow(clientIp(req))) return send(res, 429, 'Too many attempts', { 'Content-Type': 'text/plain' });
 		if (!auth.checkPassword(form.current || '') || !auth.verifySecondFactor(form.code)) return send(res, 400, admin.accountPage(session, { ok: false, text: 'Password or code is not correct.' }, { enabled: true, left: auth.recoveryLeft() }));
 		accountLimiter.clear(clientIp(req));
 		auth.disableTwoFactor();
+		auth.destroyOtherSessions(req);
 		return redirect(res, '/admin/account');
 	}
 	if (p === '/admin/account') {

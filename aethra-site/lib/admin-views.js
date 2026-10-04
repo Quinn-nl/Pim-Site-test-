@@ -131,12 +131,12 @@ function accountPage(session, flash, tf = {}) {
 <form method="post" action="/admin/2fa/confirm">${csrf}<div class="row"><label for="c2">Code from the app</label><input id="c2" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9 ]*" required></div><button type="submit">Turn on</button></form></section>`;
 	} else if (tf.enabled) {
 		two = `<section class="card narrow"><h2>Two-step verification</h2><p class="ok-text">Two-step verification is on. Logging in needs your password and a code from your authenticator app. You have ${tf.left} recovery code${tf.left === 1 ? '' : 's'} left for emergencies.</p>
-<p class="hint">To turn it off, enter your password and a code from the app.</p>
+<p class="hint">Turning it off, or creating new recovery codes, needs your password and a code from the app.</p>
 <form method="post" action="/admin/2fa/disable">${csrf}<div class="row"><label for="dp">Current password</label><input id="dp" name="current" type="password" autocomplete="current-password" required></div>
-<div class="row"><label for="dc">Code from the app</label><input id="dc" name="code" autocomplete="one-time-code" required></div><button type="submit">Turn off</button></form></section>`;
+<div class="row"><label for="dc">Code from the app</label><input id="dc" name="code" autocomplete="one-time-code" required></div><div class="actions"><button type="submit">Turn off</button><button type="submit" formaction="/admin/2fa/recovery" class="secondary">New recovery codes</button></div></form></section>`;
 	} else {
 		two = `<section class="card narrow"><h2>Two-step verification</h2><p class="hint">Two-step verification is off. Turning it on is strongly recommended: a stolen password alone then no longer gives access to the admin panel.</p>
-<form method="post" action="/admin/2fa/start">${csrf}<button type="submit">Set up</button></form></section>`;
+<form method="post" action="/admin/2fa/start">${csrf}<div class="row"><label for="sp">Confirm with your current password</label><input id="sp" name="current" type="password" autocomplete="current-password" required></div><button type="submit">Set up</button></form></section>`;
 	}
 	return shell('Account', 'account', session.csrf, `<h1>Change password</h1>
 <form method="post" action="/admin/account" class="card narrow">${csrf}

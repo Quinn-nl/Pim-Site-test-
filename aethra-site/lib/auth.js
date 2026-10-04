@@ -76,10 +76,23 @@ function confirmTwoFactor(code) {
 	const secret = unseal(t.pending);
 	const step = totp.verify(secret, code);
 	if (step === null) return null;
-	const L = 'abcdefghjkmnpqrstuvwxyz'; // letters only, so a recovery code can never be mistaken for a 6-digit app code
-	const codes = Array.from({ length: 8 }, () => { const r = Array.from(crypto.randomBytes(10), (b) => L[b % L.length]).join(''); return `${r.slice(0, 5)}-${r.slice(5)}`; });
+	const codes = newRecoveryCodes();
 	saveTotp({ secret: seal(secret), lastStep: step, recovery: codes.map(hashRecovery) });
 	return codes;
+}
+
+/** Replaces all recovery codes (the old ones stop working) and returns the new ones. */
+function regenerateRecoveryCodes() {
+	const t = readAdmin().totp;
+	if (!t || !t.secret) return null;
+	const codes = newRecoveryCodes();
+	saveTotp({ ...t, recovery: codes.map(hashRecovery) });
+	return codes;
+}
+
+function newRecoveryCodes() {
+	const L = 'abcdefghjkmnpqrstuvwxyz'; // letters only, so a recovery code can never be mistaken for a 6-digit app code
+	return Array.from({ length: 8 }, () => { const r = Array.from(crypto.randomBytes(10), (b) => L[b % L.length]).join(''); return `${r.slice(0, 5)}-${r.slice(5)}`; });
 }
 
 /** Accepts a 6-digit app code (once per time step) or an unused recovery code. */
@@ -202,4 +215,4 @@ function inspectFormToken(token) {
 
 const checkFormToken = (token) => inspectFormToken(token) === 'ok';
 
-module.exports = { twoFactorEnabled, beginTwoFactor, pendingTwoFactor, confirmTwoFactor, verifySecondFactor, recoveryLeft, disableTwoFactor, createTicket, useTicket, endTicket, COOKIE, hashPassword, verifyPassword, setPassword, checkPassword, hasAdmin, parseCookies, createSession, getSession, destroySession, destroyOtherSessions, cookieHeader, safeEqual, formToken, inspectFormToken, checkFormToken };
+module.exports = { regenerateRecoveryCodes, twoFactorEnabled, beginTwoFactor, pendingTwoFactor, confirmTwoFactor, verifySecondFactor, recoveryLeft, disableTwoFactor, createTicket, useTicket, endTicket, COOKIE, hashPassword, verifyPassword, setPassword, checkPassword, hasAdmin, parseCookies, createSession, getSession, destroySession, destroyOtherSessions, cookieHeader, safeEqual, formToken, inspectFormToken, checkFormToken };

@@ -71,3 +71,5 @@ input[type=file] { max-width: 100%; }
 .qr-wrap { margin: .75rem 0; line-height: 0; }
 .qr { width: min(224px, 100%); height: auto; border: 1px solid var(--line, #c9d3e0); border-radius: 8px; }
 .alt summary { cursor: pointer; font-weight: 600; }
+.actions { display: flex; flex-wrap: wrap; gap: .75rem; }
+button.secondary { background: transparent; color: var(--accent, #1f5fd1); border: 1px solid currentColor; }

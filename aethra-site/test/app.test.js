@@ -524,7 +524,9 @@ test('two-step verification: setup, login needs a code, replay and recovery code
 	['127.0.0.1', '::ffff:127.0.0.1', '::1'].forEach((k) => loginLimiter.clear(k));
 	await post('/admin/login', { password: 'another long password' }).then((r) => { cookie = r.headers.get('set-cookie').split(';')[0]; });
 	csrf = /name="csrf" value="([a-f0-9]+)"/.exec(await (await fetch(base + '/admin/account', { headers: { cookie } })).text())[1];
-	await post('/admin/2fa/start', { csrf });
+	assert.equal((await post('/admin/2fa/start', { csrf, current: 'wrong password!' })).status, 400);
+	assert.ok(!auth.pendingTwoFactor());
+	await post('/admin/2fa/start', { csrf, current: 'another long password' });
 	const setup = auth.pendingTwoFactor();
 	assert.ok(setup && /^[A-Z2-7]{32}$/.test(setup.secret));
 	assert.ok(!fs.readFileSync(path.join(process.env.DATA_DIR, 'admin.json'), 'utf8').includes(setup.secret), 'secret is stored encrypted');
@@ -560,12 +562,19 @@ test('two-step verification: setup, login needs a code, replay and recovery code
 	assert.equal((await post('/admin/login/code', { ticket: t2, code: codes[0] }, { cookie: '' })).status, 303);
 	const t3 = /name="ticket" value="([a-f0-9]+)"/.exec(await (await post('/admin/login', { password: 'another long password' }, { cookie: '' })).text())[1];
 	assert.equal((await post('/admin/login/code', { ticket: t3, code: codes[0] }, { cookie: '' })).status, 401);
+	// new recovery codes need password and code, and replace the old ones
+	assert.equal((await post('/admin/2fa/recovery', { csrf, current: 'another long password', code: 'bad' })).status, 400);
+	const regen = await post('/admin/2fa/recovery', { csrf, current: 'another long password', code: codes[2] });
+	assert.equal(regen.status, 200);
+	const fresh = [...(await regen.text()).matchAll(/<code>([a-z]{5}-[a-z]{5})<\/code>/g)].map((m) => m[1]);
+	assert.equal(fresh.length, 8);
+	assert.ok(!auth.verifySecondFactor(codes[3]), 'old codes stop working');
 	// password change keeps two-step on; disabling needs password and a code
 	auth.setPassword('another long password');
 	assert.ok(auth.twoFactorEnabled());
 	assert.equal((await post('/admin/2fa/disable', { csrf, current: 'another long password', code: 'nope' })).status, 400);
 	assert.ok(auth.twoFactorEnabled());
-	const off = await post('/admin/2fa/disable', { csrf, current: 'another long password', code: codes[1] });
+	const off = await post('/admin/2fa/disable', { csrf, current: 'another long password', code: fresh[0] });
 	assert.equal(off.status, 303);
 	assert.ok(!auth.twoFactorEnabled());
 });
