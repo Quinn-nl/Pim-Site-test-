@@ -40,7 +40,9 @@ if (fs.existsSync(envFile)) {
 	console.log(`Created directus/.env. Administrator: ${email} / ${password}  (also stored in that file; change the password after the first login).`);
 }
 // On Windows npm is a .cmd file and needs a shell.
+const major = Number(process.versions.node.split('.')[0]);
+if (major !== 22 && !skipInstall) console.warn(`Warning: you are on Node ${process.versions.node}. Directus is built and tested for Node 22 (LTS); other versions can fail while installing its native parts. If the install fails, install Node 22 from https://nodejs.org and run this again.`);
 const run = (cmd, args) => { const r = spawnSync(cmd, args, { cwd: dir, stdio: 'inherit', shell: process.platform === 'win32' && cmd === 'npm' }); if (r.status !== 0) { console.error(`${cmd} ${args.join(' ')} failed`); process.exit(r.status || 1); } };
-if (!skipInstall) run('npm', ['install', '--no-audit', '--no-fund', '--loglevel=error']);
+if (!skipInstall) run('npm', ['install', '--no-audit', '--no-fund', '--loglevel=warn']);
 if (!skipBootstrap) run('node', [path.join('node_modules', 'directus', 'cli.js'), 'bootstrap']);
 console.log('Next: "npm run directus" in one terminal, "npm run directus:setup" once Directus is running, and start the site with DIRECTUS_URL=http://127.0.0.1:8055.');

@@ -3,6 +3,8 @@
 `/admin` is still our own panel, untouched. `/admin2` is [Directus](https://directus.com) (open source, self-hosted). Both work at the same time so the two can be compared.
 
 ## Start it (local; same commands on Windows, macOS and Linux)
+Use **Node 22 (LTS)**: Directus ships native parts (database driver, sandbox) that are prebuilt for Node 22; newer Node versions (for example 26) can fail to install them. Check with `node -v`.
+
 ```
 cd aethra-site
 npm run directus:init -- --email=you@yourdomain.com   # once: secrets, install into directus/, database, first admin
