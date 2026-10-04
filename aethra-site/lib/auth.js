@@ -58,13 +58,13 @@ const twoFactorEnabled = () => !!(readAdmin().totp && readAdmin().totp.secret);
 /** Starts setup: a fresh secret that only counts once the user proves it works with a code. */
 function beginTwoFactor() {
 	const secret = totp.newSecret();
-	saveTotp({ pending: seal(secret) });
+	saveTotp({ pending: seal(secret), at: Date.now() });
 	return { secret, uri: totp.uri(secret, 'admin', 'Aethra') };
 }
 
 function pendingTwoFactor() {
 	const t = readAdmin().totp;
-	if (!t || !t.pending) return null;
+	if (!t || !t.pending || Date.now() - (t.at || 0) > 15 * 60 * 1000) return null; // an unfinished set-up expires after 15 minutes
 	const secret = unseal(t.pending);
 	return { secret, uri: totp.uri(secret, 'admin', 'Aethra') };
 }
@@ -72,7 +72,7 @@ function pendingTwoFactor() {
 /** Returns 8 one-time recovery codes (shown once) or null when the code is wrong. */
 function confirmTwoFactor(code) {
 	const t = readAdmin().totp;
-	if (!t || !t.pending) return null;
+	if (!t || !t.pending || Date.now() - (t.at || 0) > 15 * 60 * 1000) return null;
 	const secret = unseal(t.pending);
 	const step = totp.verify(secret, code);
 	if (step === null) return null;

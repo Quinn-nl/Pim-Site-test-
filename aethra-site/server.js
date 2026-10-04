@@ -324,6 +324,10 @@ async function handleAdmin(req, res, url) {
 		auth.beginTwoFactor();
 		return redirect(res, '/admin/account');
 	}
+	if (p === '/admin/2fa/restart') { // a fresh key and QR code while set-up is open; the old one stops working
+		if (!auth.twoFactorEnabled() && auth.pendingTwoFactor()) auth.beginTwoFactor();
+		return redirect(res, '/admin/account');
+	}
 	if (p === '/admin/2fa/confirm') {
 		if (!accountLimiter.allow(clientIp(req))) return send(res, 429, 'Too many attempts', { 'Content-Type': 'text/plain' });
 		const codes = auth.confirmTwoFactor(form.code);

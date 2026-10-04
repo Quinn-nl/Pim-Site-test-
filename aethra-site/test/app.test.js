@@ -533,6 +533,10 @@ test('two-step verification: setup, login needs a code, replay and recovery code
 	const setupHtml = await (await fetch(base + '/admin/account', { headers: { cookie } })).text();
 	assert.match(setupHtml, /<svg class="qr"[\s\S]*?<path d="M/);
 	assert.ok(!/<svg[^>]*style=/.test(setupHtml), 'no inline styles (CSP)');
+	await post('/admin/2fa/restart', { csrf });
+	const renewed = auth.pendingTwoFactor();
+	assert.notEqual(renewed.secret, setup.secret, 'restart gives a new key');
+	setup.secret = renewed.secret;
 	const wrong = await post('/admin/2fa/confirm', { csrf, code: '000000' });
 	assert.equal(wrong.status, 400);
 	assert.ok(!auth.twoFactorEnabled());

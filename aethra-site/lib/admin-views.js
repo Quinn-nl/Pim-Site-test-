@@ -128,7 +128,8 @@ function accountPage(session, flash, tf = {}) {
 <li>Scan this QR code.<div class="qr-wrap">${qrSvg(tf.setup.uri, 'QR code to add the Aethra admin account to an authenticator app')}</div>
 <details class="alt"><summary>Cannot scan it?</summary><p>Choose "enter a key" in the app (time-based) and type: <code class="key">${esc(tf.setup.secret.replace(/(.{4})/g, '$1 ').trim())}</code> On a phone you can also <a href="${esc(tf.setup.uri)}">open it directly in your app</a>.</p></details></li>
 <li>Enter the 6-digit code the app now shows to confirm.</li></ol>
-<form method="post" action="/admin/2fa/confirm">${csrf}<div class="row"><label for="c2">Code from the app</label><input id="c2" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9 ]*" required></div><button type="submit">Turn on</button></form></section>`;
+<form method="post" action="/admin/2fa/confirm">${csrf}<div class="row"><label for="c2">Code from the app</label><input id="c2" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9 ]*" required></div><div class="actions"><button type="submit">Turn on</button><button type="submit" formaction="/admin/2fa/restart" formnovalidate class="secondary">Show a new QR code</button></div></form>
+<p class="hint">This QR code stays the same until you finish set-up or ask for a new one; it expires after 15 minutes. Delete the earlier entry from your app if you scanned an older code.</p></section>`;
 	} else if (tf.enabled) {
 		two = `<section class="card narrow"><h2>Two-step verification</h2><p class="ok-text">Two-step verification is on. Logging in needs your password and a code from your authenticator app. You have ${tf.left} recovery code${tf.left === 1 ? '' : 's'} left for emergencies.</p>
 <p class="hint">Turning it off, or creating new recovery codes, needs your password and a code from the app.</p>
