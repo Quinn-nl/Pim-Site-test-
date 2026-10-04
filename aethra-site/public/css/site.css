@@ -7,7 +7,7 @@
 
 
 *, *::before, *::after { box-sizing: border-box; }
-html { scroll-behavior: smooth; scroll-padding-top: 72px; -webkit-tap-highlight-color: transparent; -webkit-text-size-adjust: 100%; }
+html { scroll-padding-top: 72px; -webkit-tap-highlight-color: transparent; -webkit-text-size-adjust: 100%; }
 body { margin: 0; padding-inline: env(safe-area-inset-left, 0px) env(safe-area-inset-right, 0px); font-family: var(--font); font-size: 1.0625rem; line-height: 1.6; color: var(--ink); background: var(--bg); -webkit-font-smoothing: antialiased; }
 img { max-width: 100%; height: auto; display: block; }
 a { color: var(--accent); text-underline-offset: 3px; }
@@ -132,7 +132,6 @@ p { margin: 0 0 var(--s-2); }
 	.status-grid, .contact-grid { grid-template-columns: 1fr; gap: var(--s-4); }
 }
 @media (prefers-reduced-motion: reduce) {
-	html { scroll-behavior: auto; }
 	.js [data-reveal] { opacity: 1; transform: none; transition: none; }
 	.btn, .site-header { transition: none; }
 }
@@ -220,12 +219,13 @@ p { margin: 0 0 var(--s-2); }
 /* Mobile sticky call to action */
 .sticky-cta { display: none; }
 @media (max-width: 860px) {
-	.sticky-cta { position: fixed; z-index: 40; left: 1rem; right: 1rem; bottom: calc(1rem + env(safe-area-inset-bottom, 0px)); display: flex; align-items: center; justify-content: center; min-height: 52px; background: var(--btn-bg); color: var(--btn-ink); border-radius: 999px; font-weight: 700; text-decoration: none; box-shadow: 0 8px 24px rgba(11,27,51,.28); transform: translateY(160%); transition: transform 150ms var(--ease-out); }
-	.sticky-cta.show { transform: none; transition: transform 300ms var(--ease-out); }
+	.sticky-cta { position: fixed; z-index: 40; left: 1rem; right: 1rem; bottom: calc(1rem + env(safe-area-inset-bottom, 0px)); display: flex; align-items: center; justify-content: center; min-height: 52px; background: var(--btn-bg); color: var(--btn-ink); border-radius: 999px; font-weight: 700; text-decoration: none; box-shadow: 0 8px 24px rgba(11,27,51,.28); translate: 0 160%; visibility: hidden; transition: translate var(--dur-exit) var(--ease-out), scale var(--dur-press) var(--ease-out), background-color var(--dur-ui) ease, visibility 0s linear var(--dur-exit); }
+	.sticky-cta.show { translate: 0 0; visibility: visible; transition: translate var(--dur-panel) var(--ease-out), scale var(--dur-press) var(--ease-out), background-color var(--dur-ui) ease, visibility 0s; }
+	.sticky-cta:active { scale: .97; }
 	.site-footer { padding-bottom: calc(6rem + env(safe-area-inset-bottom, 0px)); }
 	.js .site-nav .lang { padding: .75rem .25rem; }
 }
-@media (prefers-reduced-motion: reduce) { .sticky-cta { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .sticky-cta, .sticky-cta.show { transition: none; } }
 
 /* Screen-reader text, badges and form states */
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
@@ -266,8 +266,8 @@ p { margin: 0 0 var(--s-2); }
 input, textarea, select { font-size: 16px; }
 a, button, summary, .btn { touch-action: manipulation; }
 .btn, .nav-toggle, .sticky-cta, .lang a, .chips a, .faq summary { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
-.btn, .sticky-cta, .nav-toggle { transition: background-color var(--dur-ui) ease, transform var(--dur-press) var(--ease-out); }
-.btn:active, .sticky-cta:active, .nav-toggle:active { transform: scale(.97); }
+.btn, .nav-toggle { transition: background-color var(--dur-ui) ease, transform var(--dur-press) var(--ease-out); }
+.btn:active, .nav-toggle:active { transform: scale(.97); }
 .chips li:active, .faq details:active { background: var(--accent-soft); }
 @media (pointer: coarse) { .btn-small { min-height: 44px; } }
 @media (hover: hover) and (pointer: fine) {
@@ -311,45 +311,52 @@ h1 { overflow-wrap: anywhere; }
 @media (prefers-reduced-motion: reduce) { .faq summary::after { transition: none; } }
 
 /* Polish (emil-design-eng): stagger, soft hovers, menu entrance, asymmetric timing */
-.cards > [data-reveal]:nth-child(2), .steps > [data-reveal]:nth-child(2), .facts > [data-reveal]:nth-child(2), .points > [data-reveal]:nth-child(2) { transition-delay: 60ms; }
-.cards > [data-reveal]:nth-child(3), .steps > [data-reveal]:nth-child(3), .points > [data-reveal]:nth-child(3) { transition-delay: 120ms; }
-.cards > [data-reveal]:nth-child(4) { transition-delay: 180ms; }
+.cards > [data-reveal]:nth-child(2), .steps > [data-reveal]:nth-child(2), .facts > [data-reveal]:nth-child(2), .points > [data-reveal]:nth-child(2) { transition-delay: 40ms; }
+.cards > [data-reveal]:nth-child(3), .steps > [data-reveal]:nth-child(3), .points > [data-reveal]:nth-child(3) { transition-delay: 80ms; }
+.cards > [data-reveal]:nth-child(4) { transition-delay: 120ms; }
 .site-nav a, .lang a, .chips li, .more { transition: color var(--dur-ui) ease, background-color var(--dur-ui) ease, border-color var(--dur-ui) ease; }
 .faq summary { transition: color var(--dur-ui) ease; }
-@keyframes menu-in { from { opacity: 0; transform: translateY(-6px); } }
-@media (max-width: 860px) { .js .site-nav.open { animation: menu-in 160ms var(--ease-out); } }
+@media (max-width: 860px) {
+	.js .site-nav { opacity: 0; transform: translateY(-6px); transition: opacity var(--dur-exit) var(--ease-out), transform var(--dur-exit) var(--ease-out), display var(--dur-exit) allow-discrete; }
+	.js .site-nav.open { opacity: 1; transform: none; transition: opacity var(--dur-ui) var(--ease-out), transform var(--dur-ui) var(--ease-out), display var(--dur-ui) allow-discrete; }
+}
+@starting-style { .js .site-nav.open { opacity: 0; transform: translateY(-6px); } }
 @media (prefers-reduced-motion: reduce) {
-	.js .site-nav.open { animation: none; }
+	.js .site-nav, .js .site-nav.open { transform: none; transition: opacity var(--dur-exit) ease, display var(--dur-exit) allow-discrete; }
 	.site-nav a, .lang a, .chips li, .more, .faq summary { transition: none; }
 	.cards > [data-reveal], .steps > [data-reveal], .facts > [data-reveal], .points > [data-reveal] { transition-delay: 0ms; }
 }
+@media (prefers-reduced-motion: reduce) { @starting-style { .js .site-nav.open { opacity: 0; transform: none; } } }
 @media print { .js [data-reveal] { opacity: 1; transform: none; transition: none; } }
 
 /* plan 001: the FAQ answer opens with the chevron (progressive enhancement; other browsers open instantly) */
 :root { interpolate-size: allow-keywords; }
-.faq details::details-content { block-size: 0; opacity: 0; overflow: clip; transition: block-size 200ms var(--ease-out), opacity 200ms var(--ease-out), content-visibility 200ms allow-discrete; }
+.faq details::details-content { block-size: 0; opacity: 0; overflow: clip; transition: block-size var(--dur-panel) var(--ease-out), opacity var(--dur-panel) var(--ease-out), content-visibility var(--dur-panel) allow-discrete; }
 .faq details[open]::details-content { block-size: auto; opacity: 1; }
-@media (prefers-reduced-motion: reduce) { .faq details::details-content { transition: opacity 120ms ease; } }
+@media (prefers-reduced-motion: reduce) { .faq details::details-content { transition: opacity var(--dur-exit) ease; } }
 
 /* plan 002: soften page changes (cross-document view transition; unsupported browsers ignore it) */
 @view-transition { navigation: auto; }
-::view-transition-old(root), ::view-transition-new(root) { animation-duration: 150ms; animation-timing-function: var(--ease-out); }
+::view-transition-old(root), ::view-transition-new(root) { animation-duration: var(--dur-ui); animation-timing-function: var(--ease-out); }
 @media (prefers-reduced-motion: reduce) { ::view-transition-old(root), ::view-transition-new(root) { animation: none; } }
 
 /* plan 003: the contact confirmation arrives (rare, high-value moment) */
 @keyframes pop-in { from { opacity: 0; transform: translateY(8px) scale(.98); } }
 @keyframes pop-in-soft { from { opacity: 0; } }
-.success { animation: pop-in 260ms var(--ease-out); }
-@media (prefers-reduced-motion: reduce) { .success { animation: pop-in-soft 160ms ease; } }
+.success { animation: pop-in var(--dur-panel) var(--ease-out); }
+@media (prefers-reduced-motion: reduce) { .success { animation: pop-in-soft var(--dur-ui) ease; } }
 
 /* apple-design: size-specific tracking and leading, and respect for transparency and contrast preferences */
 .hero h1, .page-head h1 { letter-spacing: -.02em; line-height: 1.06; }
 .section h2, .cta-inner h2 { letter-spacing: -.012em; line-height: 1.12; }
 h3 { letter-spacing: 0; }
-.site-header { backdrop-filter: blur(16px) saturate(160%); }
+.site-header { backdrop-filter: blur(16px); }
 @media (prefers-reduced-transparency: reduce) { .site-header { background: var(--bg); backdrop-filter: none; } }
 @media (prefers-contrast: more) {
 	.site-header { background: var(--bg); backdrop-filter: none; border-bottom-color: var(--ink); }
 	.card, .fact, .points li, .faq details, .form, .chips li { border-color: var(--ink-soft); }
 	:root { --muted: var(--slate-700); }
 }
+
+/* review: the header stays put during the page crossfade */
+.site-header { view-transition-name: site-header; }

@@ -4,16 +4,20 @@
 	var prev = document.getElementById('prev'), next = document.getElementById('next');
 	var count = document.getElementById('count'), bar = document.getElementById('bar');
 	var i = 0;
-	function show(n, push) {
+	function show(n, push, fade) {
 		i = Math.max(0, Math.min(slides.length - 1, n));
 		slides.forEach(function (s, k) { s.hidden = k !== i; });
+		var inner = slides[i].firstElementChild;
+		inner.classList.remove('fade');
+		if (fade) { void inner.offsetWidth; inner.classList.add('fade'); }
 		prev.disabled = i === 0; next.disabled = i === slides.length - 1;
 		count.textContent = (i + 1) + ' / ' + slides.length;
 		bar.style.transform = 'scaleX(' + ((i + 1) / slides.length) + ')';
 		if (push) { try { history.replaceState(null, '', '#' + (i + 1)); } catch (e) { /* ignore */ } }
 	}
-	prev.addEventListener('click', function () { show(i - 1, true); });
-	next.addEventListener('click', function () { show(i + 1, true); });
+	// A click with detail 0 comes from the keyboard (Enter or Space on the button): no animation then.
+	prev.addEventListener('click', function (e) { show(i - 1, true, e.detail > 0); });
+	next.addEventListener('click', function (e) { show(i + 1, true, e.detail > 0); });
 	document.addEventListener('keydown', function (e) {
 		if (e.key === 'ArrowRight' || e.key === 'PageDown' || e.key === ' ') { e.preventDefault(); show(i + 1, true); }
 		else if (e.key === 'ArrowLeft' || e.key === 'PageUp') { e.preventDefault(); show(i - 1, true); }
