@@ -41,7 +41,10 @@ if (fs.existsSync(envFile)) {
 }
 // On Windows npm is a .cmd file and needs a shell.
 const major = Number(process.versions.node.split('.')[0]);
-if (major !== 22 && !skipInstall) console.warn(`Warning: you are on Node ${process.versions.node}. Directus is built and tested for Node 22 (LTS); other versions can fail while installing its native parts. If the install fails, install Node 22 from https://nodejs.org and run this again.`);
+if (major !== 22 && !skipInstall && !process.argv.includes('--force')) {
+	console.error(`\nYou are on Node ${process.versions.node}. Directus needs Node 22 (LTS): it has native parts (isolated-vm, sqlite3, argon2) that are only prebuilt for Node 22, and newer npm versions also block their build steps.\n\n  1. Install Node 22 from https://nodejs.org (or with nvm-windows: nvm install 22, then nvm use 22)\n  2. Open a NEW terminal in aethra-site and check: node -v  (must show v22.x)\n  3. Remove a half-finished install if it exists (Windows: rmdir /s /q directus\\node_modules)\n  4. Run this command again.\n\n(Use --force to try anyway.)`);
+	process.exit(1);
+}
 const run = (cmd, args) => { const r = spawnSync(cmd, args, { cwd: dir, stdio: 'inherit', shell: process.platform === 'win32' && cmd === 'npm' }); if (r.status !== 0) { console.error(`${cmd} ${args.join(' ')} failed`); process.exit(r.status || 1); } };
 if (!skipInstall) run('npm', ['install', '--no-audit', '--no-fund', '--loglevel=warn']);
 if (!skipBootstrap) run('node', [path.join('node_modules', 'directus', 'cli.js'), 'bootstrap']);
