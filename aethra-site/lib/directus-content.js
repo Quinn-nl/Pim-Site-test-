@@ -20,6 +20,13 @@ async function refresh(fetchFn = fetch) {
 	const map = {};
 	for (const row of rows) if (row && /^[a-z]{2}$/.test(row.language)) map[row.language] = row;
 	store.setRemote(map);
+	// Pages made in Directus (collection "pages"). Optional: when it is missing or not readable yet, there are simply no extra pages.
+	try {
+		const pr = await fetchFn(`${base}/items/pages?filter[status][_eq]=published&limit=-1`, { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(8000) });
+		store.setRemotePages(pr.ok ? ((await pr.json()).data || []) : []);
+	} catch (e) {
+		store.setRemotePages([]);
+	}
 	return Object.keys(map);
 }
 

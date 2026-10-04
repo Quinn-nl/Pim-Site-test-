@@ -76,6 +76,42 @@ async function main() {
 		else console.log(`Row ${lang}: exists (use --reseed to overwrite)`);
 	}
 
+	// Collection "pages": new pages that appear on the website (/<language>/<slug>).
+	const hasPages = await api('GET', '/collections/pages', null, { allow: [403, 404] });
+	if (hasPages.status !== 200) {
+		await api('POST', '/collections', {
+			collection: 'pages',
+			meta: { icon: 'description', note: 'New pages for the website. A published page appears at /<language>/<slug>.', display_template: '{{title}} ({{language}})', archive_field: null, sort_field: null },
+			schema: {},
+			fields: [{ field: 'id', type: 'integer', meta: { hidden: true, readonly: true, interface: 'input' }, schema: { is_primary_key: true, has_auto_increment: true } }],
+		});
+		const F = (field, type, meta, schema = {}) => api('POST', '/fields/pages', { field, type, schema: { is_nullable: true, ...schema }, meta: { width: 'full', ...meta } });
+		await F('status', 'string', { interface: 'select-dropdown', sort: 1, width: 'half', required: true, note: 'Only published pages appear on the website', options: { choices: [{ text: 'Draft', value: 'draft' }, { text: 'Published', value: 'published' }] }, display: 'labels', display_options: { choices: [{ text: 'Draft', value: 'draft', foreground: '#18222F', background: '#D3DAE4' }, { text: 'Published', value: 'published', foreground: '#FFFFFF', background: '#2ECDA7' }] } }, { default_value: 'draft', is_nullable: false });
+		await F('language', 'string', { interface: 'select-dropdown', sort: 2, width: 'half', required: true, note: 'Language of this page', options: { choices: LANGS.map((l) => ({ text: LANG_NAMES[l], value: l })) } }, { is_nullable: false });
+		await F('slug', 'string', { interface: 'input', sort: 3, width: 'half', required: true, note: 'Address of the page: lowercase letters, digits and dashes, for example about-us. The page appears at /<language>/<slug>.', validation: { _and: [{ slug: { _regex: '^[a-z0-9]+(-[a-z0-9]+)*$' } }] }, validation_message: 'Use lowercase letters, digits and single dashes only (for example about-us).' });
+		await F('title', 'string', { interface: 'input', sort: 4, width: 'half', required: true, note: 'Main heading (H1) of the page' });
+		await F('lead', 'text', { interface: 'input-multiline', sort: 5, note: 'Short introduction under the heading (optional)' });
+		await F('body', 'text', { interface: 'input-rich-text-md', sort: 6, note: 'Page text in Markdown: ## heading, ### sub-heading, - list item, **bold**, [link text](https://address)' });
+		await F('seo_title', 'string', { interface: 'input', sort: 7, width: 'half', note: 'Title in search results (about 50 characters; the site name is added). Empty = the heading.' });
+		await F('seo_description', 'text', { interface: 'input-multiline', sort: 8, note: 'Description in search results (about 150 characters). Empty = the introduction.' });
+		await F('translation_group', 'string', { interface: 'input', sort: 9, width: 'half', note: 'Give the English, Dutch, German and French versions of the same page the same value (for example about-us) so they link to each other.' });
+		await F('show_in_footer', 'boolean', { interface: 'boolean', sort: 10, width: 'half', note: 'Show a link to this page in the footer' }, { default_value: false });
+		await F('date_created', 'timestamp', { interface: 'datetime', special: ['date-created'], readonly: true, sort: 11, width: 'half', hidden: true });
+		await F('date_updated', 'timestamp', { interface: 'datetime', special: ['date-updated'], readonly: true, sort: 12, width: 'half', hidden: true });
+		console.log('Collection pages created.');
+	} else {
+		console.log('Collection pages exists.');
+	}
+	// The read-only site user may read pages (the website itself only serves status = published).
+	const pol = (await api('GET', '/policies?filter[name][_eq]=Site%20reader&limit=1')).data || [];
+	if (pol[0]) {
+		const perm = (await api('GET', `/permissions?filter[policy][_eq]=${pol[0].id}&filter[collection][_eq]=pages&limit=1`)).data || [];
+		if (!perm[0]) {
+			await api('POST', '/permissions', { policy: pol[0].id, collection: 'pages', action: 'read', fields: ['*'], permissions: {}, validation: {} }); // row rules (only published) need a paid Directus plan; the site filters on status itself
+			console.log('Site reader may now read the pages collection (the site only shows published pages).');
+		}
+	}
+
 	// Read-only user for the website.
 	if (!env.SITE_READER_TOKEN) {
 		const policy = (await api('POST', '/policies', { name: 'Site reader', icon: 'visibility', admin_access: false, app_access: false, description: 'Read-only access to the website content for the public site.' })).data;

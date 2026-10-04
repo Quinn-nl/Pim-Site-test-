@@ -96,13 +96,15 @@ async function handlePublic(req, res, url) {
 	if (get && url.pathname === '/sitemap.xml') {
 		let modified = new Date();
 		try { modified = require('fs').statSync(store.file('content.json')).mtime; } catch (e) { /* no edits yet */ }
-		return send(res, 200, views.renderSitemap(siteUrl, modified.toISOString().slice(0, 10), todayOn() ? ['/eco-mode-today'] : []), { 'Content-Type': 'application/xml; charset=utf-8', 'Cache-Control': 'public, max-age=3600' });
+		return send(res, 200, views.renderSitemap(siteUrl, modified.toISOString().slice(0, 10), todayOn() ? ['/eco-mode-today'] : [], store.publishedPages(), store.pageVersions), { 'Content-Type': 'application/xml; charset=utf-8', 'Cache-Control': 'public, max-age=3600' });
 	}
 	if (get && url.pathname === '/llms.txt') {
 		const v = store.getContent('en').values;
 		const lines = [`# ${v.site_name}`, '', `> ${v.meta_description}`, '', 'Status: prototype phase. Informational website; not an offer of securities or financial products.', ''];
 		for (const l of LANGS) lines.push(`- [${l.toUpperCase()}: ${store.getContent(l).values.hero_title}](${siteUrl}/${l}/)`);
 		lines.push('', '## Pages (English)', ...['/problem', '/how-it-works', '/applications', ...AUDIENCES.map((a) => `/for/${a.slug}`), ...(todayOn() ? ['/eco-mode-today'] : []), '/contact'].map((p) => `- ${siteUrl}/en${p}`), '');
+		const extra = store.publishedPages();
+		if (extra.length) lines.push('', '## More pages', ...extra.map((p) => `- [${p.title}](${siteUrl}/${p.language}/${p.slug})`), '');
 		return send(res, 200, lines.join('\n'), { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'public, max-age=3600' });
 	}
 	if (get && url.pathname === '/.well-known/security.txt' && process.env.SECURITY_CONTACT) {
@@ -140,6 +142,7 @@ async function handlePublic(req, res, url) {
 		res.devToggle = worst.toggleHtml(mode, url.pathname + url.search);
 	}
 	views.setToday(todayOn());
+	views.setFooterPages(store.footerPages(lang));
 	if (page === '/eco-mode-today' && !todayOn()) return false;
 	const attribution = stats.sourceOf(url, req.headers.referer, req.headers.host);
 	const utm = { source: stats.tag(url.searchParams.get('utm_source')), campaign: stats.tag(url.searchParams.get('utm_campaign')) };
@@ -149,6 +152,13 @@ async function handlePublic(req, res, url) {
 	const audience = aud && AUDIENCES.some((a) => a.slug === aud[1]) ? aud[1] : null;
 	const countView = (key) => { if (get && stats.countable(req)) stats.record('v', { lang, page: key, ...attribution }); };
 
+	if (get && /^\/[a-z0-9-]+$/.test(page)) {
+		const created = store.findPage(lang, page.slice(1)); // a page made in Directus
+		if (created) {
+			countView(page);
+			return sendPage(req, res, views.renderPage(content, ctx, created, store.pageVersions(created)));
+		}
+	}
 	if (get && page === '/contact') {
 		countView('/contact');
 		return send(res, 200, views.renderContact(content, { ...ctx, status: url.searchParams.get('contact') || '', token: auth.formToken(), role: url.searchParams.get('role') || '', utm }));

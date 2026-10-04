@@ -99,6 +99,43 @@ function remoteValues(row) {
 	return out;
 }
 
+/* Pages created in Directus (collection "pages"). Only published pages with a valid, unreserved slug are served. */
+const RESERVED_SLUGS = new Set(['problem', 'how-it-works', 'applications', 'contact', 'privacy', 'for', 'eco-mode-today', 'admin', 'admin2', 'css', 'js', 'img', 'fonts', 'uploads', 'deck', 'healthz', 'robots', 'sitemap', 'llms', 'favicon']);
+let remotePagesRaw = [];
+const setRemotePages = (rows) => { remotePagesRaw = Array.isArray(rows) ? rows : []; };
+const oneLine = (s, max) => String(s == null ? '' : s).replace(/\s+/g, ' ').trim().slice(0, max);
+
+function publishedPages() {
+	const seen = new Set();
+	const out = [];
+	for (const r of [...remotePagesRaw].sort((a, b) => (Number(a.id) || 0) - (Number(b.id) || 0))) {
+		const lang = r.language;
+		const slug = String(r.slug || '').trim().toLowerCase();
+		if (r.status !== 'published' || !LANGS.includes(lang) || !/^[a-z0-9]+(-[a-z0-9]+)*$/.test(slug) || RESERVED_SLUGS.has(slug) || !oneLine(r.title, 200)) continue;
+		if (seen.has(`${lang}/${slug}`)) continue; // first one wins
+		seen.add(`${lang}/${slug}`);
+		out.push({
+			id: r.id, language: lang, slug, title: oneLine(r.title, 200), lead: oneLine(r.lead, 600),
+			body: String(r.body || '').replace(/\r/g, '').slice(0, 20000),
+			seo_title: oneLine(r.seo_title, 120), seo_description: oneLine(r.seo_description, 300),
+			group: String(r.translation_group || '').trim().toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 60),
+			footer: r.show_in_footer === true, updated: String(r.date_updated || r.date_created || '').slice(0, 10),
+		});
+	}
+	return out;
+}
+const findPage = (lang, slug) => publishedPages().find((p) => p.language === lang && p.slug === slug) || null;
+/** The same page in every language it exists in (linked by translation_group), including itself. */
+function pageVersions(page) {
+	const all = publishedPages();
+	if (!page.group) return { [page.language]: page.slug };
+	const out = {};
+	for (const p of all) if (p.group === page.group && !out[p.language]) out[p.language] = p.slug;
+	out[page.language] = page.slug;
+	return out;
+}
+const footerPages = (lang) => publishedPages().filter((p) => p.footer && p.language === lang);
+
 function getContent(lang = 'en') {
 	const saved = normalise(readJson('content.json', {}));
 	const r = remote[lang] || null;
@@ -199,4 +236,4 @@ function deleteMessage(id) {
 	writeJson('messages.json', all.filter((m) => m.id !== id));
 }
 
-module.exports = { setRemote, remoteState, markRead, unreadCount, markAllRead, patchMessage, messagesCsv, file, uploadsDir, ensureDirs, readJson, writeJson, getSecret, getContent, saveContent, setImage, listMessages, addMessage, deleteMessage, cleanValue };
+module.exports = { setRemotePages, publishedPages, findPage, pageVersions, footerPages, setRemote, remoteState, markRead, unreadCount, markAllRead, patchMessage, messagesCsv, file, uploadsDir, ensureDirs, readJson, writeJson, getSecret, getContent, saveContent, setImage, listMessages, addMessage, deleteMessage, cleanValue };

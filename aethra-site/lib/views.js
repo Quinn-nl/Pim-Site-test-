@@ -14,6 +14,11 @@ const asset = (p) => {
 	return `${p}?v=${versions.get(p)}`;
 };
 
+let todayOn = false;
+const setToday = (on) => { todayOn = !!on; };
+let footerPages = [];
+const setFooterPages = (list) => { footerPages = Array.isArray(list) ? list : []; };
+
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 const LOGO = '<svg class="logo-mark" viewBox="0 0 32 32" width="28" height="28" aria-hidden="true" focusable="false"><g transform="translate(16 16) rotate(-28)"><defs><mask id="am"><rect x="-16" y="-16" width="32" height="32" fill="#fff"/><path d="M-14 0A14 5.5 0 0 0 14 0" fill="none" stroke="#000" stroke-width="4.2"/></mask></defs><path d="M-14 0A14 5.5 0 0 1 14 0" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle r="6" fill="currentColor" mask="url(#am)"/><path d="M-14 0A14 5.5 0 0 0 14 0" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><rect x="6.6" y="-6.1" width="3.8" height="3.8" rx=".6" fill="currentColor" transform="rotate(32 8.5 -4.2)"/></g></svg>';
@@ -56,7 +61,7 @@ const clip = (text, max = 155) => {
 };
 const jsonLd = (data) => JSON.stringify(data).replace(/</g, '\\u003c');
 
-function layout({ lang, page, title, description, body, v, siteUrl, images = {}, noindex = false, graph = null, stickyCta = true }) {
+function layout({ lang, page, title, description, body, v, siteUrl, images = {}, noindex = false, graph = null, stickyCta = true, alt = null }) {
 	const t = UI[lang];
 	const name = v.site_name;
 	const navLink = (p, label) => `<a href="${link(lang, p)}"${page === p ? ' aria-current="page"' : ''}>${esc(label)}</a>`;
@@ -65,11 +70,13 @@ function layout({ lang, page, title, description, body, v, siteUrl, images = {},
 	const social = images.social ? `${siteUrl}/uploads/${images.social.file}` : `${siteUrl}/img/og-default-${lang}.png`;
 	const socialSize = images.social && images.social.w ? [images.social.w, images.social.h] : (images.social ? null : [1200, 630]);
 	const desc = clip(description);
+	// alt: for pages that exist only in some languages ({ lang: '/path' }); the fixed pages exist in all.
+	const altPath = (l) => (alt ? (alt[l] || null) : (page === null ? null : page));
 	const alternates = page === null || noindex ? '' : [
-		...LANGS.map((l) => `<link rel="alternate" hreflang="${l}" href="${esc(siteUrl + url(l, page))}">`),
-		`<link rel="alternate" hreflang="x-default" href="${esc(siteUrl + '/')}">`,
+		...LANGS.filter((l) => altPath(l)).map((l) => `<link rel="alternate" hreflang="${l}" href="${esc(siteUrl + url(l, altPath(l)))}">`),
+		`<link rel="alternate" hreflang="x-default" href="${esc(alt ? siteUrl + url(alt.en ? 'en' : lang, alt.en || page) : siteUrl + '/')}">`,
 	].join('\n');
-	const switcher = `<span class="lang" role="group" aria-label="${esc(t.language)}">${LANGS.map((l) => `<a href="${link(l, page || '/')}" hreflang="${l}" lang="${l}" data-lang="${l}" title="${esc(LANG_NAMES[l])}"${l === lang ? ' aria-current="true"' : ''}>${l.toUpperCase()}</a>`).join('')}</span>`;
+	const switcher = `<span class="lang" role="group" aria-label="${esc(t.language)}">${LANGS.map((l) => `<a href="${link(l, altPath(l) || '/')}" hreflang="${l}" lang="${l}" data-lang="${l}" title="${esc(LANG_NAMES[l])}"${l === lang ? ' aria-current="true"' : ''}>${l.toUpperCase()}</a>`).join('')}</span>`;
 	return `<!doctype html>
 <html lang="${lang}">
 <head>
@@ -123,7 +130,7 @@ ${stickyCta && page !== '/contact' ? `<aside aria-label="${esc(t.contact_aside)}
 <footer class="site-footer">
 	<div class="wrap footer-inner">
 		<div><p class="footer-brand">${esc(name.toUpperCase())}</p>${v.company_line ? `<p class="footer-note">${esc(v.company_line)}</p>` : ''}</div>
-		<nav aria-label="${esc(t.footer_nav)}">${nav.map(([p, l]) => navLink(p, l)).join('')}${todayOn ? navLink('/eco-mode-today', t.nav_today) : ''}${navLink('/contact', t.nav_contact)}${navLink('/privacy', t.privacy)}</nav>
+		<nav aria-label="${esc(t.footer_nav)}">${nav.map(([p, l]) => navLink(p, l)).join('')}${todayOn ? navLink('/eco-mode-today', t.nav_today) : ''}${footerPages.map((p) => navLink(`/${p.slug}`, p.title)).join('')}${navLink('/contact', t.nav_contact)}${navLink('/privacy', t.privacy)}</nav>
 	</div>
 	<div class="wrap footer-audiences"><nav aria-label="${esc(t.aud_other)}">${AUDIENCES.map((a) => `<a href="${link(lang, '/for/' + a.slug)}"${page === '/for/' + a.slug ? ' aria-current="page"' : ''}>${esc(labelFor(a, lang))}</a>`).join('')}</nav></div>
 	<div class="wrap footer-bottom"><small>&copy; ${new Date().getFullYear()} ${esc(name)}. ${esc(t.disclaimer)}</small></div>
@@ -443,6 +450,39 @@ ${ctaBand(lang, v)}
 	return layout({ lang, page: '/eco-mode-today', title: `${v.seo_today} | ${v.site_name}`, description: v.today_lead, body, v, siteUrl, images, graph: { '@context': 'https://schema.org', ...crumbs(lang, siteUrl, v, '/eco-mode-today', t.nav_today) } });
 }
 
+/** Small, safe Markdown subset for pages written in Directus: ## and ### headings, - lists, **bold**, [text](https://link or /path). Everything is escaped first. */
+function mdToHtml(text) {
+	const inline = (raw) => esc(raw)
+		.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
+		.replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+|\/[^\s)]*)\)/g, (m, label, href) => `<a href="${href}" rel="noopener">${label}</a>`);
+	return String(text || '').replace(/\r/g, '').split(/\n{2,}/).map((b) => b.trim()).filter(Boolean).map((block) => {
+		const lines = block.split('\n');
+		if (lines.every((l) => /^[-*] /.test(l))) return `<ul>${lines.map((l) => `<li>${inline(l.slice(2))}</li>`).join('')}</ul>`;
+		if (/^### /.test(block)) return `<h3>${inline(block.slice(4).split('\n')[0])}</h3>${lines.length > 1 ? `<p>${inline(lines.slice(1).join(' '))}</p>` : ''}`;
+		if (/^## /.test(block)) return `<h2>${inline(block.slice(3).split('\n')[0])}</h2>${lines.length > 1 ? `<p>${inline(lines.slice(1).join(' '))}</p>` : ''}`;
+		return `<p>${inline(lines.join(' '))}</p>`;
+	}).join('\n');
+}
+
+/** A page created in Directus: /<lang>/<slug>. */
+function renderPage({ lang, values: v, images }, { siteUrl }, page, versions) {
+	const t = UI[lang];
+	const path = `/${page.slug}`;
+	const alt = Object.fromEntries(Object.entries(versions).map(([l, slug]) => [l, `/${slug}`]));
+	const body = `
+<main id="main">
+${pageHead(v.site_name, page.title, page.lead)}
+<section class="section">
+	<div class="wrap prose page-body">
+${mdToHtml(page.body)}
+	</div>
+</section>
+${ctaBand(lang, v)}
+</main>`;
+	const graph = { '@context': 'https://schema.org', '@graph': [crumbs(lang, siteUrl, v, path, page.title), { '@type': 'WebPage', name: page.title, url: siteUrl + url(lang, path), inLanguage: lang, isPartOf: { '@id': `${siteUrl}/#website` } }] };
+	return layout({ lang, page: path, title: `${page.seo_title || page.title} | ${v.site_name}`, description: page.seo_description || page.lead, body, v, siteUrl, images, graph, alt });
+}
+
 function renderPrivacy({ lang, values: v, privacy, images }, { siteUrl }) {
 	const t = UI[lang];
 	const blocks = privacy.split(/\n{2,}|\n(?=# )/).map((b) => b.trim()).filter(Boolean).map((b) => {
@@ -461,14 +501,18 @@ function renderNotFound({ lang, values: v }, { siteUrl }) {
 	return layout({ lang, page: null, title: `${t.nf_title} | ${v.site_name}`, description: '', noindex: true, v, siteUrl, stickyCta: false, body: `<main id="main" class="wrap prose page-main"><h1>${esc(t.nf_title)}</h1><p><a href="${link(lang)}">${esc(t.nf_back)}</a></p></main>` });
 }
 
-let todayOn = false;
-const setToday = (on) => { todayOn = !!on; };
+
 const PAGES = ['/', '/problem', '/how-it-works', '/applications', ...AUDIENCES.map((a) => `/for/${a.slug}`), '/contact', '/privacy'];
 
-function renderSitemap(siteUrl, lastmod, extra = []) {
+function renderSitemap(siteUrl, lastmod, extra = [], pages = [], versionsOf = () => ({})) {
 	const alt = (page) => [...LANGS.map((l) => `<xhtml:link rel="alternate" hreflang="${l}" href="${esc(siteUrl + url(l, page))}"/>`), `<xhtml:link rel="alternate" hreflang="x-default" href="${esc(siteUrl + '/')}"/>`].join('');
 	const entries = [...PAGES, ...extra].flatMap((page) => LANGS.map((l) => `<url><loc>${esc(siteUrl + url(l, page))}</loc><lastmod>${lastmod}</lastmod>${alt(page)}</url>`));
+	for (const p of pages) {
+		const versions = versionsOf(p);
+		const links = [...LANGS.filter((l) => versions[l]).map((l) => `<xhtml:link rel="alternate" hreflang="${l}" href="${esc(siteUrl + url(l, '/' + versions[l]))}"/>`), `<xhtml:link rel="alternate" hreflang="x-default" href="${esc(siteUrl + url(versions.en ? 'en' : p.language, '/' + (versions.en || p.slug)))}"/>`].join('');
+		entries.push(`<url><loc>${esc(siteUrl + url(p.language, '/' + p.slug))}</loc><lastmod>${p.updated || lastmod}</lastmod>${links}</url>`);
+	}
 	return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">\n${entries.join('\n')}\n</urlset>\n`;
 }
 
-module.exports = { asset, renderToday, setToday, esc, url, setCarry, renderAudience, PAGES, renderHome, renderProblem, renderHow, renderApplications, renderContact, renderPrivacy, renderNotFound, renderSitemap };
+module.exports = { mdToHtml, renderPage, setFooterPages, asset, renderToday, setToday, esc, url, setCarry, renderAudience, PAGES, renderHome, renderProblem, renderHow, renderApplications, renderContact, renderPrivacy, renderNotFound, renderSitemap };

@@ -661,7 +661,7 @@ test('Directus: proxy is off by default; content overlay keeps defaults for empt
 	const rows = [{ language: 'en', hero_title: 'From Directus', hero_cta: '', status_note: '', evil_key: 'x', privacy: 'Directus privacy text' }, { language: 'nl', hero_title: null }];
 	let seen;
 	const nlBefore = store.getContent('nl').values.hero_title;
-	const langs = await dc.refresh(async (url, opts) => { seen = { url, auth: opts.headers.Authorization }; return { ok: true, json: async () => ({ data: rows }) }; });
+	const langs = await dc.refresh(async (url, opts) => { if (!seen) seen = { url, auth: opts.headers.Authorization }; return { ok: true, json: async () => ({ data: /\/items\/pages/.test(url) ? [] : rows }) }; });
 	assert.deepEqual(langs.sort(), ['en', 'nl']);
 	assert.equal(seen.url, 'http://directus.test/items/site_content?limit=-1');
 	assert.equal(seen.auth, 'Bearer token');
@@ -703,4 +703,44 @@ test('Directus: /admin2 proxy strips the prefix, adds noindex, keeps /admin as o
 	upstream.close();
 	delete process.env.DIRECTUS_URL;
 	delete require.cache[require.resolve('../server')];
+});
+
+test('pages made in Directus: rules, safe Markdown, routes, hreflang, sitemap, footer, llms.txt', async () => {
+	const views = require('../lib/views');
+	// Markdown is escaped first; only http(s) and /path links survive
+	const html = views.mdToHtml('## Title\n\nA **bold** <script>alert(1)</script> [ok](https://example.org/x) [bad](javascript:alert(1)) [rel](/en/contact)\n\n- one\n- two\n\n### Sub');
+	assert.ok(!html.includes('<script>') && html.includes('&lt;script&gt;'));
+	assert.ok(html.includes('<h2>Title</h2>') && html.includes('<strong>bold</strong>') && html.includes('<ul><li>one</li><li>two</li></ul>') && html.includes('<h3>Sub</h3>'));
+	assert.ok(html.includes('href="https://example.org/x"') && html.includes('href="/en/contact"') && !html.includes('href="javascript'));
+
+	store.setRemotePages([
+		{ id: 1, status: 'published', language: 'en', slug: 'about-us', title: 'About us', lead: 'Who we are', body: 'Hello **world**', translation_group: 'about', show_in_footer: true, seo_title: 'About Aethra', date_updated: '2026-10-05T10:00:00Z' },
+		{ id: 2, status: 'published', language: 'nl', slug: 'over-ons', title: 'Over ons', body: 'Hallo', translation_group: 'about', show_in_footer: true },
+		{ id: 3, status: 'draft', language: 'en', slug: 'secret', title: 'Draft' },
+		{ id: 4, status: 'published', language: 'en', slug: 'problem', title: 'Clash with a fixed page' },
+		{ id: 5, status: 'published', language: 'en', slug: 'Bad Slug!', title: 'Bad slug' },
+		{ id: 6, status: 'published', language: 'en', slug: 'about-us', title: 'Duplicate, later id' },
+		{ id: 7, status: 'published', language: 'xx', slug: 'nolang', title: 'Unknown language' },
+	]);
+	assert.deepEqual(store.publishedPages().map((p) => `${p.language}/${p.slug}`), ['en/about-us', 'nl/over-ons']);
+	const res = await fetch(base + '/en/about-us');
+	const page = await res.text();
+	assert.equal(res.status, 200);
+	assert.match(page, /<h1 id="page-title">About us<\/h1>/);
+	assert.ok(page.includes('<strong>world</strong>') && page.includes('Who we are'));
+	assert.match(page, /<title>About Aethra \| /);
+	assert.match(page, /rel="canonical" href="[^"]*\/en\/about-us"/);
+	assert.match(page, /hreflang="nl" href="[^"]*\/nl\/over-ons"/);
+	assert.ok(!/<link rel="alternate" hreflang="de"/.test(page), 'no alternate for a language without this page');
+	assert.match(page, /hreflang="nl" lang="nl"[^>]*>NL|href="\/nl\/over-ons" hreflang="nl"/);
+	assert.match(page, /<nav aria-label="[^"]*">[^<]*(<a[^>]*>[^<]*<\/a>)*[^]*?href="\/en\/about-us"[^>]*>About us/, 'footer link');
+	assert.equal((await fetch(base + '/en/secret')).status, 404);
+	assert.equal((await fetch(base + '/de/about-us')).status, 404);
+	assert.equal((await fetch(base + '/nl/over-ons')).status, 200);
+	const sm = await (await fetch(base + '/sitemap.xml')).text();
+	assert.ok(sm.includes('/en/about-us') && sm.includes('/nl/over-ons') && !sm.includes('/secret'));
+	assert.match(sm, /<loc>[^<]*\/en\/about-us<\/loc><lastmod>2026-10-05<\/lastmod>/);
+	assert.ok((await (await fetch(base + '/llms.txt')).text()).includes('About us'));
+	store.setRemotePages([]);
+	assert.equal((await fetch(base + '/en/about-us')).status, 404);
 });
