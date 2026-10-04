@@ -624,3 +624,12 @@ test('context page: hidden until published, then sourced, linked and in the site
 	store.saveContent({ lang: 'en', values: { today_enabled: '' } });
 	assert.equal((await fetch(base + '/en/eco-mode-today')).status, 404);
 });
+
+test('technical: one URL per page (trailing slash redirects), language redirect stays temporary', async () => {
+	const r = await fetch(base + '/en/problem/?utm_source=x', { redirect: 'manual' });
+	assert.equal(r.status, 301);
+	assert.equal(new URL(r.headers.get('location'), base).pathname + new URL(r.headers.get('location'), base).search, '/en/problem?utm_source=x');
+	assert.equal((await fetch(base + '/en/problem', { redirect: 'manual' })).status, 200);
+	assert.equal((await fetch(base + '/en/', { redirect: 'manual' })).status, 200);
+	assert.equal((await fetch(base + '/', { redirect: 'manual', headers: { 'accept-language': 'de' } })).status, 302);
+});

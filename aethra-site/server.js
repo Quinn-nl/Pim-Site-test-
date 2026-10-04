@@ -125,7 +125,10 @@ async function handlePublic(req, res, url) {
 	const lang = m[1];
 	let page = m[2] || '/';
 	if (get && !m[2]) return redirect(res, `/${lang}/`, {}, 301);
-	if (page.length > 1 && page.endsWith('/')) page = page.slice(0, -1);
+	if (page.length > 1 && page.endsWith('/')) {
+		if (get) return redirect(res, `/${lang}${page.replace(/\/+$/, '')}${url.search}`, {}, 301); // one URL per page
+		page = page.replace(/\/+$/, '');
+	}
 	const content = store.getContent(lang);
 	if (DEV_TOGGLE) {
 		const mode = auth.parseCookies(req.headers.cookie).aethra_dev_data || 'demo';
