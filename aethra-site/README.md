@@ -46,6 +46,10 @@ Set these environment variables and every new message is also e-mailed to your t
 ## Photos
 Uploads are checked by structure, location data (EXIF) and other metadata are removed automatically, and the size is stored so the page does not jump while loading. The hero photo is loaded first for speed. Use photos about 2000 px wide; a 1200 x 630 image in the "Social sharing image" slot is used when the site is shared. The photo itself is not resized, so compress large files before uploading.
 
+## CMS at `/admin2` (Payload, open source)
+
+A headless CMS for editing texts, pages and photos and reading contact messages. Setup and security: [docs/cms.md](../docs/cms.md). Quick start: `npm run cms:init -- --email=you@example.com`, `npm run cms`, `npm run cms:setup`, `npm run start:cms`.
+
 ## Back-ups
 `npm run backup` copies the data folder to `backups/<date-time>` and keeps the newest 14. Schedule it (cron) and also copy the folder off the server.
 
@@ -73,7 +77,3 @@ Admin > Account > Two-step verification > Set up. Scan the QR code with any auth
 ## Context page (hidden by default)
 
 `/en/eco-mode-today` (and NL/DE/FR) summarises which geofenced eco-mode products exist today (each statement links its source) and what is still missing. It is **not published** until someone checks the sources and types `yes` in Admin > Content > "Page: geofenced eco mode today". Edit the English field, the other languages follow their own text. While off, the page returns 404 and is absent from the footer, sitemap and llms.txt. No claims about Aethra's results, no "first" or "only".
-
-## Admin panel trial: Directus at /admin2
-
-`/admin` is our own panel. `/admin2` opens [Directus](https://directus.com) when `DIRECTUS_URL` is set (a trial of an open-source panel). How to start it, what was built and an honest comparison are in `docs/directus-trial.md`. Short version: `npm run directus:init -- --email=you@yourdomain.com`, `npm run directus` (terminal 1), `npm run directus:setup` (terminal 2, once), then `npm run start:directus:live`. These commands are the same on Windows, macOS and Linux.

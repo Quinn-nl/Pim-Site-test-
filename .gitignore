@@ -6,7 +6,10 @@
 .agents/skills/seo/runtime-state.json
 __pycache__/
 
-# Directus trial (admin panel at /admin2): installed on demand, holds secrets and its own database
-aethra-site/directus/node_modules/
-aethra-site/directus/data/
-aethra-site/directus/.env
+
+# Payload CMS (admin at /admin2): installed on demand, holds secrets, its database and uploads
+aethra-site/payload/node_modules/
+aethra-site/payload/.next/
+aethra-site/payload/data/
+aethra-site/payload/.env
+aethra-site/payload/next-env.d.ts

@@ -16,10 +16,12 @@
     "indexnow": "node scripts/indexnow.cjs",
     "backup": "node scripts/backup.js",
     "test": "node --test test/*.test.js",
-    "directus:init": "node scripts/directus-init.cjs",
-    "directus": "npm --prefix directus start",
-    "directus:setup": "node scripts/directus-setup.cjs",
-    "start:directus": "node scripts/start-directus.cjs",
-    "start:directus:live": "node scripts/start-directus.cjs --content"
+    "payload:fields": "node scripts/payload-fields.cjs",
+    "cms:init": "node scripts/payload-init.cjs",
+    "cms": "npm --prefix payload run dev",
+    "cms:build": "npm --prefix payload run build",
+    "cms:start": "npm --prefix payload run start",
+    "cms:setup": "node scripts/payload-setup.cjs",
+    "start:cms": "node scripts/start-cms.cjs"
   }
 }

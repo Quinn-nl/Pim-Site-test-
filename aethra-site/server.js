@@ -17,7 +17,8 @@ const { LANGS, isLang, detectLang, UI } = require('./lib/i18n');
 const views = require('./lib/views');
 const admin = require('./lib/admin-views');
 const crypto = require('crypto');
-const directusProxy = process.env.DIRECTUS_URL ? require('./lib/directus-proxy').create(process.env.DIRECTUS_URL) : null;
+const cmsProxy = process.env.CMS_URL ? require('./lib/cms-proxy').create(process.env.CMS_URL) : null;
+const cmsMessages = require('./lib/cms-messages');
 
 const loginLimiter = createLimiter(5, 15 * 60 * 1000);
 const accountLimiter = createLimiter(5, 15 * 60 * 1000);
@@ -153,7 +154,7 @@ async function handlePublic(req, res, url) {
 	const countView = (key) => { if (get && stats.countable(req)) stats.record('v', { lang, page: key, ...attribution }); };
 
 	if (get && /^\/[a-z0-9-]+$/.test(page)) {
-		const created = store.findPage(lang, page.slice(1)); // a page made in Directus
+		const created = store.findPage(lang, page.slice(1)); // a page made in the CMS
 		if (created) {
 			countView(page);
 			return sendPage(req, res, views.renderPage(content, ctx, created, store.pageVersions(created)));
@@ -199,6 +200,7 @@ async function handlePublic(req, res, url) {
 		const saved = store.addMessage(msg);
 		if (!saved) return again('error', {}, 503);
 		notify(saved);
+		cmsMessages.push(saved); // copy into the CMS inbox (best effort)
 		confirmToVisitor(saved, content);
 		stats.record('s', { lang, page: msg.role, source: msg.source, campaign: msg.campaign });
 		return redirect(res, `/${lang}/contact?contact=sent`);
@@ -256,7 +258,7 @@ async function handleAdmin(req, res, url) {
 	if (req.method === 'GET') {
 		const c = store.getContent(lang);
 		if (p === '/admin') return send(res, 200, admin.contentPage(session, lang, c.values, flash));
-		if (p === '/admin/photos') return send(res, 200, admin.photosPage(session, c.images, flash));
+		if (p === '/admin/photos') return send(res, 200, admin.photosPage(session, store.getLocalImages(), flash));
 		if (p === '/admin/privacy') return send(res, 200, admin.privacyPage(session, lang, c.privacy, flash));
 		if (p === '/admin/stats') {
 			const days = [7, 30, 90].includes(Number(url.searchParams.get('days'))) ? Number(url.searchParams.get('days')) : 30;
@@ -293,7 +295,7 @@ async function handleAdmin(req, res, url) {
 		if (!csrfOk(session, fields.csrf)) return send(res, 403, 'Forbidden', { 'Content-Type': 'text/plain' });
 		if (!IMAGE_SLOTS.some((s) => s.slot === fields.slot)) return redirect(res, '/admin/photos?f=badimg');
 		const alt = String(fields.alt || '').replace(/\s+/g, ' ').trim().slice(0, 200);
-		const existing = store.getContent('en').images[fields.slot];
+		const existing = store.getLocalImages()[fields.slot];
 		if (fields.action === 'remove') {
 			store.setImage(fields.slot, null);
 			return redirect(res, '/admin/photos?f=deleted');
@@ -337,6 +339,7 @@ async function handleAdmin(req, res, url) {
 	}
 	if (p === '/admin/messages/delete') {
 		store.deleteMessage(String(form.id || ''));
+		cmsMessages.remove(String(form.id || ''));
 		return redirect(res, '/admin/messages?f=deleted');
 	}
 	if (p === '/admin/2fa/start') {
@@ -392,9 +395,9 @@ function createServer() {
 			if (req.method === 'HEAD') req.method = 'GET'; // Node drops the body of a HEAD response itself
 			const url = new URL(req.url, 'http://localhost');
 			let handled = false;
-			if (directusProxy && directusProxy.matches(url.pathname)) { // /admin2: Directus trial
-				if (url.pathname === '/admin2' || url.pathname === '/admin2/') return redirect(res, '/admin2/admin/', {}, 302);
-				return directusProxy.handle(req, res);
+			if (cmsProxy && cmsProxy.matches(url.pathname)) { // /admin2: the CMS
+				if (url.pathname === '/admin2' || url.pathname === '/admin2/') return redirect(res, '/admin2/admin', {}, 302);
+				return cmsProxy.handle(req, res);
 			}
 			if (url.pathname === '/admin' || url.pathname.startsWith('/admin/')) handled = await handleAdmin(req, res, url);
 			else if (req.method === 'GET' && url.pathname.startsWith('/uploads/')) handled = serveFile(res, store.uploadsDir(), url.pathname.slice('/uploads/'.length), 'public, max-age=31536000, immutable');
@@ -415,13 +418,18 @@ function createServer() {
 }
 
 if (require.main === module) {
-	if (require('./lib/directus-content').start()) console.log('Content source: Directus (read-only, refreshed in the background)');
+	if (require('./lib/payload-content').start()) console.log('Content source: the CMS (read-only, refreshed in the background)');
 	const server = createServer();
 	server.headersTimeout = 15000;
 	server.requestTimeout = 30000; // slow-loris: a request must complete within 30 s
 	server.keepAliveTimeout = 5000;
 	server.maxHeadersCount = 50;
+	if (cmsProxy) server.on('upgrade', (req, socket, head) => {
+		const p = (req.url || '').split('?')[0];
+		if (cmsProxy.matches(p) || p.startsWith('/_next/')) cmsProxy.upgrade(req, socket, head); else socket.destroy();
+	});
 	server.listen(cfg.PORT, cfg.HOST, () => console.log(`Aethra site on http://${cfg.HOST}:${cfg.PORT}`));
+	if (cmsMessages.enabled()) { const purge = () => cmsMessages.purge(cfg.RETENTION_DAYS); setTimeout(purge, 60000).unref(); setInterval(purge, 3600000).unref(); } // keep the CMS inbox within the retention period
 	for (const sig of ['SIGTERM', 'SIGINT']) {
 		process.on(sig, () => {
 			stats.flush();

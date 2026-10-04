@@ -653,59 +653,120 @@ test('improvements: versioned immutable assets, favicon redirect, Content-Signal
 	delete process.env.INDEXNOW_KEY;
 });
 
-test('Directus: proxy is off by default; content overlay keeps defaults for empty values and ignores unknown keys', async () => {
-	assert.equal((await fetch(base + '/admin2/admin/')).status, 404);
-	const dc = require('../lib/directus-content');
-	process.env.DIRECTUS_URL = 'http://directus.test';
-	process.env.DIRECTUS_TOKEN = 'token';
-	const rows = [{ language: 'en', hero_title: 'From Directus', hero_cta: '', status_note: '', evil_key: 'x', privacy: 'Directus privacy text' }, { language: 'nl', hero_title: null }];
-	let seen;
+test('CMS: proxy is off by default; content refresh maps texts, photos, pages and privacy; empty values keep defaults', async () => {
+	assert.equal((await fetch(base + '/admin2/admin')).status, 404);
+	const pc = require('../lib/payload-content');
+	const seen = [];
 	const nlBefore = store.getContent('nl').values.hero_title;
-	const langs = await dc.refresh(async (url, opts) => { if (!seen) seen = { url, auth: opts.headers.Authorization }; return { ok: true, json: async () => ({ data: /\/items\/pages/.test(url) ? [] : rows }) }; });
-	assert.deepEqual(langs.sort(), ['en', 'nl']);
-	assert.equal(seen.url, 'http://directus.test/items/site_content?limit=-1');
-	assert.equal(seen.auth, 'Bearer token');
+	const payloads = {
+		'/globals/site-hero': { hero_title: { en: 'From the CMS', nl: null }, hero_cta: { en: '' }, evil: { en: 'x' } },
+		'/globals/site-status': { status_note: { en: '' } },
+		'/globals/privacy': { text: { en: 'CMS privacy text' } },
+		'/globals/photos': { hero: { filename: 'a b.jpg', alt: 'Hero alt', width: 800, height: 600 }, social: null },
+		'/pages': { docs: [
+			{ id: 7, _status: 'published', title: { en: 'About us', nl: 'Over ons', de: null }, slug: { en: 'about-us', nl: 'over-ons' }, lead: { en: 'Lead' }, body: { en: { root: { children: [{ type: 'paragraph', children: [{ type: 'text', text: 'Hi', format: 1 }] }] } }, nl: 'Hallo' }, showInFooter: true, updatedAt: '2026-10-05T10:00:00Z' },
+		] },
+	};
+	const fake = async (url) => {
+		const path = url.replace(/^http:\/\/cms\.test\/admin2\/api/, '').replace(/\?.*$/, '');
+		seen.push(url);
+		return { ok: true, status: 200, json: async () => payloads[path] || {} };
+	};
+	await pc.refresh(fake, 'http://cms.test');
+	assert.ok(seen.some((u) => u.includes('/globals/site-hero?locale=all')), 'one request per group of texts');
 	const en = store.getContent('en');
-	assert.equal(en.values.hero_title, 'From Directus');
-	assert.ok(en.values.hero_cta.length > 0, 'empty required text falls back to the default');
-	assert.equal(en.values.status_note, '', 'optional text may be emptied');
-	assert.equal(en.values.evil_key, undefined);
-	assert.equal(en.privacy, 'Directus privacy text');
-	assert.equal(store.getContent('nl').values.hero_title, nlBefore, 'a null value from Directus changes nothing');
-	await assert.rejects(() => dc.refresh(async () => ({ ok: false, status: 500 })), /500/);
+	assert.equal(en.values.hero_title, 'From the CMS');
+	assert.ok(en.values.hero_cta.length > 0, 'an empty required text falls back to the default');
+	assert.equal(en.values.evil, undefined);
+	assert.equal(en.privacy, 'CMS privacy text');
+	assert.equal(store.getContent('nl').values.hero_title, nlBefore, 'null from the CMS changes nothing');
+	assert.equal(en.images.hero.url, '/admin2/api/media/file/a%20b.jpg');
+	assert.equal(en.images.hero.alt, 'Hero alt');
+	assert.deepEqual(store.publishedPages().map((p) => `${p.language}/${p.slug}`).sort(), ['en/about-us', 'nl/over-ons']);
+	assert.deepEqual(store.pageVersions(store.findPage('en', 'about-us')), { en: 'about-us', nl: 'over-ons' });
+	const page = await (await fetch(base + '/en/about-us')).text();
+	assert.ok(page.includes('<strong>Hi</strong>'), 'rich text rendered');
+	assert.ok(page.includes('src="/admin2/api/media/file/a%20b.jpg"') || (await (await fetch(base + '/en/')).text()).includes('src="/admin2/api/media/file/a%20b.jpg"'), 'CMS photo is used');
+	assert.ok(!Object.keys(store.getLocalImages()).includes('hero'), 'CMS photos are never written into our own content');
+	await assert.rejects(() => pc.refresh(async () => ({ ok: false, status: 500 }), 'http://cms.test'), /500/);
 	store.setRemote({});
-	delete process.env.DIRECTUS_URL;
-	delete process.env.DIRECTUS_TOKEN;
+	store.setRemotePages([]);
+	store.setRemoteImages({});
 });
 
-test('Directus: /admin2 proxy strips the prefix, adds noindex, keeps /admin as our own panel', async () => {
+test('CMS: /admin2 proxy keeps the path, adds noindex, keeps /admin as our own panel', async () => {
 	const http = require('http');
-	const upstream = http.createServer((req, res) => { res.writeHead(200, { 'Content-Type': 'text/plain', 'X-Seen-Path': req.url }); res.end('directus says hi'); });
+	const upstream = http.createServer((req, res) => { res.writeHead(200, { 'Content-Type': 'text/plain', 'X-Seen-Path': req.url }); res.end('cms says hi'); });
 	await new Promise((r) => upstream.listen(0, '127.0.0.1', r));
-	process.env.DIRECTUS_URL = `http://127.0.0.1:${upstream.address().port}`;
+	process.env.CMS_URL = `http://127.0.0.1:${upstream.address().port}`;
 	delete require.cache[require.resolve('../server')];
 	const { createServer: create2 } = require('../server');
 	const s2 = create2();
 	await new Promise((r) => s2.listen(0, '127.0.0.1', r));
 	const b2 = `http://127.0.0.1:${s2.address().port}`;
 	const r = await fetch(b2 + '/admin2/admin/login?x=1');
-	assert.equal(r.headers.get('x-seen-path'), '/admin/login?x=1');
-	assert.equal(await r.text(), 'directus says hi');
+	assert.equal(r.headers.get('x-seen-path'), '/admin2/admin/login?x=1', 'the CMS is served under /admin2, the path is passed on unchanged');
+	assert.equal(await r.text(), 'cms says hi');
 	assert.equal(r.headers.get('x-robots-tag'), 'noindex, nofollow');
-	assert.equal(r.headers.get('content-security-policy'), null, "Directus brings its own CSP");
+	assert.equal(r.headers.get('content-security-policy'), null, 'the CMS brings its own CSP');
 	const bare = await fetch(b2 + '/admin2', { redirect: 'manual' });
 	assert.equal(bare.status, 302);
-	assert.match(bare.headers.get('location'), /\/admin2\/admin\/$/);
+	assert.match(bare.headers.get('location'), /\/admin2\/admin$/);
 	const ours = await fetch(b2 + '/admin');
 	assert.match(await ours.text(), /Aethra admin|Log in/);
 	assert.match(ours.headers.get('content-security-policy') || '', /default-src 'none'/);
 	s2.close();
 	upstream.close();
-	delete process.env.DIRECTUS_URL;
+	delete process.env.CMS_URL;
 	delete require.cache[require.resolve('../server')];
 });
 
-test('pages made in Directus: rules, safe Markdown, routes, hreflang, sitemap, footer, llms.txt', async () => {
+test('CMS inbox: messages are handed over with the API key, removed on delete and purged by age; failures are silent', async () => {
+	const cm = require('../lib/cms-messages');
+	assert.equal(cm.enabled(), false);
+	assert.equal(await cm.push({ name: 'x' }), false);
+	process.env.CMS_URL = 'http://cms.test';
+	process.env.CMS_API_KEY = 'KEY123';
+	const calls = [];
+	const fake = async (url, opts) => { calls.push({ url, method: opts.method, auth: opts.headers.Authorization, body: opts.body && JSON.parse(opts.body) }); return { ok: true, status: 201 }; };
+	assert.equal(await cm.push({ id: 'abc', name: 'Jan', email: 'jan@example.org', org: 'Gemeente', role: 'Municipality', message: 'Hallo', lang: 'nl', source: 'linkedin', campaign: 'launch', at: '2026-10-05T10:00:00.000Z' }, fake), true);
+	assert.equal(calls[0].url, 'http://cms.test/admin2/api/messages');
+	assert.equal(calls[0].auth, 'users API-Key KEY123');
+	assert.deepEqual(calls[0].body, { name: 'Jan', email: 'jan@example.org', organisation: 'Gemeente', role: 'Municipality', message: 'Hallo', language: 'nl', source: 'linkedin / launch', receivedAt: '2026-10-05T10:00:00.000Z', externalId: 'abc' });
+	await cm.remove('abc', fake);
+	assert.match(calls[1].url, /messages\?where\[externalId\]\[equals\]=abc$/);
+	assert.equal(calls[1].method, 'DELETE');
+	await cm.purge(365, fake);
+	assert.match(calls[2].url, /where\[receivedAt\]\[less_than\]=/);
+	const boom = async () => { throw new Error('down'); };
+	const log = console.error; console.error = () => {};
+	assert.equal(await cm.push({ id: 'z', name: 'n', email: 'e@e.nl', message: 'm' }, boom), false);
+	assert.equal(await cm.remove('z', boom), false);
+	console.error = log;
+	delete process.env.CMS_URL;
+	delete process.env.CMS_API_KEY;
+});
+
+test('rich text from the CMS: only known nodes, escaped text, safe links', () => {
+	const views = require('../lib/views');
+	const t = (children) => ({ type: 'text', text: children, format: 0 });
+	const html = views.lexicalToHtml({ root: { children: [
+		{ type: 'heading', tag: 'h2', children: [t('Title <b>')] },
+		{ type: 'heading', tag: 'h1', children: [t('Mapped to h3')] },
+		{ type: 'paragraph', children: [{ type: 'text', text: 'Bold', format: 1 }, { type: 'text', text: 'It', format: 2 }, { type: 'link', fields: { url: 'https://example.org/x' }, children: [t('ok')] }, { type: 'link', fields: { url: 'javascript:alert(1)' }, children: [t('bad')] }, { type: 'link', fields: { url: '//evil.example' }, children: [t('proto-relative')] }] },
+		{ type: 'list', listType: 'bullet', children: [{ type: 'listitem', children: [t('one')] }, { type: 'listitem', children: [t('two')] }] },
+		{ type: 'quote', children: [t('Quote')] },
+		{ type: 'upload', value: 'x' }, { type: 'paragraph', children: [] },
+	] } });
+	assert.ok(html.includes('<h2>Title &lt;b&gt;</h2>') && html.includes('<h3>Mapped to h3</h3>'));
+	assert.ok(html.includes('<strong>Bold</strong>') && html.includes('<em>It</em>'));
+	assert.ok(html.includes('href="https://example.org/x"') && !html.includes('javascript:') && !html.includes('//evil.example'));
+	assert.ok(html.includes('<ul><li>one</li><li>two</li></ul>') && html.includes('<blockquote>Quote</blockquote>'));
+	assert.ok(!html.includes('upload'));
+	assert.equal(views.lexicalToHtml(null), '');
+});
+
+test('pages made in the CMS: rules, safe Markdown, routes, hreflang, sitemap, footer, llms.txt', async () => {
 	const views = require('../lib/views');
 	// Markdown is escaped first; only http(s) and /path links survive
 	const html = views.mdToHtml('## Title\n\nA **bold** <script>alert(1)</script> [ok](https://example.org/x) [bad](javascript:alert(1)) [rel](/en/contact)\n\n- one\n- two\n\n### Sub');

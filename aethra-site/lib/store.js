@@ -79,9 +79,11 @@ function normalise(saved) {
 	};
 }
 
-/* Optional external source (Directus): texts per language, refreshed in the background by lib/directus-content.js. */
+/* Optional external source (the Payload CMS): texts per language, refreshed in the background by lib/payload-content.js. */
 let remote = {};
 let remoteActive = false;
+let remoteImages = {};
+const setRemoteImages = (map) => { remoteImages = map || {}; };
 const setRemote = (map) => { remote = map || {}; remoteActive = true; };
 const remoteState = () => ({ active: remoteActive, languages: Object.keys(remote) });
 
@@ -99,7 +101,7 @@ function remoteValues(row) {
 	return out;
 }
 
-/* Pages created in Directus (collection "pages"). Only published pages with a valid, unreserved slug are served. */
+/* Pages created in the CMS (collection "pages"). Only published pages with a valid, unreserved slug are served. */
 const RESERVED_SLUGS = new Set(['problem', 'how-it-works', 'applications', 'contact', 'privacy', 'for', 'eco-mode-today', 'admin', 'admin2', 'css', 'js', 'img', 'fonts', 'uploads', 'deck', 'healthz', 'robots', 'sitemap', 'llms', 'favicon']);
 let remotePagesRaw = [];
 const setRemotePages = (rows) => { remotePagesRaw = Array.isArray(rows) ? rows : []; };
@@ -116,7 +118,7 @@ function publishedPages() {
 		seen.add(`${lang}/${slug}`);
 		out.push({
 			id: r.id, language: lang, slug, title: oneLine(r.title, 200), lead: oneLine(r.lead, 600),
-			body: String(r.body || '').replace(/\r/g, '').slice(0, 20000),
+			body: r.body && typeof r.body === 'object' ? r.body : String(r.body || '').replace(/\r/g, '').slice(0, 20000),
 			seo_title: oneLine(r.seo_title, 120), seo_description: oneLine(r.seo_description, 300),
 			group: String(r.translation_group || '').trim().toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 60),
 			footer: r.show_in_footer === true, updated: String(r.date_updated || r.date_created || '').slice(0, 10),
@@ -142,7 +144,7 @@ function getContent(lang = 'en') {
 	return {
 		lang,
 		values: { ...defaultsFor(lang), ...(saved.values[lang] || {}), ...(r ? remoteValues(r) : {}) },
-		images: saved.images,
+		images: { ...saved.images, ...remoteImages },
 		privacy: (r && typeof r.privacy === 'string' && r.privacy.trim()) || saved.privacy[lang] || PRIVACY[lang] || PRIVACY.en,
 	};
 }
@@ -170,9 +172,12 @@ function saveContent(patch) {
 	return { ok: true };
 }
 
+/** Photos uploaded in our own panel (the CMS photos are shown on the site but are not edited here). */
+const getLocalImages = () => ({ ...normalise(readJson('content.json', {})).images });
+
 function setImage(slot, entry) {
 	if (!IMAGE_SLOTS.some((s) => s.slot === slot)) throw new Error('unknown slot');
-	const { images } = getContent('en');
+	const images = getLocalImages();
 	const old = images[slot];
 	if (entry) images[slot] = entry;
 	else delete images[slot];
@@ -236,4 +241,4 @@ function deleteMessage(id) {
 	writeJson('messages.json', all.filter((m) => m.id !== id));
 }
 
-module.exports = { setRemotePages, publishedPages, findPage, pageVersions, footerPages, setRemote, remoteState, markRead, unreadCount, markAllRead, patchMessage, messagesCsv, file, uploadsDir, ensureDirs, readJson, writeJson, getSecret, getContent, saveContent, setImage, listMessages, addMessage, deleteMessage, cleanValue };
+module.exports = { setRemoteImages, getLocalImages, setRemotePages, publishedPages, findPage, pageVersions, footerPages, setRemote, remoteState, markRead, unreadCount, markAllRead, patchMessage, messagesCsv, file, uploadsDir, ensureDirs, readJson, writeJson, getSecret, getContent, saveContent, setImage, listMessages, addMessage, deleteMessage, cleanValue };

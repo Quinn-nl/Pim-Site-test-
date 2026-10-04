@@ -67,7 +67,7 @@ function layout({ lang, page, title, description, body, v, siteUrl, images = {},
 	const navLink = (p, label) => `<a href="${link(lang, p)}"${page === p ? ' aria-current="page"' : ''}>${esc(label)}</a>`;
 	const nav = [['/problem', t.nav_problem], ['/how-it-works', t.nav_how], ['/applications', t.nav_apps]];
 	const canonical = `${siteUrl}${url(lang, page)}`;
-	const social = images.social ? `${siteUrl}/uploads/${images.social.file}` : `${siteUrl}/img/og-default-${lang}.png`;
+	const social = images.social ? `${siteUrl}${images.social.url || '/uploads/' + images.social.file}` : `${siteUrl}/img/og-default-${lang}.png`;
 	const socialSize = images.social && images.social.w ? [images.social.w, images.social.h] : (images.social ? null : [1200, 630]);
 	const desc = clip(description);
 	// alt: for pages that exist only in some languages ({ lang: '/path' }); the fixed pages exist in all.
@@ -152,7 +152,7 @@ function photo(images, slot, cls, { priority = false } = {}) {
 	if (!img) return '';
 	const size = img.w && img.h ? ` width="${Number(img.w)}" height="${Number(img.h)}"` : '';
 	const load = priority ? ' fetchpriority="high" decoding="async"' : ' loading="lazy" decoding="async"';
-	return `<img class="${cls}" src="/uploads/${esc(img.file)}" alt="${esc(img.alt || '')}"${size}${load}>`;
+	return `<img class="${cls}" src="${img.url ? esc(img.url) : '/uploads/' + esc(img.file)}" alt="${esc(img.alt || '')}"${size}${load}>`;
 }
 
 const pageHead = (kicker, title, lead) => `
@@ -450,7 +450,7 @@ ${ctaBand(lang, v)}
 	return layout({ lang, page: '/eco-mode-today', title: `${v.seo_today} | ${v.site_name}`, description: v.today_lead, body, v, siteUrl, images, graph: { '@context': 'https://schema.org', ...crumbs(lang, siteUrl, v, '/eco-mode-today', t.nav_today) } });
 }
 
-/** Small, safe Markdown subset for pages written in Directus: ## and ### headings, - lists, **bold**, [text](https://link or /path). Everything is escaped first. */
+/** Small, safe Markdown subset for plain-text pages: ## and ### headings, - lists, **bold**, [text](https://link or /path). Everything is escaped first. */
 function mdToHtml(text) {
 	const inline = (raw) => esc(raw)
 		.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
@@ -464,7 +464,44 @@ function mdToHtml(text) {
 	}).join('\n');
 }
 
-/** A page created in Directus: /<lang>/<slug>. */
+/**
+ * Rich text written in the CMS (Lexical editor state) to safe HTML. Only the node types the editor is limited to are
+ * rendered (paragraph, h2/h3, lists, quote, links, bold/italic); anything else is skipped and all text is escaped.
+ */
+function lexicalToHtml(state) {
+	const safeHref = (u) => (/^(https?:\/\/|mailto:|\/(?!\/))/i.test(String(u || '').trim()) ? esc(String(u).trim()) : null);
+	const text = (n) => {
+		let t = esc(n.text || '');
+		if (n.format & 1) t = `<strong>${t}</strong>`;
+		if (n.format & 2) t = `<em>${t}</em>`;
+		return t;
+	};
+	const inline = (children) => (children || []).map((n) => {
+		if (!n) return '';
+		if (n.type === 'text') return text(n);
+		if (n.type === 'linebreak') return '<br>';
+		if (n.type === 'link' || n.type === 'autolink') {
+			const href = safeHref(n.fields && n.fields.url);
+			const inner = inline(n.children);
+			return href ? `<a href="${href}" rel="noopener">${inner}</a>` : inner;
+		}
+		return n.children ? inline(n.children) : '';
+	}).join('');
+	const block = (n) => {
+		if (!n) return '';
+		switch (n.type) {
+			case 'paragraph': { const h = inline(n.children); return h ? `<p>${h}</p>` : ''; }
+			case 'heading': return `<${n.tag === 'h2' ? 'h2' : 'h3'}>${inline(n.children)}</${n.tag === 'h2' ? 'h2' : 'h3'}>`;
+			case 'quote': return `<blockquote>${inline(n.children)}</blockquote>`;
+			case 'list': { const tag = n.listType === 'number' ? 'ol' : 'ul'; return `<${tag}>${(n.children || []).map((li) => `<li>${inline((li && li.children || []).filter((c) => c && c.type !== 'list'))}</li>`).join('')}</${tag}>`; }
+			default: return '';
+		}
+	};
+	const root = state && state.root;
+	return root && Array.isArray(root.children) ? root.children.map(block).filter(Boolean).join('\n') : '';
+}
+
+/** A page created in the CMS: /<lang>/<slug>. */
 function renderPage({ lang, values: v, images }, { siteUrl }, page, versions) {
 	const t = UI[lang];
 	const path = `/${page.slug}`;
@@ -474,7 +511,7 @@ function renderPage({ lang, values: v, images }, { siteUrl }, page, versions) {
 ${pageHead(v.site_name, page.title, page.lead)}
 <section class="section">
 	<div class="wrap prose page-body">
-${mdToHtml(page.body)}
+${typeof page.body === 'object' ? lexicalToHtml(page.body) : mdToHtml(page.body)}
 	</div>
 </section>
 ${ctaBand(lang, v)}
@@ -515,4 +552,4 @@ function renderSitemap(siteUrl, lastmod, extra = [], pages = [], versionsOf = ()
 	return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">\n${entries.join('\n')}\n</urlset>\n`;
 }
 
-module.exports = { mdToHtml, renderPage, setFooterPages, asset, renderToday, setToday, esc, url, setCarry, renderAudience, PAGES, renderHome, renderProblem, renderHow, renderApplications, renderContact, renderPrivacy, renderNotFound, renderSitemap };
+module.exports = { lexicalToHtml, mdToHtml, renderPage, setFooterPages, asset, renderToday, setToday, esc, url, setCarry, renderAudience, PAGES, renderHome, renderProblem, renderHow, renderApplications, renderContact, renderPrivacy, renderNotFound, renderSitemap };
