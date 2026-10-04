@@ -9,7 +9,7 @@ Each item: why, how we would know it failed, and a leading indicator to watch.
 4. **Fill the LinkedIn company link** in Admin > Content > Contact (feeds `sameAs`). *Indicator:* Organization JSON-LD contains `sameAs`.
 
 ## Phase 2: trust and content (weeks 2-6)
-5. **About/Team block** with named founder, role, background and company details (no personal data beyond what Pim approves). *Failed if:* Trust persona scores do not move in a re-run of `/seo sxo`. *Indicator:* contact-form views to sends in Admin > Statistics.
+5. **About/Team block** (BUILT: Admin > Content > "Who is behind Aethra"; shows only when filled in) with named founder, role, background and company details (no personal data beyond what Pim approves). *Failed if:* Trust persona scores do not move in a re-run of `/seo sxo`. *Indicator:* contact-form views to sends in Admin > Statistics.
 6. **Real photos** with alt text and dimensions (hero not lazy-loaded). *Indicator:* Lighthouse LCP stays under 2.5 s.
 7. **Strengthen the three short pages** only with true, sourced, allowed content. *Indicator:* content_quality stays above 90 and information density near 1.0.
 8. **Native-speaker review of NL/DE/FR** (also protects against unreviewed machine translation, a spam-policy risk).

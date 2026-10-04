@@ -6,7 +6,7 @@
  */
 const { FIELDS } = require('./fields');
 
-const OPTIONAL = /^(status_note|contact_reply|company_line|home_problem_line|status_short|cta_text|meta_description|fact\d_url|fact\d_source)$/;
+const OPTIONAL = /^(about_text|p\d_(name|role|bio|link)|company_details|linkedin_url|status_note|contact_reply|company_line|home_problem_line|status_short|cta_text|meta_description|fact\d_url|fact\d_source)$/;
 
 function worstCase(base) {
 	const out = {};

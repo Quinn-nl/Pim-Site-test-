@@ -147,6 +147,22 @@ const pageHead = (kicker, title, lead) => `
 	</div>
 </section>`;
 
+/** Who is behind the company: shown only when a person or company details are filled in (nothing is invented). */
+const aboutBlock = (v) => {
+	const people = [1, 2].filter((n) => v[`p${n}_name`]);
+	if (!people.length && !v.company_details) return '';
+	const person = (n) => `<li class="person" data-reveal><h3>${esc(v[`p${n}_name`])}</h3>${v[`p${n}_role`] ? `<p class="person-role">${esc(v[`p${n}_role`])}</p>` : ''}${v[`p${n}_bio`] ? `<p>${esc(v[`p${n}_bio`])}</p>` : ''}${v[`p${n}_link`] ? `<p><a class="more" rel="noopener" href="${esc(v[`p${n}_link`])}">LinkedIn</a></p>` : ''}</li>`;
+	return `
+<section class="section" aria-labelledby="about-title">
+	<div class="wrap">
+		<h2 id="about-title">${esc(v.about_title)}</h2>
+		${v.about_text ? `<p class="section-lead">${esc(v.about_text)}</p>` : ''}
+		${people.length ? `<ul class="people">${people.map(person).join('')}</ul>` : ''}
+		${v.company_details ? `<p class="company-details">${esc(v.company_details).replace(/\n/g, '<br>')}</p>` : ''}
+	</div>
+</section>`;
+};
+
 const ctaBand = (lang, v) => `
 <section class="cta-band" aria-labelledby="cta-title">
 	<div class="wrap cta-inner">
@@ -219,11 +235,11 @@ function renderHome({ lang, values: v, images }, { siteUrl }) {
 		${v.status_short ? `<p>${esc(v.status_short)}</p>` : ''}
 	</div>
 </section>
-${ctaBand(lang, v)}
+${aboutBlock(v)}${ctaBand(lang, v)}
 </main>`;
 	const home = siteUrl + url(lang);
 	const graph = { '@context': 'https://schema.org', '@graph': [
-		{ '@type': 'Organization', '@id': `${siteUrl}/#organization`, name: v.site_name, url: home, description: v.meta_description, logo: `${siteUrl}/img/logo-mark.svg`, ...(v.linkedin_url ? { sameAs: [v.linkedin_url] } : {}) },
+		{ '@type': 'Organization', '@id': `${siteUrl}/#organization`, name: v.site_name, url: home, description: v.meta_description, logo: `${siteUrl}/img/logo-mark.svg`, ...(v.linkedin_url ? { sameAs: [v.linkedin_url] } : {}), ...([1, 2].some((n) => v[`p${n}_name`]) ? { founder: [1, 2].filter((n) => v[`p${n}_name`]).map((n) => ({ '@type': 'Person', name: v[`p${n}_name`], ...(v[`p${n}_role`] ? { jobTitle: v[`p${n}_role`] } : {}), ...(v[`p${n}_link`] ? { sameAs: [v[`p${n}_link`]] } : {}) })) } : {}) },
 		{ '@type': 'WebSite', '@id': `${siteUrl}/#website`, name: v.site_name, url: home, inLanguage: lang, publisher: { '@id': `${siteUrl}/#organization` } },
 	] };
 	return layout({ lang, page: '/', title: v.seo_home, description: v.meta_description, body, v, siteUrl, images, graph });
@@ -374,7 +390,7 @@ ${pageHead(`${t.aud_for} ${labelFor(a, lang).toLowerCase()}`, k('title'), k('lea
 		<ul class="chips">${others.map((x) => `<li><a href="${link(lang, '/for/' + x.slug)}">${icon(x.icon)}<span>${esc(labelFor(x, lang))}</span></a></li>`).join('')}</ul>
 	</div>
 </section>
-${ctaBand(lang, v)}
+${aboutBlock(v)}${ctaBand(lang, v)}
 </main>`;
 	const graph = { '@context': 'https://schema.org', '@graph': [
 		crumbs(lang, siteUrl, v, pageKey, labelFor(a, lang)),

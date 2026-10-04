@@ -358,3 +358,10 @@ h3 { letter-spacing: 0; }
 
 /* review: the header stays put during the page crossfade */
 .site-header { view-transition-name: site-header; }
+
+/* who is behind the company */
+.people { list-style: none; padding: 0; margin: var(--s-3) 0 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); gap: var(--s-3); }
+.person { padding: var(--s-3); background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); min-width: 0; overflow-wrap: anywhere; }
+.person h3 { margin: 0 0 .25rem; }
+.person-role { margin: 0 0 var(--s-1); color: var(--ink-soft); font-weight: 600; }
+.company-details { margin-top: var(--s-3); color: var(--ink-soft); max-width: 64ch; overflow-wrap: anywhere; }

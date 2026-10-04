@@ -582,3 +582,15 @@ test('two-step verification: setup, login needs a code, replay and recovery code
 	assert.equal(off.status, 303);
 	assert.ok(!auth.twoFactorEnabled());
 });
+
+test('who is behind the company: hidden until filled in, then shown with Person data', async () => {
+	assert.ok(!(await (await fetch(base + '/en/')).text()).includes('id="about-title"'));
+	store.saveContent({ lang: 'en', values: { p1_name: 'Test Founder', p1_role: 'Founder', p1_bio: 'Background <b>text</b>', p1_link: 'https://www.linkedin.com/in/test', company_details: 'Aethra B.V.\nKvK 12345678' } });
+	const html = await (await fetch(base + '/en/')).text();
+	assert.match(html, /id="about-title"/);
+	assert.ok(html.includes('Test Founder') && html.includes('KvK 12345678') && html.includes('&lt;b&gt;'));
+	assert.match(html, /"founder":\[\{"@type":"Person","name":"Test Founder"/);
+	assert.match(await (await fetch(base + '/en/for/fleets')).text(), /id="about-title"/);
+	store.saveContent({ lang: 'en', values: { p1_name: '', p1_role: '', p1_bio: '', p1_link: '', company_details: '' } });
+	assert.ok(!(await (await fetch(base + '/en/')).text()).includes('id="about-title"'));
+});
