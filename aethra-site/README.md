@@ -65,3 +65,7 @@ Scrypt password hash, rate-limited login, 8 h sessions with HttpOnly/SameSite=St
 ## Two-step verification
 
 Admin > Account > Two-step verification > Set up. Scan the QR code with any authenticator app (or type the key it shows under "Cannot scan it?"), enter the code, and save the 8 one-time recovery codes. After that, logging in needs the password and a code. The authenticator secret is stored encrypted (AES-256-GCM, key derived from `data/secret.key`), a code can be used once, and five wrong tries end the login step. Setting it up, turning it off and creating new recovery codes all ask for your password (and, except for setting up, a code). Keep `data/` in your backups: without `secret.key` the stored secret cannot be read (run `npm run reset-2fa` and set it up again).
+
+## SEO checks
+
+`npm run seo` checks every page in every language (titles, descriptions, H1, canonical, hreflang mesh, Open Graph, JSON-LD, images, internal links, sitemap, robots, 404, headers) and exits with an error when something is wrong. `npm run seo:baseline` saves the current state (`seo/baseline.json`); `npm run seo:compare` after a change lists what moved (title, canonical, robots, structured data, word count). Run it before every release. The SEO skills in `.claude/skills/seo*` add deeper audits.

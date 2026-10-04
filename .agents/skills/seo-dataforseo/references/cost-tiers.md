@@ -32,7 +32,7 @@
 | **Aggressive** | $50.00 | $2.00 | threshold | Agency bulk work |
 | **Unlimited** | $999.00 | -- | none | Trusted pipelines |
 
-Configure with: `"${CLAUDE_PLUGIN_ROOT}/scripts/claude-seo" run dataforseo_costs.py config --mode threshold --threshold 0.50 --daily-limit 10.00`
+Configure with: `.claude/skills/seo/scripts/claude-seo run dataforseo_costs.py config --mode threshold --threshold 0.50 --daily-limit 10.00`
 
 ## Cost Reduction Tips
 
@@ -45,11 +45,11 @@ Configure with: `"${CLAUDE_PLUGIN_ROOT}/scripts/claude-seo" run dataforseo_costs
 ## Approval Flow
 
 Before any DataForSEO MCP call:
-1. Run `"${CLAUDE_PLUGIN_ROOT}/scripts/claude-seo" run dataforseo_costs.py check <endpoint> [--count N]`
+1. Run `.claude/skills/seo/scripts/claude-seo run dataforseo_costs.py check <endpoint> [--count N]`
 2. If `status: "approved"` → proceed
 3. If `status: "needs_approval"` → show cost to user, ask to confirm
 4. If `status: "blocked"` → inform user daily limit would be exceeded
-5. After call completes, log: `"${CLAUDE_PLUGIN_ROOT}/scripts/claude-seo" run dataforseo_costs.py log <endpoint> <cost>`
+5. After call completes, log: `.claude/skills/seo/scripts/claude-seo run dataforseo_costs.py log <endpoint> <cost>`
 
 ## Warn Endpoints
 

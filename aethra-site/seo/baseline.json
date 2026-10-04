@@ -1,0 +1,449 @@
+{
+  "at": "2026-10-04",
+  "state": {
+    "/en/": {
+      "title": "Aethra: CubeSats and AI for cleaner air in traffic",
+      "description": "Aethra develops CubeSats and AI that help vehicles switch to an eco mode in areas with high air pollution.",
+      "h1": "Cleaner air, right where traffic is heaviest",
+      "canonical": "https://aethra.example/en/",
+      "robots": "index, follow, max-image-preview:large",
+      "ld": "Organization,WebSite",
+      "words": 169,
+      "hash": "51ba56f3ced5b2e7"
+    },
+    "/en/problem": {
+      "title": "Air pollution where traffic is heaviest | Aethra",
+      "description": "Road traffic is a major local source of air pollution in cities. Pollution peaks in specific places and at specific times, while vehicles drive on as if…",
+      "h1": "Air pollution is concentrated where people and traffic meet",
+      "canonical": "https://aethra.example/en/problem",
+      "robots": "index, follow, max-image-preview:large",
+      "ld": "BreadcrumbList",
+      "words": 110,
+      "hash": "eb158f5512fafe76"
+    },
+    "/en/how-it-works": {
+      "title": "How it works: detect, decide, switch | Aethra",
+      "description": "Find where air quality is under pressure. AI decides when a vehicle should adapt. Vehicles move to eco mode inside those areas.",
+      "h1": "What Aethra does, in three steps",
+      "canonical": "https://aethra.example/en/how-it-works",
+      "robots": "index, follow, max-image-preview:large",
+      "ld": "BreadcrumbList",
+      "words": 93,
+      "hash": "ca02543c71a53981"
+    },
+    "/en/applications": {
+      "title": "Applications for cities, fleets and OEMs | Aethra",
+      "description": "Municipalities, Fleet operators, Vehicle manufacturers, Mobility platforms. Aethra develops CubeSats and AI that help vehicles switch to an eco mode in…",
+      "h1": "Built for the parties that shape urban mobility",
+      "canonical": "https://aethra.example/en/applications",
+      "robots": "index, follow, max-image-preview:large",
+      "ld": "BreadcrumbList",
+      "words": 102,
+      "hash": "83da02c644a509b9"
+    },
+    "/en/contact": {
+      "title": "Contact us | Aethra",
+      "description": "City, fleet, manufacturer, platform or investor: send us a message and we will reply.",
+      "h1": "Let us talk",
+      "canonical": "https://aethra.example/en/contact",
+      "robots": "index, follow, max-image-preview:large",
+      "ld": "",
+      "words": 80,
+      "hash": "b8686ccdb7ec741c"
+    },
+    "/en/privacy": {
+      "title": "Privacy statement | Aethra",
+      "description": "How Aethra handles personal data: what the contact form stores, how long, and how to ask for access or deletion.",
+      "h1": "Privacy statement",
+      "canonical": "https://aethra.example/en/privacy",
+      "robots": "index, follow, max-image-preview:large",
+      "ld": "",
+      "words": 195,
+      "hash": "9f7dbbebc37b7bdd"
+    },
+    "/en/for/municipalities": {
+      "title": "For municipalities: cleaner air in hotspots | Aethra",
+      "description": "Protect air quality where residents feel it most. Aethra helps vehicles adapt automatically in the areas that matter, without relying on every driver to…",
+      "h1": "Protect air quality where residents feel it most",
+      "canonical": "https://aethra.example/en/for/municipalities",
+      "robots": "index, follow, max-image-preview:large",
+      "ld": "BreadcrumbList,FAQPage",
+      "words": 141,
+      "hash": "72515dff7bc67d93"
+    },
+    "/en/for/fleets": {
+      "title": "For fleet operators: automatic eco mode | Aethra",
+      "description": "Vehicles that adapt to local air quality, automatically. Aethra aims to move vehicles into an eco mode in polluted areas, with no extra work for drivers…",
+      "h1": "Vehicles that adapt to local air quality, automatically",
+      "canonical": "https://aethra.example/en/for/fleets",
+      "robots": "index, follow, max-image-preview:large",
+      "ld": "BreadcrumbList,FAQPage",
+      "words": 145,
+      "hash": "9acfdaddd344aa28"
+    },
+    "/en/for/manufacturers": {
+      "title": "For vehicle manufacturers: AI for eco mode | Aethra",
+      "description": "An extra layer of intelligence for vehicle control systems. Aethra explores how location-aware AI can help decide when a vehicle should switch to an eco…",
+      "h1": "An extra layer of intelligence for vehicle control systems",
+      "canonical": "https://aethra.example/en/for/manufacturers",
+      "robots": "index, follow, max-image-preview:large",
+      "ld": "BreadcrumbList,FAQPage",
+      "words": 132,
+      "hash": "0549fc161b4d89c3"
+    },
+    "/en/for/platforms": {
+      "title": "For mobility platforms: cleaner trips | Aethra",
+      "description": "Offer cleaner trips in the busiest areas. Aethra aims to help vehicles on your platform adapt to local air quality.",
+      "h1": "Offer cleaner trips in the busiest areas",
+      "canonical": "https://aethra.example/en/for/platforms",
+      "robots": "index, follow, max-image-preview:large",
+      "ld": "BreadcrumbList,FAQPage",
+      "words": 132,
+      "hash": "d4132310de7437bb"
+    },
+    "/en/for/investors": {
+      "title": "For investors: air-quality tech at prototype stage | Aethra",
+      "description": "Aethra is building technology for cleaner air in traffic. We are in the prototype phase and open to conversations with investors who want to learn more.",
+      "h1": "Aethra is building technology for cleaner air in traffic",
+      "canonical": "https://aethra.example/en/for/investors",
+      "robots": "index, follow, max-image-preview:large",
+      "ld": "BreadcrumbList,FAQPage",
+      "words": 155,
+      "hash": "f18fdb47aee9cd93"
+    },
+    "/nl/": {
+      "title": "Aethra: CubeSats en AI voor schonere lucht in het verkeer",
+      "description": "Aethra ontwikkelt CubeSats en AI waarmee voertuigen overschakelen op een ecomodus in gebieden met veel luchtvervuiling.",
+      "h1": "Schonere lucht, precies waar het verkeer het drukst is",
+      "canonical": "https://aethra.example/nl/",
+      "robots": "index, follow, max-image-preview:large",
+      "ld": "Organization,WebSite",
+      "words": 161,
+      "hash": "31c29b18238f01f9"
+    },
+    "/nl/problem": {
+      "title": "Luchtvervuiling waar het verkeer het drukst is | Aethra",
+      "description": "Wegverkeer is in steden een belangrijke lokale bron van luchtvervuiling. De vervuiling piekt op specifieke plekken en momenten, terwijl voertuigen…",
+      "h1": "Luchtvervuiling zit geconcentreerd waar mensen en verkeer samenkomen",
+      "canonical": "https://aethra.example/nl/problem",
+      "robots": "index, follow, max-image-preview:large",
+      "ld": "BreadcrumbList",
+      "words": 101,
+      "hash": "92173fcd48149695"
+    },
+    "/nl/how-it-works": {
+      "title": "Hoe het werkt: detecteren, bepalen, schakelen | Aethra",
+      "description": "Vaststellen waar de luchtkwaliteit onder druk staat. AI bepaalt wanneer een voertuig zich moet aanpassen. Voertuigen gaan binnen die gebieden over op…",
+      "h1": "Wat Aethra doet, in drie stappen",
+      "canonical": "https://aethra.example/nl/how-it-works",
+      "robots": "index, follow, max-image-preview:large",
+      "ld": "BreadcrumbList",
+      "words": 92,
+      "hash": "ba686d8df00cc7ac"
+    },
+    "/nl/applications": {
+      "title": "Toepassingen voor gemeenten en wagenparken | Aethra",
+      "description": "Gemeenten, Wagenparkbeheerders, Voertuigfabrikanten, Mobiliteitsplatforms. Aethra ontwikkelt CubeSats en AI waarmee voertuigen overschakelen op een…",
+      "h1": "Gebouwd voor de partijen die stedelijke mobiliteit vormgeven",
+      "canonical": "https://aethra.example/nl/applications",
+      "robots": "index, follow, max-image-preview:large",
+      "ld": "BreadcrumbList",
+      "words": 95,
+      "hash": "3c0b794a4f074c42"
+    },
+    "/nl/contact": {
+      "title": "Contact opnemen | Aethra",
+      "description": "Gemeente, wagenpark, fabrikant, platform of investeerder: stuur ons een bericht en wij reageren.",
+      "h1": "Laten we praten",
+      "canonical": "https://aethra.example/nl/contact",
+      "robots": "index, follow, max-image-preview:large",
+      "ld": "",
+      "words": 77,
+      "hash": "226527bde30974bd"
+    },
+    "/nl/privacy": {
+      "title": "Privacyverklaring | Aethra",
+      "description": "Hoe Aethra met persoonsgegevens omgaat: wat het contactformulier bewaart, hoe lang en hoe u inzage of verwijdering vraagt.",
+      "h1": "Privacyverklaring",
+      "canonical": "https://aethra.example/nl/privacy",
+      "robots": "index, follow, max-image-preview:large",
+      "ld": "",
+      "words": 192,
+      "hash": "39639c65f86c26a9"
+    },
+    "/nl/for/municipalities": {
+      "title": "Voor gemeenten: schonere lucht op hotspots | Aethra",
+      "description": "Bescherm de luchtkwaliteit waar inwoners het meest merken. Aethra helpt voertuigen zich automatisch aan te passen in de gebieden waar het ertoe doet,…",
+      "h1": "Bescherm de luchtkwaliteit waar inwoners het meest merken",
+      "canonical": "https://aethra.example/nl/for/municipalities",
+      "robots": "index, follow, max-image-preview:large",
+      "ld": "BreadcrumbList,FAQPage",
+      "words": 147,
+      "hash": "830a20c5ac93c96e"
+    },
+    "/nl/for/fleets": {
+      "title": "Voor wagenparken: automatische ecomodus | Aethra",
+      "description": "Voertuigen die zich automatisch aanpassen aan de luchtkwaliteit. Aethra wil voertuigen in vervuilde gebieden laten overschakelen op een ecomodus, zonder…",
+      "h1": "Voertuigen die zich automatisch aanpassen aan de luchtkwaliteit",
+      "canonical": "https://aethra.example/nl/for/fleets",
+      "robots": "index, follow, max-image-preview:large",
+      "ld": "BreadcrumbList,FAQPage",
+      "words": 130,
+      "hash": "09567ffd3baa21f5"
+    },
+    "/nl/for/manufacturers": {
+      "title": "Voor fabrikanten: AI voor ecomodus | Aethra",
+      "description": "Een extra laag intelligentie voor besturingssystemen van voertuigen. Aethra onderzoekt hoe locatiebewuste AI kan helpen bepalen wanneer een voertuig moet…",
+      "h1": "Een extra laag intelligentie voor besturingssystemen van voertuigen",
+      "canonical": "https://aethra.example/nl/for/manufacturers",
+      "robots": "index, follow, max-image-preview:large",
+      "ld": "BreadcrumbList,FAQPage",
+      "words": 123,
+      "hash": "a0ce6fa1e3447343"
+    },
+    "/nl/for/platforms": {
+      "title": "Voor mobiliteitsplatforms: schonere ritten | Aethra",
+      "description": "Bied schonere ritten aan in de drukste gebieden. Aethra wil helpen dat voertuigen op uw platform zich aanpassen aan de lokale luchtkwaliteit.",
+      "h1": "Bied schonere ritten aan in de drukste gebieden",
+      "canonical": "https://aethra.example/nl/for/platforms",
+      "robots": "index, follow, max-image-preview:large",
+      "ld": "BreadcrumbList,FAQPage",
+      "words": 130,
+      "hash": "d8a3a06db2c41bc4"
+    },
+    "/nl/for/investors": {
+      "title": "Voor investeerders: prototypefase | Aethra",
+      "description": "Aethra bouwt technologie voor schonere lucht in het verkeer. Wij zijn in de prototypefase en staan open voor gesprekken met investeerders die meer willen…",
+      "h1": "Aethra bouwt technologie voor schonere lucht in het verkeer",
+      "canonical": "https://aethra.example/nl/for/investors",
+      "robots": "index, follow, max-image-preview:large",
+      "ld": "BreadcrumbList,FAQPage",
+      "words": 142,
+      "hash": "6a2944084114043d"
+    },
+    "/de/": {
+      "title": "Aethra: CubeSats und KI für sauberere Luft im Verkehr",
+      "description": "Aethra entwickelt CubeSats und KI, mit denen Fahrzeuge in Gebieten mit hoher Luftverschmutzung in einen Eco-Modus wechseln.",
+      "h1": "Sauberere Luft, genau dort, wo der Verkehr am dichtesten ist",
+      "canonical": "https://aethra.example/de/",
+      "robots": "index, follow, max-image-preview:large",
+      "ld": "Organization,WebSite",
+      "words": 161,
+      "hash": "14c8fefcd931384b"
+    },
+    "/de/problem": {
+      "title": "Luftverschmutzung, wo der Verkehr am dichtesten ist | Aethra",
+      "description": "Der Straßenverkehr ist in Städten eine wichtige lokale Quelle der Luftverschmutzung. Sie erreicht an bestimmten Orten und zu bestimmten Zeiten…",
+      "h1": "Luftverschmutzung konzentriert sich dort, wo Menschen und Verkehr zusammentreffen",
+      "canonical": "https://aethra.example/de/problem",
+      "robots": "index, follow, max-image-preview:large",
+      "ld": "BreadcrumbList",
+      "words": 98,
+      "hash": "12e0ab7c7fab87ad"
+    },
+    "/de/how-it-works": {
+      "title": "So funktioniert es: erkennen, entscheiden, schalten | Aethra",
+      "description": "Orte finden, an denen die Luftqualität unter Druck steht. KI entscheidet, wann ein Fahrzeug sich anpassen sollte. Fahrzeuge wechseln in diesen Gebieten in…",
+      "h1": "Was Aethra tut, in drei Schritten",
+      "canonical": "https://aethra.example/de/how-it-works",
+      "robots": "index, follow, max-image-preview:large",
+      "ld": "BreadcrumbList",
+      "words": 92,
+      "hash": "5ca3db402df2f0ec"
+    },
+    "/de/applications": {
+      "title": "Anwendungen für Kommunen und Flotten | Aethra",
+      "description": "Kommunen, Flottenbetreiber, Fahrzeughersteller, Mobilitätsplattformen. Aethra entwickelt CubeSats und KI, mit denen Fahrzeuge in Gebieten mit hoher…",
+      "h1": "Entwickelt für die Akteure, die urbane Mobilität gestalten",
+      "canonical": "https://aethra.example/de/applications",
+      "robots": "index, follow, max-image-preview:large",
+      "ld": "BreadcrumbList",
+      "words": 96,
+      "hash": "b4c99aa68ac4b4e5"
+    },
+    "/de/contact": {
+      "title": "Kontakt aufnehmen | Aethra",
+      "description": "Kommune, Flotte, Hersteller, Plattform oder Investor: Senden Sie uns eine Nachricht, wir antworten.",
+      "h1": "Lassen Sie uns sprechen",
+      "canonical": "https://aethra.example/de/contact",
+      "robots": "index, follow, max-image-preview:large",
+      "ld": "",
+      "words": 78,
+      "hash": "c64482750165682c"
+    },
+    "/de/privacy": {
+      "title": "Datenschutzerklärung | Aethra",
+      "description": "Wie Aethra mit personenbezogenen Daten umgeht: was das Kontaktformular speichert, wie lange und wie Sie Auskunft oder Löschung verlangen.",
+      "h1": "Datenschutzerklärung",
+      "canonical": "https://aethra.example/de/privacy",
+      "robots": "index, follow, max-image-preview:large",
+      "ld": "",
+      "words": 175,
+      "hash": "7c8c577b203d4c49"
+    },
+    "/de/for/municipalities": {
+      "title": "Für Kommunen: saubere Luft an Hotspots | Aethra",
+      "description": "Luftqualität dort schützen, wo Bewohner sie am stärksten spüren. Aethra hilft Fahrzeugen, sich in den relevanten Gebieten automatisch anzupassen, ohne…",
+      "h1": "Luftqualität dort schützen, wo Bewohner sie am stärksten spüren",
+      "canonical": "https://aethra.example/de/for/municipalities",
+      "robots": "index, follow, max-image-preview:large",
+      "ld": "BreadcrumbList,FAQPage",
+      "words": 139,
+      "hash": "07dbe4e12d0531b2"
+    },
+    "/de/for/fleets": {
+      "title": "Für Flotten: automatischer Eco-Modus | Aethra",
+      "description": "Fahrzeuge, die sich automatisch an die Luftqualität anpassen. Aethra will Fahrzeuge in belasteten Gebieten in einen Eco-Modus wechseln lassen, ohne…",
+      "h1": "Fahrzeuge, die sich automatisch an die Luftqualität anpassen",
+      "canonical": "https://aethra.example/de/for/fleets",
+      "robots": "index, follow, max-image-preview:large",
+      "ld": "BreadcrumbList,FAQPage",
+      "words": 126,
+      "hash": "50c3640b6beebe13"
+    },
+    "/de/for/manufacturers": {
+      "title": "Für Hersteller: KI für den Eco-Modus | Aethra",
+      "description": "Eine zusätzliche Intelligenzebene für Fahrzeugsteuerungssysteme. Aethra untersucht, wie ortsbezogene KI mitbestimmen kann, wann ein Fahrzeug in einen…",
+      "h1": "Eine zusätzliche Intelligenzebene für Fahrzeugsteuerungssysteme",
+      "canonical": "https://aethra.example/de/for/manufacturers",
+      "robots": "index, follow, max-image-preview:large",
+      "ld": "BreadcrumbList,FAQPage",
+      "words": 111,
+      "hash": "a0413fbfea027c7c"
+    },
+    "/de/for/platforms": {
+      "title": "Für Mobilitätsplattformen: sauberere Fahrten | Aethra",
+      "description": "Sauberere Fahrten in den am stärksten belasteten Gebieten anbieten. Aethra will dazu beitragen, dass Fahrzeuge Ihrer Plattform sich an die lokale…",
+      "h1": "Sauberere Fahrten in den am stärksten belasteten Gebieten anbieten",
+      "canonical": "https://aethra.example/de/for/platforms",
+      "robots": "index, follow, max-image-preview:large",
+      "ld": "BreadcrumbList,FAQPage",
+      "words": 129,
+      "hash": "22147b1b08eb23c6"
+    },
+    "/de/for/investors": {
+      "title": "Für Investoren: Prototypphase | Aethra",
+      "description": "Aethra baut Technologie für sauberere Luft im Verkehr. Wir befinden uns in der Prototypphase und sind offen für Gespräche mit Investoren, die mehr…",
+      "h1": "Aethra baut Technologie für sauberere Luft im Verkehr",
+      "canonical": "https://aethra.example/de/for/investors",
+      "robots": "index, follow, max-image-preview:large",
+      "ld": "BreadcrumbList,FAQPage",
+      "words": 141,
+      "hash": "062e864e1b5e0aed"
+    },
+    "/fr/": {
+      "title": "Aethra : CubeSats et IA pour un air plus propre en ville",
+      "description": "Aethra développe des CubeSats et une IA qui permettent aux véhicules de passer en mode éco dans les zones très polluées.",
+      "h1": "Un air plus propre, là où le trafic est le plus dense",
+      "canonical": "https://aethra.example/fr/",
+      "robots": "index, follow, max-image-preview:large",
+      "ld": "Organization,WebSite",
+      "words": 202,
+      "hash": "109bd35887dcd9a8"
+    },
+    "/fr/problem": {
+      "title": "Pollution de l’air là où le trafic est dense | Aethra",
+      "description": "Le trafic routier est une source locale majeure de pollution de l’air en ville. La pollution atteint des pics à des endroits et des moments précis, alors…",
+      "h1": "La pollution se concentre là où les personnes et le trafic se rencontrent",
+      "canonical": "https://aethra.example/fr/problem",
+      "robots": "index, follow, max-image-preview:large",
+      "ld": "BreadcrumbList",
+      "words": 130,
+      "hash": "bb4700a9de22da7c"
+    },
+    "/fr/how-it-works": {
+      "title": "Comment ça marche : détecter, décider, basculer | Aethra",
+      "description": "Repérer où la qualité de l’air est sous pression. L’IA décide quand un véhicule doit s’adapter. Les véhicules passent en mode éco dans ces zones.",
+      "h1": "Ce que fait Aethra, en trois étapes",
+      "canonical": "https://aethra.example/fr/how-it-works",
+      "robots": "index, follow, max-image-preview:large",
+      "ld": "BreadcrumbList",
+      "words": 108,
+      "hash": "3a097bbe25637770"
+    },
+    "/fr/applications": {
+      "title": "Applications pour communes et flottes | Aethra",
+      "description": "Communes, Gestionnaires de flottes, Constructeurs automobiles, Plateformes de mobilité. Aethra développe des CubeSats et une IA qui permettent aux…",
+      "h1": "Conçu pour les acteurs qui façonnent la mobilité urbaine",
+      "canonical": "https://aethra.example/fr/applications",
+      "robots": "index, follow, max-image-preview:large",
+      "ld": "BreadcrumbList",
+      "words": 109,
+      "hash": "9ffa8871678faf3c"
+    },
+    "/fr/contact": {
+      "title": "Nous contacter | Aethra",
+      "description": "Commune, flotte, constructeur, plateforme ou investisseur : envoyez-nous un message, nous vous répondrons.",
+      "h1": "Parlons-en",
+      "canonical": "https://aethra.example/fr/contact",
+      "robots": "index, follow, max-image-preview:large",
+      "ld": "",
+      "words": 83,
+      "hash": "2d5c7ae747960963"
+    },
+    "/fr/privacy": {
+      "title": "Politique de confidentialité | Aethra",
+      "description": "Comment Aethra traite les données personnelles : ce que le formulaire de contact conserve, combien de temps, et comment demander l’accès ou la suppression.",
+      "h1": "Politique de confidentialité",
+      "canonical": "https://aethra.example/fr/privacy",
+      "robots": "index, follow, max-image-preview:large",
+      "ld": "",
+      "words": 214,
+      "hash": "329f63ce38613d46"
+    },
+    "/fr/for/municipalities": {
+      "title": "Pour les communes : un air plus propre | Aethra",
+      "description": "Protéger la qualité de l’air là où les habitants la ressentent le plus. Aethra aide les véhicules à s’adapter automatiquement dans les zones concernées,…",
+      "h1": "Protéger la qualité de l’air là où les habitants la ressentent le plus",
+      "canonical": "https://aethra.example/fr/for/municipalities",
+      "robots": "index, follow, max-image-preview:large",
+      "ld": "BreadcrumbList,FAQPage",
+      "words": 181,
+      "hash": "8449b8111d763174"
+    },
+    "/fr/for/fleets": {
+      "title": "Pour les flottes : mode éco automatique | Aethra",
+      "description": "Des véhicules qui s’adaptent automatiquement à la qualité de l’air. Aethra vise à faire passer les véhicules en mode éco dans les zones polluées, sans…",
+      "h1": "Des véhicules qui s’adaptent automatiquement à la qualité de l’air",
+      "canonical": "https://aethra.example/fr/for/fleets",
+      "robots": "index, follow, max-image-preview:large",
+      "ld": "BreadcrumbList,FAQPage",
+      "words": 163,
+      "hash": "2f84d09390715643"
+    },
+    "/fr/for/manufacturers": {
+      "title": "Pour les constructeurs : IA du mode éco | Aethra",
+      "description": "Une couche d’intelligence supplémentaire pour les systèmes de commande des véhicules. Aethra étudie comment une IA tenant compte du lieu peut aider à…",
+      "h1": "Une couche d’intelligence supplémentaire pour les systèmes de commande des véhicules",
+      "canonical": "https://aethra.example/fr/for/manufacturers",
+      "robots": "index, follow, max-image-preview:large",
+      "ld": "BreadcrumbList,FAQPage",
+      "words": 159,
+      "hash": "2d89a560f08ce3fd"
+    },
+    "/fr/for/platforms": {
+      "title": "Pour les plateformes : trajets plus propres | Aethra",
+      "description": "Proposer des trajets plus propres dans les zones les plus fréquentées. Aethra vise à aider les véhicules de votre plateforme à s’adapter à la qualité de…",
+      "h1": "Proposer des trajets plus propres dans les zones les plus fréquentées",
+      "canonical": "https://aethra.example/fr/for/platforms",
+      "robots": "index, follow, max-image-preview:large",
+      "ld": "BreadcrumbList,FAQPage",
+      "words": 162,
+      "hash": "2efbdc28291997f0"
+    },
+    "/fr/for/investors": {
+      "title": "Pour les investisseurs : phase de prototype | Aethra",
+      "description": "Aethra développe une technologie pour un air plus propre dans le trafic. Nous sommes en phase de prototype et ouverts aux échanges avec les investisseurs…",
+      "h1": "Aethra développe une technologie pour un air plus propre dans le trafic",
+      "canonical": "https://aethra.example/fr/for/investors",
+      "robots": "index, follow, max-image-preview:large",
+      "ld": "BreadcrumbList,FAQPage",
+      "words": 180,
+      "hash": "197ca76ecd6ed87c"
+    },
+    "__meta": {
+      "pages": 44,
+      "sitemapUrls": 44
+    }
+  }
+}

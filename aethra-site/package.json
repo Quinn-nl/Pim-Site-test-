@@ -8,6 +8,9 @@
     "start": "node server.js",
     "set-password": "node scripts/set-password.js",
     "reset-2fa": "node scripts/reset-2fa.js",
+    "seo": "node scripts/seo-audit.cjs",
+    "seo:baseline": "node scripts/seo-audit.cjs --baseline",
+    "seo:compare": "node scripts/seo-audit.cjs --compare",
     "backup": "node scripts/backup.js",
     "test": "node --test test/*.test.js"
   }

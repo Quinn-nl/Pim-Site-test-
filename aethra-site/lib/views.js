@@ -391,7 +391,7 @@ function renderPrivacy({ lang, values: v, privacy, images }, { siteUrl }) {
 		return `<p>${esc(b.replace(/\n/g, ' '))}</p>`;
 	}).join('\n');
 	const body = `<main id="main" class="wrap prose page-main"><h1>${esc(t.privacy_title)}</h1>\n${blocks}</main>`;
-	return layout({ lang, page: '/privacy', title: `${t.privacy_title} | ${v.site_name}`, description: '', body, v, siteUrl, images, stickyCta: false });
+	return layout({ lang, page: '/privacy', title: `${t.privacy_title} | ${v.site_name}`, description: t.privacy_desc, body, v, siteUrl, images, stickyCta: false });
 }
 
 function renderNotFound({ lang, values: v }, { siteUrl }) {

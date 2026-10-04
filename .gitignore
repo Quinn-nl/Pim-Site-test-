@@ -1,0 +1,7 @@
+
+# SEO skills: managed Python runtime and browser cache (large, machine specific)
+.agents/skills/seo/.venv
+.agents/skills/seo/.venv.*
+.agents/skills/seo/ms-playwright
+.agents/skills/seo/runtime-state.json
+__pycache__/
