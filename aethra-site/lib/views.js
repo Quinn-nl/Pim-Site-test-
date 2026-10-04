@@ -51,7 +51,8 @@ function layout({ lang, page, title, description, body, v, siteUrl, images = {},
 	const navLink = (p, label) => `<a href="${link(lang, p)}"${page === p ? ' aria-current="page"' : ''}>${esc(label)}</a>`;
 	const nav = [['/problem', t.nav_problem], ['/how-it-works', t.nav_how], ['/applications', t.nav_apps]];
 	const canonical = `${siteUrl}${url(lang, page)}`;
-	const social = images.social ? `${siteUrl}/uploads/${images.social.file}` : '';
+	const social = images.social ? `${siteUrl}/uploads/${images.social.file}` : `${siteUrl}/img/og-default-${lang}.png`;
+	const socialSize = images.social && images.social.w ? [images.social.w, images.social.h] : (images.social ? null : [1200, 630]);
 	const desc = clip(description);
 	const alternates = page === null || noindex ? '' : [
 		...LANGS.map((l) => `<link rel="alternate" hreflang="${l}" href="${esc(siteUrl + url(l, page))}">`),
@@ -75,7 +76,11 @@ ${desc ? `<meta property="og:description" content="${esc(desc)}">` : ''}
 <meta property="og:url" content="${esc(canonical)}">
 <meta property="og:locale" content="${OG_LOCALE[lang]}">
 ${LANGS.filter((l) => l !== lang).map((l) => `<meta property="og:locale:alternate" content="${OG_LOCALE[l]}">`).join('\n')}
-${social ? `<meta property="og:image" content="${esc(social)}">\n<meta name="twitter:card" content="summary_large_image">\n<meta name="twitter:image" content="${esc(social)}">` : '<meta name="twitter:card" content="summary">'}
+<meta property="og:image" content="${esc(social)}">
+${socialSize ? `<meta property="og:image:width" content="${socialSize[0]}">
+<meta property="og:image:height" content="${socialSize[1]}">
+` : ''}<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="${esc(social)}">
 <meta name="color-scheme" content="light">
 <meta name="theme-color" content="#f7f9fc">
 <link rel="icon" href="/img/favicon.svg" type="image/svg+xml">

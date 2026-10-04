@@ -458,6 +458,15 @@ test('admin messages are paginated and counts are formatted; dev toggle is absen
 	assert.equal((await fetch(base + '/__data?mode=worst', { redirect: 'manual' })).status, 404);
 });
 
+test('pages carry a default sharing image per language until one is uploaded', async () => {
+	const html = await (await fetch(base + '/nl/')).text();
+	assert.match(html, /property="og:image" content="http:\/\/127\.0\.0\.1:\d+\/img\/og-default-nl\.png"/);
+	assert.ok(html.includes('og:image:width" content="1200"') && html.includes('twitter:card" content="summary_large_image"'));
+	const img = await fetch(base + '/img/og-default-nl.png');
+	assert.equal(img.status, 200);
+	assert.equal(img.headers.get('content-type'), 'image/png');
+});
+
 test('llms.txt describes the site for AI search', async () => {
 	const txt = await (await fetch(base + '/llms.txt')).text();
 	assert.ok(txt.startsWith('# Aethra'));
