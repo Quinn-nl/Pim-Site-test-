@@ -467,6 +467,21 @@ test('pages carry a default sharing image per language until one is uploaded', a
 	assert.equal(img.headers.get('content-type'), 'image/png');
 });
 
+test('introduction deck is served per language with working navigation files and no inline scripts', async () => {
+	for (const l of ['en', 'nl', 'de', 'fr']) {
+		const res = await fetch(base + `/deck/aethra-${l}.html`);
+		const html = await res.text();
+		assert.equal(res.status, 200);
+		assert.match(res.headers.get('content-type'), /text\/html/);
+		assert.equal((html.match(/<section class="slide"/g) || []).length, 5);
+		assert.ok(!/<script(?![^>]*\bsrc=)[^>]*>/.test(html), 'no inline scripts');
+		assert.ok(!/https?:\/\/(?!www\.who|www\.eea)/.test(html.replace(/<html[^>]*>/, '')), 'no external hosts');
+	}
+	assert.ok((await (await fetch(base + '/deck/aethra-de.html')).text()).includes('Sauberere Luft'));
+	assert.equal((await fetch(base + '/deck/deck.js')).status, 200);
+	assert.equal((await fetch(base + '/deck/../server.js')).status, 404);
+});
+
 test('llms.txt describes the site for AI search', async () => {
 	const txt = await (await fetch(base + '/llms.txt')).text();
 	assert.ok(txt.startsWith('# Aethra'));
