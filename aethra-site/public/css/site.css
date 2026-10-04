@@ -324,3 +324,20 @@ h1 { overflow-wrap: anywhere; }
 	.cards > [data-reveal], .steps > [data-reveal], .facts > [data-reveal], .points > [data-reveal] { transition-delay: 0ms; }
 }
 @media print { .js [data-reveal] { opacity: 1; transform: none; transition: none; } }
+
+/* plan 001: the FAQ answer opens with the chevron (progressive enhancement; other browsers open instantly) */
+:root { interpolate-size: allow-keywords; }
+.faq details::details-content { block-size: 0; opacity: 0; overflow: clip; transition: block-size 200ms var(--ease-out), opacity 200ms var(--ease-out), content-visibility 200ms allow-discrete; }
+.faq details[open]::details-content { block-size: auto; opacity: 1; }
+@media (prefers-reduced-motion: reduce) { .faq details::details-content { transition: opacity 120ms ease; } }
+
+/* plan 002: soften page changes (cross-document view transition; unsupported browsers ignore it) */
+@view-transition { navigation: auto; }
+::view-transition-old(root), ::view-transition-new(root) { animation-duration: 150ms; animation-timing-function: var(--ease-out); }
+@media (prefers-reduced-motion: reduce) { ::view-transition-old(root), ::view-transition-new(root) { animation: none; } }
+
+/* plan 003: the contact confirmation arrives (rare, high-value moment) */
+@keyframes pop-in { from { opacity: 0; transform: translateY(8px) scale(.98); } }
+@keyframes pop-in-soft { from { opacity: 0; } }
+.success { animation: pop-in 260ms var(--ease-out); }
+@media (prefers-reduced-motion: reduce) { .success { animation: pop-in-soft 160ms ease; } }

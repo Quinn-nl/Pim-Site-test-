@@ -9,7 +9,7 @@
 		slides.forEach(function (s, k) { s.hidden = k !== i; });
 		prev.disabled = i === 0; next.disabled = i === slides.length - 1;
 		count.textContent = (i + 1) + ' / ' + slides.length;
-		bar.style.width = ((i + 1) / slides.length * 100) + '%';
+		bar.style.transform = 'scaleX(' + ((i + 1) / slides.length) + ')';
 		if (push) { try { history.replaceState(null, '', '#' + (i + 1)); } catch (e) { /* ignore */ } }
 	}
 	prev.addEventListener('click', function () { show(i - 1, true); });

@@ -110,7 +110,7 @@ h3{font-size:clamp(1.2rem,2.4vw,1.7rem);margin-bottom:.4rem}
 .nav:focus-visible{outline:3px solid var(--glow);outline-offset:3px}
 .count{font-family:var(--mono);min-width:4.5ch;text-align:center}
 .progress{position:absolute;left:0;right:0;top:0;height:3px;background:var(--space-line)}
-.progress i{display:block;height:100%;width:0;background:var(--glow);transition:width 200ms var(--ease-out)}
+.progress i{display:block;height:100%;width:100%;background:var(--glow);transform-origin:left;transform:scaleX(0);transition:transform 200ms var(--ease-out)}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
 @media (prefers-reduced-motion:reduce){.inner{animation:none}.progress i{transition:none}}
 `;
@@ -125,7 +125,7 @@ const js = `(function () {
 		slides.forEach(function (s, k) { s.hidden = k !== i; });
 		prev.disabled = i === 0; next.disabled = i === slides.length - 1;
 		count.textContent = (i + 1) + ' / ' + slides.length;
-		bar.style.width = ((i + 1) / slides.length * 100) + '%';
+		bar.style.transform = 'scaleX(' + ((i + 1) / slides.length) + ')';
 		if (push) { try { history.replaceState(null, '', '#' + (i + 1)); } catch (e) { /* ignore */ } }
 	}
 	prev.addEventListener('click', function () { show(i - 1, true); });
