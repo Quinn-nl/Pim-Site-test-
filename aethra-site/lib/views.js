@@ -5,7 +5,7 @@ const { AUDIENCES, labelFor } = require('./audiences');
 
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
-const LOGO = '<svg class="logo-mark" viewBox="0 0 32 32" width="28" height="28" aria-hidden="true" focusable="false"><circle cx="16" cy="16" r="6" fill="currentColor"/><ellipse cx="16" cy="16" rx="14" ry="5.5" fill="none" stroke="currentColor" stroke-width="1.6" transform="rotate(-28 16 16)"/></svg>';
+const LOGO = '<svg class="logo-mark" viewBox="0 0 32 32" width="28" height="28" aria-hidden="true" focusable="false"><g transform="translate(16 16) rotate(-28)"><defs><mask id="am"><rect x="-16" y="-16" width="32" height="32" fill="#fff"/><path d="M-14 0A14 5.5 0 0 0 14 0" fill="none" stroke="#000" stroke-width="4.2"/></mask></defs><path d="M-14 0A14 5.5 0 0 1 14 0" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle r="6" fill="currentColor" mask="url(#am)"/><path d="M-14 0A14 5.5 0 0 0 14 0" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><rect x="6.6" y="-6.1" width="3.8" height="3.8" rx=".6" fill="currentColor" transform="rotate(32 8.5 -4.2)"/></g></svg>';
 
 const ICONS = {
 	detect: '<circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="8"/><path d="M12 1v3M12 20v3M1 12h3M20 12h3"/>',
