@@ -329,11 +329,9 @@ h1 { overflow-wrap: anywhere; }
 @media (prefers-reduced-motion: reduce) { @starting-style { .js .site-nav.open { opacity: 0; transform: none; } } }
 @media print { .js [data-reveal] { opacity: 1; transform: none; transition: none; } }
 
-/* plan 001: the FAQ answer opens with the chevron (progressive enhancement; other browsers open instantly) */
-:root { interpolate-size: allow-keywords; }
-.faq details::details-content { block-size: 0; opacity: 0; overflow: clip; transition: block-size var(--dur-panel) var(--ease-out), opacity var(--dur-panel) var(--ease-out), content-visibility var(--dur-panel) allow-discrete; }
-.faq details[open]::details-content { block-size: auto; opacity: 1; }
-@media (prefers-reduced-motion: reduce) { .faq details::details-content { transition: opacity var(--dur-exit) ease; } }
+/* plan 005: the FAQ height is animated from site.js (WAAPI, all browsers); chevron follows the click */
+.faq details { overflow: clip; }
+.faq details[data-closing] summary::after { transform: translateY(-2px) rotate(45deg); }
 
 /* plan 002: soften page changes (cross-document view transition; unsupported browsers ignore it) */
 @view-transition { navigation: auto; }

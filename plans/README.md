@@ -8,6 +8,6 @@ Written by the improve-animations audit. Execute in this order; all are independ
 | 002 | Soften page changes with a cross-document view transition | LOW | DONE |
 | 003 | Let the contact confirmation arrive | LOW | DONE |
 | 004 | Animate the deck progress bar with transform | LOW | DONE |
-| 005 | Make the FAQ open/close feel smooth (cross-browser) | HIGH | TODO |
+| 005 | Make the FAQ open/close feel smooth (cross-browser) | HIGH | DONE |
 
 Rejected on purpose (see find-animation-opportunities): hero entrance (LCP), counting numbers (facts, not decoration), card hover lifts, pulsing roadmap dot.

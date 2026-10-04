@@ -76,4 +76,43 @@
 		onScroll();
 		window.addEventListener('scroll', onScroll, { passive: true });
 	}
+
+	// plan 005: FAQ accordion. Pointer/touch only; keyboard and reduced motion keep the native instant toggle.
+	var tokens = function (name, fallback) {
+		var v = parseFloat(getComputedStyle(document.documentElement).getPropertyValue(name));
+		return v > 0 ? v : fallback;
+	};
+	var glide = 'cubic-bezier(.39,.575,.565,1)';
+	var faq = document.querySelector('.faq');
+	if (faq && !reduce && document.documentElement.animate) {
+		faq.addEventListener('click', function (e) {
+			var summary = e.target.closest && e.target.closest('summary');
+			if (!summary || e.detail === 0) return;
+			var el = summary.parentNode;
+			e.preventDefault();
+			var from = el.getBoundingClientRect().height;
+			if (el._anim) el._anim.cancel();
+			var opening = !el.open || el.hasAttribute('data-closing');
+			var answer = el.querySelector('p');
+			var to;
+			if (opening) {
+				el.removeAttribute('data-closing');
+				el.open = true;
+				to = el.scrollHeight + el.offsetHeight - el.clientHeight;
+				to = Math.max(to, el.getBoundingClientRect().height);
+			} else {
+				el.setAttribute('data-closing', '');
+				to = summary.offsetHeight + (el.offsetHeight - el.clientHeight);
+			}
+			var dur = opening ? tokens('--dur-accordion-open', 280) : tokens('--dur-accordion-close', 200);
+			var opts = { duration: dur, easing: glide, fill: 'none' };
+			var anim = el.animate([{ height: from + 'px' }, { height: to + 'px' }], opts);
+			if (answer) answer.animate([{ opacity: opening ? 0 : 1 }, { opacity: opening ? 1 : 0 }], opts);
+			el._anim = anim;
+			anim.onfinish = function () {
+				el._anim = null;
+				if (!opening) { el.open = false; el.removeAttribute('data-closing'); }
+			};
+		});
+	}
 })();

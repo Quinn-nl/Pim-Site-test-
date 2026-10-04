@@ -85,6 +85,9 @@
 	--dur-enter: 280ms;
 	--dur-panel: 240ms;
 	--dur-exit: 100ms;
+	--ease-glide: cubic-bezier(.39, .575, .565, 1);
+	--dur-accordion-open: 280ms;
+	--dur-accordion-close: 200ms;
 
 	/* Shape, layout, type and spacing */
 	--radius: 12px;

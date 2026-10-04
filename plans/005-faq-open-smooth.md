@@ -1,6 +1,6 @@
 # 005 - Make the FAQ open/close feel smooth (cross-browser)
 
-- **Status**: TODO
+- **Status**: DONE
 - **Commit**: 969f00f
 - **Severity**: HIGH
 - **Category**: Easing & duration / Interruptibility / Cross-browser
