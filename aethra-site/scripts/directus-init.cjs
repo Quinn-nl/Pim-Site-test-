@@ -39,6 +39,36 @@ if (fs.existsSync(envFile)) {
 	fs.writeFileSync(envFile, lines.join('\n') + '\n', { mode: 0o600 });
 	console.log(`Created directus/.env. Administrator: ${email} / ${password}  (also stored in that file; change the password after the first login).`);
 }
+/**
+ * Newer npm versions block the install scripts of packages ("allowScripts"). Directus needs the native parts
+ * isolated-vm and sqlite3 (argon2 and esbuild ship ready-made binaries). Approve the scripts if npm supports it,
+ * check that the parts load, and fetch the prebuilt binaries ourselves when they do not.
+ */
+function prepareNativeParts() {
+	const loads = (mod) => spawnSync(process.execPath, ['-e', `require(${JSON.stringify(mod)})`], { cwd: dir, stdio: 'ignore' }).status === 0;
+	const needed = ['isolated-vm', 'sqlite3', 'argon2'];
+	if (needed.every(loads)) return;
+	console.log('Preparing the native parts of Directus...');
+	// 1. let npm run their install scripts (newer npm: "install-scripts approve"; older npm: rebuild)
+	spawnSync('npm', ['install-scripts', 'approve', 'isolated-vm', 'sqlite3', 'argon2', 'esbuild'], { cwd: dir, stdio: 'inherit', shell: process.platform === 'win32' });
+	spawnSync('npm', ['rebuild', 'isolated-vm', 'sqlite3', 'argon2'], { cwd: dir, stdio: 'inherit', shell: process.platform === 'win32' });
+	if (needed.every(loads)) return;
+	// 2. fetch the prebuilt binaries directly
+	const bin = path.join(dir, 'node_modules', 'prebuild-install', 'bin.js');
+	if (fs.existsSync(bin)) {
+		for (const [mod, extra] of [['isolated-vm', []], ['sqlite3', ['-r', 'napi']]]) {
+			if (loads(mod)) continue;
+			console.log(`Fetching the prebuilt binary for ${mod}...`);
+			spawnSync(process.execPath, [bin, ...extra], { cwd: path.join(dir, 'node_modules', mod), stdio: 'inherit' });
+		}
+	}
+	const missing = needed.filter((m) => !loads(m));
+	if (missing.length) {
+		console.error(`\nThese Directus parts still do not load: ${missing.join(', ')}.\nCheck that "node -v" shows v22 and that this computer can download from github.com (a proxy or firewall can block it). As a last resort install the Visual Studio Build Tools ("Desktop development with C++") and Python, then run this command again.`);
+		process.exit(1);
+	}
+}
+
 // On Windows npm is a .cmd file and needs a shell.
 const major = Number(process.versions.node.split('.')[0]);
 if (major !== 22 && !skipInstall && !process.argv.includes('--force')) {
@@ -46,6 +76,9 @@ if (major !== 22 && !skipInstall && !process.argv.includes('--force')) {
 	process.exit(1);
 }
 const run = (cmd, args) => { const r = spawnSync(cmd, args, { cwd: dir, stdio: 'inherit', shell: process.platform === 'win32' && cmd === 'npm' }); if (r.status !== 0) { console.error(`${cmd} ${args.join(' ')} failed`); process.exit(r.status || 1); } };
-if (!skipInstall) run('npm', ['install', '--no-audit', '--no-fund', '--loglevel=warn']);
+if (!skipInstall) {
+	run('npm', ['install', '--no-audit', '--no-fund', '--loglevel=warn']);
+	prepareNativeParts();
+}
 if (!skipBootstrap) run('node', [path.join('node_modules', 'directus', 'cli.js'), 'bootstrap']);
 console.log('Next: "npm run directus" in one terminal, "npm run directus:setup" once Directus is running, and start the site with DIRECTUS_URL=http://127.0.0.1:8055.');
