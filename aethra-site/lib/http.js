@@ -14,6 +14,7 @@ function baseHeaders(extra = {}) {
 		'X-Frame-Options': 'DENY',
 		'Permissions-Policy': 'camera=(), microphone=(), geolocation=(), interest-cohort=()',
 		'Cross-Origin-Opener-Policy': 'same-origin',
+		'Cross-Origin-Resource-Policy': 'same-origin',
 		...extra,
 	};
 	if (cfg.SECURE) h['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains';
@@ -53,8 +54,10 @@ function redirect(res, location, headers = {}, status = 303) {
 
 function clientIp(req) {
 	if (cfg.TRUST_PROXY) {
-		const xff = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim();
-		if (xff) return xff;
+		// The rightmost entry is the one our own proxy appended; the leftmost can be forged by the visitor.
+		const parts = String(req.headers['x-forwarded-for'] || '').split(',');
+		const last = parts[parts.length - 1].trim();
+		if (/^[0-9a-f:.]{3,45}$/i.test(last)) return last;
 	}
 	return req.socket.remoteAddress || 'unknown';
 }

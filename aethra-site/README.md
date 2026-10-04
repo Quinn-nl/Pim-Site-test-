@@ -50,7 +50,7 @@ Uploads are checked by structure, location data (EXIF) and other metadata are re
 
 ## Going live
 Run it behind an HTTPS reverse proxy (Caddy, nginx) and set:
-`SITE_URL` (your public address), `NODE_ENV=production` (Secure cookies and HSTS), `TRUST_PROXY=1` (correct client IP for rate limits), and keep a process manager (systemd/pm2) running `npm start`. Fonts (Exo 2, IBM Plex Sans and Mono, SIL Open Font License) are self-hosted in `public/fonts/`. Domain and hosting should be registered in the client's name. There is no outgoing mail: new messages appear in the admin inbox, so check it regularly (or ask for an email notification to be added with an SMTP provider).
+`SITE_URL` (your public address), `NODE_ENV=production` (Secure cookies and HSTS), `TRUST_PROXY=1` (correct client IP for rate limits; the proxy must append the client address to `X-Forwarded-For`), optionally `SECURITY_CONTACT` (publishes `/.well-known/security.txt`), and keep a process manager (systemd/pm2) running `npm start`. Fonts (Exo 2, IBM Plex Sans and Mono, SIL Open Font License) are self-hosted in `public/fonts/`. Domain and hosting should be registered in the client's name. There is no outgoing mail: new messages appear in the admin inbox, so check it regularly (or ask for an email notification to be added with an SMTP provider).
 
 ## Security built in
 Scrypt password hash, rate-limited login, 8 h sessions with HttpOnly/SameSite=Strict cookies, CSRF tokens on every admin action, strict Content-Security-Policy (no inline scripts), output escaping, upload checked by file signature and stored under random names, signed form token + honeypot + per-IP limit on the contact form, path-traversal-safe static serving.

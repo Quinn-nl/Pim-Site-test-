@@ -40,7 +40,10 @@ function parseCookies(header) {
 	const out = {};
 	for (const part of String(header || '').split(';')) {
 		const i = part.indexOf('=');
-		if (i > 0) out[part.slice(0, i).trim()] = decodeURIComponent(part.slice(i + 1).trim());
+		if (i <= 0) continue;
+		let value = part.slice(i + 1).trim();
+		try { value = decodeURIComponent(value); } catch (e) { /* keep the raw value: a malformed cookie must not break the request */ }
+		out[part.slice(0, i).trim()] = value;
 	}
 	return out;
 }
@@ -50,6 +53,7 @@ function createSession() {
 	const now = Date.now();
 	const session = { id, csrf: crypto.randomBytes(24).toString('hex'), created: now, seen: now };
 	sessions.set(id, session);
+	while (sessions.size > 20) sessions.delete(sessions.keys().next().value); // oldest first
 	return session;
 }
 

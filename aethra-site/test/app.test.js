@@ -497,3 +497,21 @@ test('multipart parser and image sniffing', () => {
 	assert.equal(detectImage(PNG).ext, 'png');
 	assert.equal(detectImage(Buffer.from('GIF89a......')), null);
 });
+
+test('hardening: malformed cookie, forged X-Forwarded-For, cross-site admin POST, strict e-mail', async () => {
+	const r = await fetch(base + '/en/', { headers: { cookie: 'aethra_lang=%E0%A4%A' } });
+	assert.equal(r.status, 200);
+	assert.equal(r.headers.get('cross-origin-resource-policy'), 'same-origin');
+	const forged = await fetch(base + '/admin/login', { method: 'POST', redirect: 'manual', headers: { 'content-type': 'application/x-www-form-urlencoded', origin: 'https://evil.example' }, body: new URLSearchParams({ password: 'x' }) });
+	assert.equal(forged.status, 403);
+	const { clientIp } = require('../lib/http');
+	const cfg = require('../lib/config');
+	cfg.TRUST_PROXY = true;
+	assert.equal(clientIp({ headers: { 'x-forwarded-for': '6.6.6.6, 203.0.113.9' }, socket: {} }), '203.0.113.9');
+	assert.equal(clientIp({ headers: { 'x-forwarded-for': 'junk<>' }, socket: { remoteAddress: '10.0.0.1' } }), '10.0.0.1');
+	cfg.TRUST_PROXY = false;
+	const EMAIL = /const EMAIL = (\/.*\/);/.exec(fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8'))[1];
+	const re = eval(EMAIL);
+	assert.ok(re.test('jan.de-vries+x@bedrijf.nl'));
+	for (const bad of ['a>@b.co', 'a@b.co>,evil@x.nl', '"a"@b.co', 'a b@c.nl']) assert.ok(!re.test(bad), bad);
+});

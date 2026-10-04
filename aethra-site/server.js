@@ -19,8 +19,9 @@ const admin = require('./lib/admin-views');
 const crypto = require('crypto');
 
 const loginLimiter = createLimiter(5, 15 * 60 * 1000);
+const accountLimiter = createLimiter(5, 15 * 60 * 1000);
 const contactLimiter = createLimiter(5, 60 * 60 * 1000);
-const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const EMAIL = /^[^\s@<>(),;:\\"\[\]]+@[^\s@<>(),;:\\"\[\]]+\.[^\s@<>(),;:\\"\[\]]+$/;
 
 const flashFrom = (url) => {
 	const f = url.searchParams.get('f');
@@ -41,12 +42,13 @@ function csrfOk(session, token) {
 	return !!token && auth.safeEqual(token, session.csrf);
 }
 
+const dailyReplyCap = createLimiter(200, 24 * 3600 * 1000); // overall ceiling, whatever the senders' addresses or IPs
 const replyLimiter = createLimiter(1, 24 * 3600 * 1000); // one confirmation per address per day: the form can not be used to mail strangers repeatedly
 
 /** Confirmation to the visitor (only when SMTP is configured and AUTO_REPLY is not 0). Fixed text, no visitor input. */
 function confirmToVisitor(m, content) {
 	if (process.env.AUTO_REPLY === '0' || !mail.configured()) return;
-	if (!replyLimiter.allow(m.email.toLowerCase())) return;
+	if (!replyLimiter.allow(m.email.toLowerCase()) || !dailyReplyCap.allow('all')) return;
 	const t = UI[m.lang] || UI.en;
 	mail.sendMail({
 		to: [m.email],
@@ -97,6 +99,10 @@ async function handlePublic(req, res, url) {
 		for (const l of LANGS) lines.push(`- [${l.toUpperCase()}: ${store.getContent(l).values.hero_title}](${siteUrl}/${l}/)`);
 		lines.push('', '## Pages (English)', ...['/problem', '/how-it-works', '/applications', ...AUDIENCES.map((a) => `/for/${a.slug}`), '/contact'].map((p) => `- ${siteUrl}/en${p}`), '');
 		return send(res, 200, lines.join('\n'), { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'public, max-age=3600' });
+	}
+	if (get && url.pathname === '/.well-known/security.txt' && process.env.SECURITY_CONTACT) {
+		const expires = new Date(Date.now() + 365 * 86400000).toISOString();
+		return send(res, 200, `Contact: ${process.env.SECURITY_CONTACT}\nExpires: ${expires}\nPreferred-Languages: en, nl\nCanonical: ${siteUrl}/.well-known/security.txt\n`, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'public, max-age=3600' });
 	}
 	if (get && url.pathname === '/healthz') return send(res, 200, 'ok', { 'Content-Type': 'text/plain' });
 
@@ -177,8 +183,21 @@ async function handlePublic(req, res, url) {
 	return false;
 }
 
+/** Defence in depth next to SameSite=Strict and the CSRF token: a cross-site Origin on an admin POST is refused. */
+function sameOrigin(req) {
+	const origin = req.headers.origin;
+	if (!origin || origin === 'null') return !origin;
+	try {
+		const host = new URL(origin).host;
+		return host === String(req.headers.host || '') || (!!cfg.SITE_URL && host === new URL(cfg.SITE_URL).host);
+	} catch (e) {
+		return false;
+	}
+}
+
 async function handleAdmin(req, res, url) {
 	const p = url.pathname;
+	if (req.method === 'POST' && !sameOrigin(req)) return send(res, 403, 'Forbidden', { 'Content-Type': 'text/plain' });
 	const flash = flashFrom(url);
 	const qlang = url.searchParams.get('lang');
 	const lang = isLang(qlang) ? qlang : 'en';
@@ -284,7 +303,9 @@ async function handleAdmin(req, res, url) {
 		return redirect(res, '/admin/messages?f=deleted');
 	}
 	if (p === '/admin/account') {
+		if (!accountLimiter.allow(clientIp(req))) return send(res, 429, 'Too many attempts', { 'Content-Type': 'text/plain' });
 		if (!auth.checkPassword(form.current || '')) return redirect(res, '/admin/account?f=badpw');
+		accountLimiter.clear(clientIp(req));
 		if (String(form.password || '').length < 12) return redirect(res, '/admin/account?f=short');
 		auth.setPassword(form.password);
 		auth.destroyOtherSessions(req);
@@ -320,6 +341,10 @@ function createServer() {
 
 if (require.main === module) {
 	const server = createServer();
+	server.headersTimeout = 15000;
+	server.requestTimeout = 30000; // slow-loris: a request must complete within 30 s
+	server.keepAliveTimeout = 5000;
+	server.maxHeadersCount = 50;
 	server.listen(cfg.PORT, cfg.HOST, () => console.log(`Aethra site on http://${cfg.HOST}:${cfg.PORT}`));
 	for (const sig of ['SIGTERM', 'SIGINT']) {
 		process.on(sig, () => {
