@@ -13,7 +13,7 @@ const path = require('path');
 const crypto = require('crypto');
 
 const ENV_FILE = path.join(__dirname, '..', 'directus', '.env');
-const env = Object.fromEntries(fs.existsSync(ENV_FILE) ? fs.readFileSync(ENV_FILE, 'utf8').split('\n').filter((l) => /^[A-Z_]+=/.test(l)).map((l) => [l.slice(0, l.indexOf('=')), l.slice(l.indexOf('=') + 1)]) : []);
+const env = Object.fromEntries(fs.existsSync(ENV_FILE) ? fs.readFileSync(ENV_FILE, 'utf8').split(/\r?\n/).filter((l) => /^[A-Z_]+=/.test(l)).map((l) => [l.slice(0, l.indexOf('=')), l.slice(l.indexOf('=') + 1)]) : []);
 const BASE = (process.env.DIRECTUS_URL || `http://127.0.0.1:${env.PORT || 8055}`).replace(/\/+$/, '');
 const RESEED = process.argv.includes('--reseed');
 

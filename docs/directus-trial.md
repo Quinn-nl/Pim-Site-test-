@@ -2,22 +2,17 @@
 
 `/admin` is still our own panel, untouched. `/admin2` is [Directus](https://directus.com) (open source, self-hosted). Both work at the same time so the two can be compared.
 
-## Start it (local, three commands)
+## Start it (local; same commands on Windows, macOS and Linux)
 ```
 cd aethra-site
-ADMIN_EMAIL=you@yourdomain.com npm run directus:init   # once: secrets, install into directus/, database, first admin
-npm run directus                                        # terminal 1: Directus on 127.0.0.1:8055
-npm run directus:setup                                  # once, Directus running: content model + current texts + read-only token
-DIRECTUS_URL=http://127.0.0.1:8055 npm start            # terminal 2: the website, /admin2 now opens Directus
+npm run directus:init -- --email=you@yourdomain.com   # once: secrets, install into directus/, database, first admin
+npm run directus                                       # terminal 1: Directus on 127.0.0.1:8055 (leave it open)
+npm run directus:setup                                 # terminal 2, once: content model + current texts + read-only token
+npm run start:directus:live                            # terminal 2: the website, /admin2 opens Directus, texts come from Directus
 ```
-Open `http://localhost:3000/admin2`, log in with the administrator from `directus/.env`. On first login Directus asks about a licence key: choose "I'm using Core plan". `SITE_URL` must match the address you use (Directus builds its links from `PUBLIC_URL=<site>/admin2`).
+Use `npm run start:directus` instead of `start:directus:live` if you only want `/admin2` available while the site keeps its own texts. Open `http://localhost:3000/admin2` and log in with the administrator printed by `directus:init` (also in `directus/.env`). On first login Directus asks about a licence key: choose "I'm using Core plan". `--site=https://your-domain` sets the public address (default `http://localhost:3000`); it must match the address you use because Directus builds its links from `PUBLIC_URL=<site>/admin2`. Use a real e-mail address: Directus rejects reserved ones such as `.example`.
 
-To let the website show what is edited in Directus (otherwise `/admin2` edits stay in Directus only):
-```
-set -a; . directus/.env; set +a
-CONTENT_SOURCE=directus DIRECTUS_URL=http://127.0.0.1:8055 DIRECTUS_TOKEN=$SITE_READER_TOKEN npm start
-```
-The site then reads the texts from Directus every 15 seconds (`DIRECTUS_POLL_MS`). If Directus is down, the last copy keeps serving; if a text is empty in Directus, the default is used (optional texts may be empty).
+With `start:directus:live` the site reads the texts from Directus every 15 seconds (`DIRECTUS_POLL_MS`). If Directus is down, the last copy keeps serving; if a text is empty in Directus, the default is used (optional texts may be empty).
 
 ## What was built
 - `lib/directus-proxy.js`: `/admin2/*` is proxied to Directus (prefix removed, `X-Robots-Tag: noindex`, Directus keeps its own security headers). Only active when `DIRECTUS_URL` is set; the target is fixed (not an open proxy). `/admin2` and `/admin2/` redirect to `/admin2/admin/`.

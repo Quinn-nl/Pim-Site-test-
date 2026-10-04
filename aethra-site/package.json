@@ -18,6 +18,8 @@
     "test": "node --test test/*.test.js",
     "directus:init": "node scripts/directus-init.cjs",
     "directus": "npm --prefix directus start",
-    "directus:setup": "node scripts/directus-setup.cjs"
+    "directus:setup": "node scripts/directus-setup.cjs",
+    "start:directus": "node scripts/start-directus.cjs",
+    "start:directus:live": "node scripts/start-directus.cjs --content"
   }
 }

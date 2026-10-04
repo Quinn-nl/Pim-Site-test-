@@ -76,4 +76,4 @@ Admin > Account > Two-step verification > Set up. Scan the QR code with any auth
 
 ## Admin panel trial: Directus at /admin2
 
-`/admin` is our own panel. `/admin2` opens [Directus](https://directus.com) when `DIRECTUS_URL` is set (a trial of an open-source panel). How to start it, what was built and an honest comparison are in `docs/directus-trial.md`. Short version: `npm run directus:init`, `npm run directus`, `npm run directus:setup`, then start the site with `DIRECTUS_URL=http://127.0.0.1:8055`. Add `CONTENT_SOURCE=directus` and `DIRECTUS_TOKEN` (from `directus/.env`) to let the website read its texts from Directus.
+`/admin` is our own panel. `/admin2` opens [Directus](https://directus.com) when `DIRECTUS_URL` is set (a trial of an open-source panel). How to start it, what was built and an honest comparison are in `docs/directus-trial.md`. Short version: `npm run directus:init -- --email=you@yourdomain.com`, `npm run directus` (terminal 1), `npm run directus:setup` (terminal 2, once), then `npm run start:directus:live`. These commands are the same on Windows, macOS and Linux.
