@@ -7,6 +7,7 @@ Node.js 20+ only: no npm packages, no database, no external requests (fonts, scr
 ```bash
 cd aethra-site
 npm run set-password      # once: choose an admin password of at least 12 characters
+npm run reset-2fa          # only if the phone and recovery codes are lost: turns two-step verification off
 npm start                 # http://127.0.0.1:3000   (PORT / HOST can be set)
 npm test                  # 22 tests: security, languages, SEO, form, upload, admin
 ```
@@ -60,3 +61,7 @@ Scrypt password hash, rate-limited login, 8 h sessions with HttpOnly/SameSite=St
 - Verify the two cited statistics at their sources; have all copy checked for claims (ACM) and investor communication (AFM). No emission-reduction figures, no technical "how", no offer of shares or returns.
 - Photos: only upload images you may use; show AI imagery as atmosphere only, never as the prototype. Strip EXIF/location data first.
 - Fill in company details and the privacy statement.
+
+## Two-step verification
+
+Admin > Account > Two-step verification > Set up. Add the key to any authenticator app (time-based, 6 digits), enter the code, and save the 8 one-time recovery codes. After that, logging in needs the password and a code. The authenticator secret is stored encrypted (AES-256-GCM, key derived from `data/secret.key`), a code can be used once, and five wrong tries end the login step. Keep `data/` in your backups: without `secret.key` the stored secret cannot be read (run `npm run reset-2fa` and set it up again).

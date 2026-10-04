@@ -7,6 +7,7 @@
   "scripts": {
     "start": "node server.js",
     "set-password": "node scripts/set-password.js",
+    "reset-2fa": "node scripts/reset-2fa.js",
     "backup": "node scripts/backup.js",
     "test": "node --test test/*.test.js"
   }

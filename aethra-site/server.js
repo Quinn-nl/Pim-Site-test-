@@ -207,6 +207,20 @@ async function handleAdmin(req, res, url) {
 		const form = await readForm(req, 4096);
 		if (!loginLimiter.allow(ip)) return send(res, 429, admin.loginPage({ ok: false, text: 'Too many attempts. Try again in 15 minutes.' }, false));
 		if (!auth.checkPassword(form.password || '')) return send(res, 401, admin.loginPage({ ok: false, text: 'Incorrect password.' }, !auth.hasAdmin()));
+		if (auth.twoFactorEnabled()) return send(res, 200, admin.codePage(auth.createTicket()));
+		loginLimiter.clear(ip);
+		const s = auth.createSession();
+		return redirect(res, '/admin', { 'Set-Cookie': auth.cookieHeader(s.id, 8 * 3600) });
+	}
+
+	if (req.method === 'POST' && p === '/admin/login/code') {
+		const ip = clientIp(req);
+		const form = await readForm(req, 4096);
+		if (!loginLimiter.allow(ip)) return send(res, 429, admin.loginPage({ ok: false, text: 'Too many attempts. Try again in 15 minutes.' }, false));
+		const ticket = String(form.ticket || '');
+		if (!auth.useTicket(ticket)) return send(res, 401, admin.loginPage({ ok: false, text: 'That step expired. Log in again.' }, false));
+		if (!auth.verifySecondFactor(form.code)) return send(res, 401, admin.codePage(ticket, { ok: false, text: 'That code is not correct.' }));
+		auth.endTicket(ticket);
 		loginLimiter.clear(ip);
 		const s = auth.createSession();
 		return redirect(res, '/admin', { 'Set-Cookie': auth.cookieHeader(s.id, 8 * 3600) });
@@ -238,7 +252,7 @@ async function handleAdmin(req, res, url) {
 			store.markRead(shown.map((m) => m.id));
 			return send(res, 200, html);
 		}
-		if (p === '/admin/account') return send(res, 200, admin.accountPage(session, flash));
+		if (p === '/admin/account') return send(res, 200, admin.accountPage(session, flash, { enabled: auth.twoFactorEnabled(), left: auth.recoveryLeft(), setup: auth.pendingTwoFactor() }));
 		return false;
 	}
 
@@ -302,6 +316,26 @@ async function handleAdmin(req, res, url) {
 		store.deleteMessage(String(form.id || ''));
 		return redirect(res, '/admin/messages?f=deleted');
 	}
+	if (p === '/admin/2fa/start') {
+		if (auth.twoFactorEnabled()) return redirect(res, '/admin/account');
+		auth.beginTwoFactor();
+		return redirect(res, '/admin/account');
+	}
+	if (p === '/admin/2fa/confirm') {
+		if (!accountLimiter.allow(clientIp(req))) return send(res, 429, 'Too many attempts', { 'Content-Type': 'text/plain' });
+		const codes = auth.confirmTwoFactor(form.code);
+		if (!codes) return send(res, 400, admin.accountPage(session, { ok: false, text: 'That code is not correct. Check the key and the time on your phone.' }, { setup: auth.pendingTwoFactor(), enabled: false }));
+		accountLimiter.clear(clientIp(req));
+		auth.destroyOtherSessions(req);
+		return send(res, 200, admin.accountPage(session, { ok: true, text: 'Two-step verification is on.' }, { codes }));
+	}
+	if (p === '/admin/2fa/disable') {
+		if (!accountLimiter.allow(clientIp(req))) return send(res, 429, 'Too many attempts', { 'Content-Type': 'text/plain' });
+		if (!auth.checkPassword(form.current || '') || !auth.verifySecondFactor(form.code)) return send(res, 400, admin.accountPage(session, { ok: false, text: 'Password or code is not correct.' }, { enabled: true, left: auth.recoveryLeft() }));
+		accountLimiter.clear(clientIp(req));
+		auth.disableTwoFactor();
+		return redirect(res, '/admin/account');
+	}
 	if (p === '/admin/account') {
 		if (!accountLimiter.allow(clientIp(req))) return send(res, 429, 'Too many attempts', { 'Content-Type': 'text/plain' });
 		if (!auth.checkPassword(form.current || '')) return redirect(res, '/admin/account?f=badpw');
@@ -355,4 +389,4 @@ if (require.main === module) {
 	}
 }
 
-module.exports = { createServer, contactLimiter };
+module.exports = { createServer, contactLimiter, loginLimiter };

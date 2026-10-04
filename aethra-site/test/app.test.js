@@ -9,7 +9,7 @@ process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'aethra-'));
 const auth = require('../lib/auth');
 const store = require('../lib/store');
 const { parseMultipart, detectImage } = require('../lib/multipart');
-const { createServer, contactLimiter } = require('../server');
+const { createServer, contactLimiter, loginLimiter } = require('../server');
 const resetContactLimit = () => ['127.0.0.1', '::ffff:127.0.0.1', '::1'].forEach((k) => contactLimiter.clear(k));
 
 const zlib = require('zlib');
@@ -514,4 +514,55 @@ test('hardening: malformed cookie, forged X-Forwarded-For, cross-site admin POST
 	const re = eval(EMAIL);
 	assert.ok(re.test('jan.de-vries+x@bedrijf.nl'));
 	for (const bad of ['a>@b.co', 'a@b.co>,evil@x.nl', '"a"@b.co', 'a b@c.nl']) assert.ok(!re.test(bad), bad);
+});
+
+test('two-step verification: setup, login needs a code, replay and recovery codes, disable', async () => {
+	const totp = require('../lib/totp');
+	// RFC 6238 test vector (SHA1, secret "12345678901234567890", T=59 s -> 94287082, last 6 digits 287082)
+	assert.equal(totp.codeAt(totp.base32(Buffer.from('12345678901234567890')), 1), '287082');
+	auth.setPassword('another long password');
+	['127.0.0.1', '::ffff:127.0.0.1', '::1'].forEach((k) => loginLimiter.clear(k));
+	await post('/admin/login', { password: 'another long password' }).then((r) => { cookie = r.headers.get('set-cookie').split(';')[0]; });
+	csrf = /name="csrf" value="([a-f0-9]+)"/.exec(await (await fetch(base + '/admin/account', { headers: { cookie } })).text())[1];
+	await post('/admin/2fa/start', { csrf });
+	const setup = auth.pendingTwoFactor();
+	assert.ok(setup && /^[A-Z2-7]{32}$/.test(setup.secret));
+	assert.ok(!fs.readFileSync(path.join(process.env.DATA_DIR, 'admin.json'), 'utf8').includes(setup.secret), 'secret is stored encrypted');
+	const wrong = await post('/admin/2fa/confirm', { csrf, code: '000000' });
+	assert.equal(wrong.status, 400);
+	assert.ok(!auth.twoFactorEnabled());
+	const ok = await post('/admin/2fa/confirm', { csrf, code: totp.codeAt(setup.secret, Math.floor(Date.now() / 30000)) });
+	assert.equal(ok.status, 200);
+	const codes = [...(await ok.text()).matchAll(/<code>([a-z]{5}-[a-z]{5})<\/code>/g)].map((m) => m[1]);
+	assert.equal(codes.length, 8);
+	assert.ok(auth.twoFactorEnabled());
+	// password alone no longer gives a session
+	const step1 = await post('/admin/login', { password: 'another long password' }, { cookie: '' });
+	assert.equal(step1.status, 200);
+	assert.ok(!step1.headers.get('set-cookie'));
+	const ticket = /name="ticket" value="([a-f0-9]+)"/.exec(await step1.text())[1];
+	const bad = await post('/admin/login/code', { ticket, code: '123456' }, { cookie: '' });
+	assert.equal(bad.status, 401);
+	// the code that confirmed setup cannot be replayed; the next time step is accepted
+	const now = Math.floor(Date.now() / 30000);
+	const replay = await post('/admin/login/code', { ticket, code: totp.codeAt(setup.secret, now) }, { cookie: '' });
+	assert.equal(replay.status, 401);
+	const good = await post('/admin/login/code', { ticket, code: totp.codeAt(setup.secret, now + 1) }, { cookie: '' });
+	assert.equal(good.status, 303);
+	assert.ok(good.headers.get('set-cookie').includes('aethra_sid='));
+	// a ticket is single use
+	assert.equal((await post('/admin/login/code', { ticket, code: totp.codeAt(setup.secret, now + 1) }, { cookie: '' })).status, 401);
+	// recovery code works once
+	const t2 = /name="ticket" value="([a-f0-9]+)"/.exec(await (await post('/admin/login', { password: 'another long password' }, { cookie: '' })).text())[1];
+	assert.equal((await post('/admin/login/code', { ticket: t2, code: codes[0] }, { cookie: '' })).status, 303);
+	const t3 = /name="ticket" value="([a-f0-9]+)"/.exec(await (await post('/admin/login', { password: 'another long password' }, { cookie: '' })).text())[1];
+	assert.equal((await post('/admin/login/code', { ticket: t3, code: codes[0] }, { cookie: '' })).status, 401);
+	// password change keeps two-step on; disabling needs password and a code
+	auth.setPassword('another long password');
+	assert.ok(auth.twoFactorEnabled());
+	assert.equal((await post('/admin/2fa/disable', { csrf, current: 'another long password', code: 'nope' })).status, 400);
+	assert.ok(auth.twoFactorEnabled());
+	const off = await post('/admin/2fa/disable', { csrf, current: 'another long password', code: codes[1] });
+	assert.equal(off.status, 303);
+	assert.ok(!auth.twoFactorEnabled());
 });

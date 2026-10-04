@@ -26,6 +26,12 @@ ${setupNeeded ? '<p class="err-text">No password is set yet. Run <code>npm run s
 <form method="post" action="/admin/login"><label for="pw">Password</label><input id="pw" name="password" type="password" autocomplete="current-password" required autofocus><button type="submit">Log in</button></form></section>`, flash);
 }
 
+function codePage(ticket, flash) {
+	return shell('Verification', '', '', `<section class="card narrow"><h1>Two-step verification</h1>
+<p class="hint">Enter the 6-digit code from your authenticator app, or one of your recovery codes.</p>
+<form method="post" action="/admin/login/code"><input type="hidden" name="ticket" value="${esc(ticket)}"><label for="code">Code</label><input id="code" name="code" type="text" inputmode="text" autocomplete="one-time-code" autocapitalize="off" spellcheck="false" required autofocus><button type="submit">Verify</button></form></section>`, flash);
+}
+
 function field(f, value) {
 	const id = `f-${f.key}`;
 	const common = `id="${id}" name="${esc(f.key)}"`;
@@ -109,12 +115,31 @@ function statsPage(session, sum, days) {
 <section class="card"><h2>Messages by role</h2>${table(['Role', 'Messages'], top(sum.roles).map(([k, v]) => [k, v]), 'No messages in this period.')}</section>`);
 }
 
-function accountPage(session, flash) {
+function accountPage(session, flash, tf = {}) {
+	const csrf = `<input type="hidden" name="csrf" value="${esc(session.csrf)}">`;
+	let two;
+	if (tf.codes) {
+		two = `<section class="card narrow"><h2>Recovery codes</h2><p class="hint">Two-step verification is on. Save these codes somewhere safe (a password manager or printed). Each works once if you lose your phone. They are shown only now.</p>
+<ul class="codes">${tf.codes.map((c) => `<li><code>${esc(c)}</code></li>`).join('')}</ul></section>`;
+	} else if (tf.setup) {
+		two = `<section class="card narrow"><h2>Set up two-step verification</h2>
+<ol class="hint"><li>Open an authenticator app (for example Google Authenticator, Microsoft Authenticator or a password manager).</li>
+<li>Add an account with this key (type of key: time-based): <code class="key">${esc(tf.setup.secret.replace(/(.{4})/g, '$1 ').trim())}</code> or, on a phone, <a href="${esc(tf.setup.uri)}">open it directly in your app</a>.</li>
+<li>Enter the 6-digit code the app shows.</li></ol>
+<form method="post" action="/admin/2fa/confirm">${csrf}<div class="row"><label for="c2">Code from the app</label><input id="c2" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9 ]*" required></div><button type="submit">Turn on</button></form></section>`;
+	} else if (tf.enabled) {
+		two = `<section class="card narrow"><h2>Two-step verification</h2><p class="ok-text">On. ${tf.left} recovery code${tf.left === 1 ? '' : 's'} left.</p>
+<form method="post" action="/admin/2fa/disable">${csrf}<div class="row"><label for="dp">Current password</label><input id="dp" name="current" type="password" autocomplete="current-password" required></div>
+<div class="row"><label for="dc">Code from the app</label><input id="dc" name="code" autocomplete="one-time-code" required></div><button type="submit">Turn off</button></form></section>`;
+	} else {
+		two = `<section class="card narrow"><h2>Two-step verification</h2><p class="hint">Off. Strongly recommended: a stolen password alone then no longer gives access.</p>
+<form method="post" action="/admin/2fa/start">${csrf}<button type="submit">Set up</button></form></section>`;
+	}
 	return shell('Account', 'account', session.csrf, `<h1>Change password</h1>
-<form method="post" action="/admin/account" class="card narrow"><input type="hidden" name="csrf" value="${esc(session.csrf)}">
+<form method="post" action="/admin/account" class="card narrow">${csrf}
 <div class="row"><label for="cur">Current password</label><input id="cur" name="current" type="password" autocomplete="current-password" required></div>
 <div class="row"><label for="new">New password (at least 12 characters)</label><input id="new" name="password" type="password" autocomplete="new-password" minlength="12" required></div>
-<button type="submit">Change password</button></form>`, flash);
+<button type="submit">Change password</button></form>${two}`, flash);
 }
 
-module.exports = { statsPage, loginPage, contentPage, photosPage, privacyPage, messagesPage, accountPage };
+module.exports = { codePage, statsPage, loginPage, contentPage, photosPage, privacyPage, messagesPage, accountPage };

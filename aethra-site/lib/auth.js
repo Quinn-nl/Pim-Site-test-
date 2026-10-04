@@ -2,6 +2,7 @@
 const crypto = require('crypto');
 const store = require('./store');
 const cfg = require('./config');
+const totp = require('./totp');
 
 const COOKIE = 'aethra_sid';
 const IDLE_MS = 60 * 60 * 1000;
@@ -24,13 +25,100 @@ function verifyPassword(password, stored) {
 
 function setPassword(password) {
 	if (typeof password !== 'string' || password.length < 12) throw new Error('Use at least 12 characters.');
-	store.writeJson('admin.json', { hash: hashPassword(password), updated: new Date().toISOString() });
+	const admin = store.readJson('admin.json', {}) || {};
+	store.writeJson('admin.json', { ...admin, hash: hashPassword(password), updated: new Date().toISOString() }); // keeps the two-step settings
 }
 
 function checkPassword(password) {
 	const admin = store.readJson('admin.json', null);
 	return verifyPassword(password, admin && admin.hash) && !!admin;
 }
+
+/* Two-step verification. The authenticator secret is stored encrypted with the server's secret.key. */
+const seal = (text) => {
+	const key = crypto.createHash('sha256').update(`totp:${store.getSecret()}`).digest();
+	const iv = crypto.randomBytes(12);
+	const c = crypto.createCipheriv('aes-256-gcm', key, iv);
+	const ct = Buffer.concat([c.update(text, 'utf8'), c.final()]);
+	return Buffer.concat([iv, c.getAuthTag(), ct]).toString('base64');
+};
+const unseal = (b64) => {
+	const raw = Buffer.from(String(b64), 'base64');
+	const key = crypto.createHash('sha256').update(`totp:${store.getSecret()}`).digest();
+	const d = crypto.createDecipheriv('aes-256-gcm', key, raw.subarray(0, 12));
+	d.setAuthTag(raw.subarray(12, 28));
+	return Buffer.concat([d.update(raw.subarray(28)), d.final()]).toString('utf8');
+};
+const readAdmin = () => store.readJson('admin.json', {}) || {};
+const saveTotp = (t) => { const a = readAdmin(); if (t) a.totp = t; else delete a.totp; store.writeJson('admin.json', a); };
+const hashRecovery = (code) => crypto.createHash('sha256').update(String(code).toLowerCase().replace(/[^a-z0-9]/g, '')).digest('hex');
+
+const twoFactorEnabled = () => !!(readAdmin().totp && readAdmin().totp.secret);
+
+/** Starts setup: a fresh secret that only counts once the user proves it works with a code. */
+function beginTwoFactor() {
+	const secret = totp.newSecret();
+	saveTotp({ pending: seal(secret) });
+	return { secret, uri: totp.uri(secret, 'admin', 'Aethra') };
+}
+
+function pendingTwoFactor() {
+	const t = readAdmin().totp;
+	if (!t || !t.pending) return null;
+	const secret = unseal(t.pending);
+	return { secret, uri: totp.uri(secret, 'admin', 'Aethra') };
+}
+
+/** Returns 8 one-time recovery codes (shown once) or null when the code is wrong. */
+function confirmTwoFactor(code) {
+	const t = readAdmin().totp;
+	if (!t || !t.pending) return null;
+	const secret = unseal(t.pending);
+	const step = totp.verify(secret, code);
+	if (step === null) return null;
+	const L = 'abcdefghjkmnpqrstuvwxyz'; // letters only, so a recovery code can never be mistaken for a 6-digit app code
+	const codes = Array.from({ length: 8 }, () => { const r = Array.from(crypto.randomBytes(10), (b) => L[b % L.length]).join(''); return `${r.slice(0, 5)}-${r.slice(5)}`; });
+	saveTotp({ secret: seal(secret), lastStep: step, recovery: codes.map(hashRecovery) });
+	return codes;
+}
+
+/** Accepts a 6-digit app code (once per time step) or an unused recovery code. */
+function verifySecondFactor(input) {
+	const t = readAdmin().totp;
+	if (!t || !t.secret) return false;
+	const text = String(input || '').trim();
+	if (/^\d[\d\s]*$/.test(text)) {
+		const step = totp.verify(unseal(t.secret), text);
+		if (step === null || step <= (t.lastStep || 0)) return false;
+		saveTotp({ ...t, lastStep: step });
+		return true;
+	}
+	const h = hashRecovery(text);
+	const left = (t.recovery || []).filter((r) => !safeEqual(r, h));
+	if (left.length === (t.recovery || []).length) return false;
+	saveTotp({ ...t, recovery: left });
+	return true;
+}
+
+const recoveryLeft = () => ((readAdmin().totp || {}).recovery || []).length;
+const disableTwoFactor = () => saveTotp(null);
+
+/* Short-lived ticket between the password step and the code step. */
+const tickets = new Map();
+function createTicket() {
+	const id = crypto.randomBytes(24).toString('hex');
+	tickets.set(id, { expires: Date.now() + 5 * 60 * 1000, tries: 0 });
+	while (tickets.size > 50) tickets.delete(tickets.keys().next().value);
+	return id;
+}
+/** 'ok' while the ticket is valid and under 5 wrong tries; counts the attempt. */
+function useTicket(id) {
+	const t = tickets.get(id);
+	if (!t || t.expires < Date.now() || t.tries >= 5) { tickets.delete(id); return false; }
+	t.tries += 1;
+	return true;
+}
+const endTicket = (id) => tickets.delete(id);
 
 function hasAdmin() {
 	return !!store.readJson('admin.json', null);
@@ -114,4 +202,4 @@ function inspectFormToken(token) {
 
 const checkFormToken = (token) => inspectFormToken(token) === 'ok';
 
-module.exports = { COOKIE, hashPassword, verifyPassword, setPassword, checkPassword, hasAdmin, parseCookies, createSession, getSession, destroySession, destroyOtherSessions, cookieHeader, safeEqual, formToken, inspectFormToken, checkFormToken };
+module.exports = { twoFactorEnabled, beginTwoFactor, pendingTwoFactor, confirmTwoFactor, verifySecondFactor, recoveryLeft, disableTwoFactor, createTicket, useTicket, endTicket, COOKIE, hashPassword, verifyPassword, setPassword, checkPassword, hasAdmin, parseCookies, createSession, getSession, destroySession, destroyOtherSessions, cookieHeader, safeEqual, formToken, inspectFormToken, checkFormToken };
