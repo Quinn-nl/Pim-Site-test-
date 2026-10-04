@@ -44,7 +44,7 @@ const AUDIENCES = [
 			[['Les conducteurs doivent-ils faire quelque chose ?', 'L’objectif est que non : les véhicules passent automatiquement en mode éco dans les zones concernées.'], ['Quels véhicules seront pris en charge ?', 'Cela sera défini pendant la phase de prototype. Parlez-nous de votre flotte, nous en tiendrons compte.']]),
 	}),
 	A('manufacturers', 'Vehicle manufacturer', 'factory', {
-		en: T('Vehicle manufacturers', 'For vehicle manufacturers: eco-mode AI', 'An extra layer of intelligence for vehicle control systems',
+		en: T('Vehicle manufacturers', 'For vehicle manufacturers: AI for eco mode', 'An extra layer of intelligence for vehicle control systems',
 			'Aethra explores how location-aware AI can help decide when a vehicle should switch to an eco mode.',
 			['Designed to complement existing vehicle control systems.', 'Uses CubeSats and AI; details are shared in conversation.', 'Prototype phase: open to technical and strategic discussions.'],
 			[['How does it work technically?', 'We do not publish technical details yet. We are happy to discuss integration questions in a conversation.'], ['Is the technology protected?', 'We do not comment on intellectual property publicly.']]),
