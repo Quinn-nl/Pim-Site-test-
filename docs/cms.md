@@ -36,3 +36,7 @@ Open `http://localhost:3000/admin2`. The first account created is always an admi
 - Photos: those uploaded in the CMS replace the ones from `/admin` while the CMS is the source.
 - Run behind HTTPS in production (set `SITE_URL`).
 - Dev mode (`npm run cms`) can be slow on the first page load; the production build is fast.
+
+## Database tables
+
+Tables come from the migrations in `aethra-site/payload/src/migrations`, which run automatically on start (also with `cms:start`). After changing a collection or field, create a new migration: `npm run payload -- migrate:create naam` (inside `aethra-site/payload`) and commit it.

@@ -1,4 +1,5 @@
 import { sqliteAdapter } from '@payloadcms/db-sqlite'
+import { migrations } from './migrations'
 import {
   BlockquoteFeature,
   BoldFeature,
@@ -55,7 +56,8 @@ export default buildConfig({
   }),
   secret: process.env.PAYLOAD_SECRET || '',
   typescript: { outputFile: path.resolve(dirname, 'payload-types.ts') },
-  db: sqliteAdapter({ client: { url: process.env.DATABASE_URL || 'file:./data/payload.db' } }),
+  // Tables are created by the migrations in src/migrations (run automatically on start, also in production)
+  db: sqliteAdapter({ prodMigrations: migrations, client: { url: process.env.DATABASE_URL || 'file:./data/payload.db' } }),
   sharp,
   localization: { locales: ['en', 'nl', 'de', 'fr'], defaultLocale: 'en', fallback: false },
   i18n: { fallbackLanguage: 'en', supportedLanguages: { en, nl, de, fr } },
