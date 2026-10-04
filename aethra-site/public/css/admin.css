@@ -67,3 +67,7 @@ input[type=file] { max-width: 100%; }
 .codes code, .key { font-size: 1.0625rem; letter-spacing: .06em; }
 .key { display: block; margin: .5rem 0; user-select: all; }
 .ok-text { color: var(--ok, #1b6b3a); font-weight: 600; }
+
+.qr-wrap { margin: .75rem 0; line-height: 0; }
+.qr { width: min(224px, 100%); height: auto; border: 1px solid var(--line, #c9d3e0); border-radius: 8px; }
+.alt summary { cursor: pointer; font-weight: 600; }

@@ -528,6 +528,9 @@ test('two-step verification: setup, login needs a code, replay and recovery code
 	const setup = auth.pendingTwoFactor();
 	assert.ok(setup && /^[A-Z2-7]{32}$/.test(setup.secret));
 	assert.ok(!fs.readFileSync(path.join(process.env.DATA_DIR, 'admin.json'), 'utf8').includes(setup.secret), 'secret is stored encrypted');
+	const setupHtml = await (await fetch(base + '/admin/account', { headers: { cookie } })).text();
+	assert.match(setupHtml, /<svg class="qr"[\s\S]*?<path d="M/);
+	assert.ok(!/<svg[^>]*style=/.test(setupHtml), 'no inline styles (CSP)');
 	const wrong = await post('/admin/2fa/confirm', { csrf, code: '000000' });
 	assert.equal(wrong.status, 400);
 	assert.ok(!auth.twoFactorEnabled());

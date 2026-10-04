@@ -64,4 +64,4 @@ Scrypt password hash, rate-limited login, 8 h sessions with HttpOnly/SameSite=St
 
 ## Two-step verification
 
-Admin > Account > Two-step verification > Set up. Add the key to any authenticator app (time-based, 6 digits), enter the code, and save the 8 one-time recovery codes. After that, logging in needs the password and a code. The authenticator secret is stored encrypted (AES-256-GCM, key derived from `data/secret.key`), a code can be used once, and five wrong tries end the login step. Keep `data/` in your backups: without `secret.key` the stored secret cannot be read (run `npm run reset-2fa` and set it up again).
+Admin > Account > Two-step verification > Set up. Scan the QR code with any authenticator app (or type the key it shows under "Cannot scan it?"), enter the code, and save the 8 one-time recovery codes. After that, logging in needs the password and a code. The authenticator secret is stored encrypted (AES-256-GCM, key derived from `data/secret.key`), a code can be used once, and five wrong tries end the login step. Keep `data/` in your backups: without `secret.key` the stored secret cannot be read (run `npm run reset-2fa` and set it up again).
