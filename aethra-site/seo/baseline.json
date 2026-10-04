@@ -9,7 +9,7 @@
       "robots": "index, follow, max-image-preview:large",
       "ld": "Organization,WebSite",
       "words": 169,
-      "hash": "51ba56f3ced5b2e7"
+      "hash": "5442cce404c07459"
     },
     "/en/problem": {
       "title": "Air pollution where traffic is heaviest | Aethra",
@@ -19,7 +19,7 @@
       "robots": "index, follow, max-image-preview:large",
       "ld": "BreadcrumbList",
       "words": 110,
-      "hash": "eb158f5512fafe76"
+      "hash": "20fce13e1da9e92a"
     },
     "/en/how-it-works": {
       "title": "How it works: detect, decide, switch | Aethra",
@@ -29,7 +29,7 @@
       "robots": "index, follow, max-image-preview:large",
       "ld": "BreadcrumbList",
       "words": 93,
-      "hash": "ca02543c71a53981"
+      "hash": "5f34f6cfd21fad4f"
     },
     "/en/applications": {
       "title": "Applications for cities, fleets and OEMs | Aethra",
@@ -39,7 +39,7 @@
       "robots": "index, follow, max-image-preview:large",
       "ld": "BreadcrumbList",
       "words": 102,
-      "hash": "83da02c644a509b9"
+      "hash": "250fec845f5f4d68"
     },
     "/en/contact": {
       "title": "Contact us | Aethra",
@@ -49,7 +49,7 @@
       "robots": "index, follow, max-image-preview:large",
       "ld": "",
       "words": 80,
-      "hash": "b8686ccdb7ec741c"
+      "hash": "2e6e30df10d7b448"
     },
     "/en/privacy": {
       "title": "Privacy statement | Aethra",
@@ -59,7 +59,7 @@
       "robots": "index, follow, max-image-preview:large",
       "ld": "",
       "words": 195,
-      "hash": "9f7dbbebc37b7bdd"
+      "hash": "c69fa7b80f34e6e3"
     },
     "/en/for/municipalities": {
       "title": "For municipalities: cleaner air in hotspots | Aethra",
@@ -69,7 +69,7 @@
       "robots": "index, follow, max-image-preview:large",
       "ld": "BreadcrumbList,FAQPage",
       "words": 141,
-      "hash": "72515dff7bc67d93"
+      "hash": "788d4213f158d54f"
     },
     "/en/for/fleets": {
       "title": "For fleet operators: automatic eco mode | Aethra",
@@ -79,7 +79,7 @@
       "robots": "index, follow, max-image-preview:large",
       "ld": "BreadcrumbList,FAQPage",
       "words": 145,
-      "hash": "9acfdaddd344aa28"
+      "hash": "a9f4db0665157479"
     },
     "/en/for/manufacturers": {
       "title": "For vehicle manufacturers: AI for eco mode | Aethra",
@@ -89,7 +89,7 @@
       "robots": "index, follow, max-image-preview:large",
       "ld": "BreadcrumbList,FAQPage",
       "words": 132,
-      "hash": "0549fc161b4d89c3"
+      "hash": "fe9d8dd187eb6bd8"
     },
     "/en/for/platforms": {
       "title": "For mobility platforms: cleaner trips | Aethra",
@@ -99,7 +99,7 @@
       "robots": "index, follow, max-image-preview:large",
       "ld": "BreadcrumbList,FAQPage",
       "words": 132,
-      "hash": "d4132310de7437bb"
+      "hash": "62b225add1001d88"
     },
     "/en/for/investors": {
       "title": "For investors: air-quality tech at prototype stage | Aethra",
@@ -109,7 +109,7 @@
       "robots": "index, follow, max-image-preview:large",
       "ld": "BreadcrumbList,FAQPage",
       "words": 155,
-      "hash": "f18fdb47aee9cd93"
+      "hash": "5dce419e5e5f26e1"
     },
     "/nl/": {
       "title": "Aethra: CubeSats en AI voor schonere lucht in het verkeer",
@@ -119,7 +119,7 @@
       "robots": "index, follow, max-image-preview:large",
       "ld": "Organization,WebSite",
       "words": 161,
-      "hash": "31c29b18238f01f9"
+      "hash": "ef4a7a8f80a7afcf"
     },
     "/nl/problem": {
       "title": "Luchtvervuiling waar het verkeer het drukst is | Aethra",
@@ -129,7 +129,7 @@
       "robots": "index, follow, max-image-preview:large",
       "ld": "BreadcrumbList",
       "words": 101,
-      "hash": "92173fcd48149695"
+      "hash": "3d4950f6488f9428"
     },
     "/nl/how-it-works": {
       "title": "Hoe het werkt: detecteren, bepalen, schakelen | Aethra",
@@ -139,7 +139,7 @@
       "robots": "index, follow, max-image-preview:large",
       "ld": "BreadcrumbList",
       "words": 92,
-      "hash": "ba686d8df00cc7ac"
+      "hash": "97589ef272a057fd"
     },
     "/nl/applications": {
       "title": "Toepassingen voor gemeenten en wagenparken | Aethra",
@@ -149,7 +149,7 @@
       "robots": "index, follow, max-image-preview:large",
       "ld": "BreadcrumbList",
       "words": 95,
-      "hash": "3c0b794a4f074c42"
+      "hash": "367551468edbdb71"
     },
     "/nl/contact": {
       "title": "Contact opnemen | Aethra",
@@ -159,7 +159,7 @@
       "robots": "index, follow, max-image-preview:large",
       "ld": "",
       "words": 77,
-      "hash": "226527bde30974bd"
+      "hash": "c949caa17d1257f6"
     },
     "/nl/privacy": {
       "title": "Privacyverklaring | Aethra",
@@ -169,7 +169,7 @@
       "robots": "index, follow, max-image-preview:large",
       "ld": "",
       "words": 192,
-      "hash": "39639c65f86c26a9"
+      "hash": "f2fd54d9a87dc45b"
     },
     "/nl/for/municipalities": {
       "title": "Voor gemeenten: schonere lucht op hotspots | Aethra",
@@ -179,7 +179,7 @@
       "robots": "index, follow, max-image-preview:large",
       "ld": "BreadcrumbList,FAQPage",
       "words": 147,
-      "hash": "830a20c5ac93c96e"
+      "hash": "fa2b05b8c6f86d39"
     },
     "/nl/for/fleets": {
       "title": "Voor wagenparken: automatische ecomodus | Aethra",
@@ -189,7 +189,7 @@
       "robots": "index, follow, max-image-preview:large",
       "ld": "BreadcrumbList,FAQPage",
       "words": 130,
-      "hash": "09567ffd3baa21f5"
+      "hash": "c212942852a47741"
     },
     "/nl/for/manufacturers": {
       "title": "Voor fabrikanten: AI voor ecomodus | Aethra",
@@ -199,7 +199,7 @@
       "robots": "index, follow, max-image-preview:large",
       "ld": "BreadcrumbList,FAQPage",
       "words": 123,
-      "hash": "a0ce6fa1e3447343"
+      "hash": "21c92ae3ce06a2a0"
     },
     "/nl/for/platforms": {
       "title": "Voor mobiliteitsplatforms: schonere ritten | Aethra",
@@ -209,7 +209,7 @@
       "robots": "index, follow, max-image-preview:large",
       "ld": "BreadcrumbList,FAQPage",
       "words": 130,
-      "hash": "d8a3a06db2c41bc4"
+      "hash": "f74eacd3e4e54a55"
     },
     "/nl/for/investors": {
       "title": "Voor investeerders: prototypefase | Aethra",
@@ -219,7 +219,7 @@
       "robots": "index, follow, max-image-preview:large",
       "ld": "BreadcrumbList,FAQPage",
       "words": 142,
-      "hash": "6a2944084114043d"
+      "hash": "b6f6fb31c98f3ae6"
     },
     "/de/": {
       "title": "Aethra: CubeSats und KI für sauberere Luft im Verkehr",
@@ -229,7 +229,7 @@
       "robots": "index, follow, max-image-preview:large",
       "ld": "Organization,WebSite",
       "words": 161,
-      "hash": "14c8fefcd931384b"
+      "hash": "149f8e5ca8c1bb79"
     },
     "/de/problem": {
       "title": "Luftverschmutzung, wo der Verkehr am dichtesten ist | Aethra",
@@ -239,7 +239,7 @@
       "robots": "index, follow, max-image-preview:large",
       "ld": "BreadcrumbList",
       "words": 98,
-      "hash": "12e0ab7c7fab87ad"
+      "hash": "c0422a722355dc86"
     },
     "/de/how-it-works": {
       "title": "So funktioniert es: erkennen, entscheiden, schalten | Aethra",
@@ -249,7 +249,7 @@
       "robots": "index, follow, max-image-preview:large",
       "ld": "BreadcrumbList",
       "words": 92,
-      "hash": "5ca3db402df2f0ec"
+      "hash": "36b21f7a6a8bdca9"
     },
     "/de/applications": {
       "title": "Anwendungen für Kommunen und Flotten | Aethra",
@@ -259,7 +259,7 @@
       "robots": "index, follow, max-image-preview:large",
       "ld": "BreadcrumbList",
       "words": 96,
-      "hash": "b4c99aa68ac4b4e5"
+      "hash": "2d6e55be823e4ae9"
     },
     "/de/contact": {
       "title": "Kontakt aufnehmen | Aethra",
@@ -269,7 +269,7 @@
       "robots": "index, follow, max-image-preview:large",
       "ld": "",
       "words": 78,
-      "hash": "c64482750165682c"
+      "hash": "bc19eaf1646c196e"
     },
     "/de/privacy": {
       "title": "Datenschutzerklärung | Aethra",
@@ -279,7 +279,7 @@
       "robots": "index, follow, max-image-preview:large",
       "ld": "",
       "words": 175,
-      "hash": "7c8c577b203d4c49"
+      "hash": "37b713e86ced811c"
     },
     "/de/for/municipalities": {
       "title": "Für Kommunen: saubere Luft an Hotspots | Aethra",
@@ -289,7 +289,7 @@
       "robots": "index, follow, max-image-preview:large",
       "ld": "BreadcrumbList,FAQPage",
       "words": 139,
-      "hash": "07dbe4e12d0531b2"
+      "hash": "6c0a1c5632f7978b"
     },
     "/de/for/fleets": {
       "title": "Für Flotten: automatischer Eco-Modus | Aethra",
@@ -299,7 +299,7 @@
       "robots": "index, follow, max-image-preview:large",
       "ld": "BreadcrumbList,FAQPage",
       "words": 126,
-      "hash": "50c3640b6beebe13"
+      "hash": "8c346a005c6bd335"
     },
     "/de/for/manufacturers": {
       "title": "Für Hersteller: KI für den Eco-Modus | Aethra",
@@ -309,7 +309,7 @@
       "robots": "index, follow, max-image-preview:large",
       "ld": "BreadcrumbList,FAQPage",
       "words": 111,
-      "hash": "a0413fbfea027c7c"
+      "hash": "72bfeea0ff6d36cc"
     },
     "/de/for/platforms": {
       "title": "Für Mobilitätsplattformen: sauberere Fahrten | Aethra",
@@ -319,7 +319,7 @@
       "robots": "index, follow, max-image-preview:large",
       "ld": "BreadcrumbList,FAQPage",
       "words": 129,
-      "hash": "22147b1b08eb23c6"
+      "hash": "6b08fba5fe2b209f"
     },
     "/de/for/investors": {
       "title": "Für Investoren: Prototypphase | Aethra",
@@ -329,7 +329,7 @@
       "robots": "index, follow, max-image-preview:large",
       "ld": "BreadcrumbList,FAQPage",
       "words": 141,
-      "hash": "062e864e1b5e0aed"
+      "hash": "d1df64b21354b426"
     },
     "/fr/": {
       "title": "Aethra : CubeSats et IA pour un air plus propre en ville",
@@ -339,7 +339,7 @@
       "robots": "index, follow, max-image-preview:large",
       "ld": "Organization,WebSite",
       "words": 202,
-      "hash": "109bd35887dcd9a8"
+      "hash": "b021f605116f7159"
     },
     "/fr/problem": {
       "title": "Pollution de l’air là où le trafic est dense | Aethra",
@@ -349,7 +349,7 @@
       "robots": "index, follow, max-image-preview:large",
       "ld": "BreadcrumbList",
       "words": 130,
-      "hash": "bb4700a9de22da7c"
+      "hash": "e45e2bdbfb724ed2"
     },
     "/fr/how-it-works": {
       "title": "Comment ça marche : détecter, décider, basculer | Aethra",
@@ -359,7 +359,7 @@
       "robots": "index, follow, max-image-preview:large",
       "ld": "BreadcrumbList",
       "words": 108,
-      "hash": "3a097bbe25637770"
+      "hash": "c381f5ce486c80bb"
     },
     "/fr/applications": {
       "title": "Applications pour communes et flottes | Aethra",
@@ -369,7 +369,7 @@
       "robots": "index, follow, max-image-preview:large",
       "ld": "BreadcrumbList",
       "words": 109,
-      "hash": "9ffa8871678faf3c"
+      "hash": "bbd79f0c0d935526"
     },
     "/fr/contact": {
       "title": "Nous contacter | Aethra",
@@ -379,7 +379,7 @@
       "robots": "index, follow, max-image-preview:large",
       "ld": "",
       "words": 83,
-      "hash": "2d5c7ae747960963"
+      "hash": "9bd91333183c6e58"
     },
     "/fr/privacy": {
       "title": "Politique de confidentialité | Aethra",
@@ -389,7 +389,7 @@
       "robots": "index, follow, max-image-preview:large",
       "ld": "",
       "words": 214,
-      "hash": "329f63ce38613d46"
+      "hash": "3ad57532b6a97dd8"
     },
     "/fr/for/municipalities": {
       "title": "Pour les communes : un air plus propre | Aethra",
@@ -399,7 +399,7 @@
       "robots": "index, follow, max-image-preview:large",
       "ld": "BreadcrumbList,FAQPage",
       "words": 181,
-      "hash": "8449b8111d763174"
+      "hash": "db77b55effdb0bbc"
     },
     "/fr/for/fleets": {
       "title": "Pour les flottes : mode éco automatique | Aethra",
@@ -409,7 +409,7 @@
       "robots": "index, follow, max-image-preview:large",
       "ld": "BreadcrumbList,FAQPage",
       "words": 163,
-      "hash": "2f84d09390715643"
+      "hash": "dc1372925ef6ea64"
     },
     "/fr/for/manufacturers": {
       "title": "Pour les constructeurs : IA du mode éco | Aethra",
@@ -419,7 +419,7 @@
       "robots": "index, follow, max-image-preview:large",
       "ld": "BreadcrumbList,FAQPage",
       "words": 159,
-      "hash": "2d89a560f08ce3fd"
+      "hash": "520daf317dc32422"
     },
     "/fr/for/platforms": {
       "title": "Pour les plateformes : trajets plus propres | Aethra",
@@ -429,7 +429,7 @@
       "robots": "index, follow, max-image-preview:large",
       "ld": "BreadcrumbList,FAQPage",
       "words": 162,
-      "hash": "2efbdc28291997f0"
+      "hash": "e7945129dd8c480c"
     },
     "/fr/for/investors": {
       "title": "Pour les investisseurs : phase de prototype | Aethra",
@@ -439,7 +439,7 @@
       "robots": "index, follow, max-image-preview:large",
       "ld": "BreadcrumbList,FAQPage",
       "words": 180,
-      "hash": "197ca76ecd6ed87c"
+      "hash": "0a761138b988b88d"
     },
     "__meta": {
       "pages": 44,

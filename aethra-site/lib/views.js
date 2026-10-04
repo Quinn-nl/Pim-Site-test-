@@ -77,10 +77,12 @@ ${desc ? `<meta property="og:description" content="${esc(desc)}">` : ''}
 <meta property="og:locale" content="${OG_LOCALE[lang]}">
 ${LANGS.filter((l) => l !== lang).map((l) => `<meta property="og:locale:alternate" content="${OG_LOCALE[l]}">`).join('\n')}
 <meta property="og:image" content="${esc(social)}">
+<meta property="og:image:alt" content="${esc(v.site_name)}: ${esc(v.hero_title)}">
 ${socialSize ? `<meta property="og:image:width" content="${socialSize[0]}">
 <meta property="og:image:height" content="${socialSize[1]}">
 ` : ''}<meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:image" content="${esc(social)}">
+<meta name="twitter:image:alt" content="${esc(v.site_name)}: ${esc(v.hero_title)}">
 <meta name="color-scheme" content="light">
 <meta name="theme-color" content="#f7f9fc">
 <link rel="icon" href="/img/favicon.svg" type="image/svg+xml">
@@ -221,7 +223,7 @@ ${ctaBand(lang, v)}
 </main>`;
 	const home = siteUrl + url(lang);
 	const graph = { '@context': 'https://schema.org', '@graph': [
-		{ '@type': 'Organization', '@id': `${siteUrl}/#organization`, name: v.site_name, url: home, description: v.meta_description },
+		{ '@type': 'Organization', '@id': `${siteUrl}/#organization`, name: v.site_name, url: home, description: v.meta_description, logo: `${siteUrl}/img/logo-mark.svg`, ...(v.linkedin_url ? { sameAs: [v.linkedin_url] } : {}) },
 		{ '@type': 'WebSite', '@id': `${siteUrl}/#website`, name: v.site_name, url: home, inLanguage: lang, publisher: { '@id': `${siteUrl}/#organization` } },
 	] };
 	return layout({ lang, page: '/', title: v.seo_home, description: v.meta_description, body, v, siteUrl, images, graph });

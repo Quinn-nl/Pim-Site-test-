@@ -1,0 +1,48 @@
+{
+  "summary": {
+    "health_score": 87,
+    "business_type": "B2B startup, informational site (not local, not e-commerce)",
+    "top_findings": [
+      "Technical SEO clean on 44 pages",
+      "AI crawler policy undecided",
+      "No trust signals (people, company details)",
+      "Three hub pages ~100 words"
+    ],
+    "quick_wins": [
+      "Privacy meta description (done)",
+      "Organization logo/sameAs (done)",
+      "og:image:alt (done)"
+    ]
+  },
+  "categories": [
+    {
+      "name": "Technical SEO",
+      "score": 95
+    },
+    {
+      "name": "Content Quality",
+      "score": 80
+    },
+    {
+      "name": "On-Page SEO",
+      "score": 92
+    },
+    {
+      "name": "Schema",
+      "score": 85
+    },
+    {
+      "name": "Performance (CWV)",
+      "score": 99
+    },
+    {
+      "name": "AI Search Readiness",
+      "score": 78
+    },
+    {
+      "name": "Images",
+      "score": 70
+    }
+  ],
+  "note": "Heuristic scores; local build, no field data."
+}

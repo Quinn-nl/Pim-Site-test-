@@ -73,6 +73,7 @@ const GROUPS = [
 		F('contact_title', 'Title', 'text', 'Let us talk'),
 		F('contact_text', 'Text', 'textarea', 'City, fleet, manufacturer, platform or investor: send us a message and we will reply.'),
 		F('contact_reply', 'Reply expectation', 'text', 'We usually reply within two working days.'),
+		F('linkedin_url', 'LinkedIn company page (link, optional; helps search engines recognise the company)', 'url', ''),
 	]),
 	...audienceFields(),
 ];
