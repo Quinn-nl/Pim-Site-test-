@@ -14,7 +14,7 @@ const OG_LOCALE = { en: 'en_GB', nl: 'nl_NL', de: 'de_DE', fr: 'fr_FR' };
 
 const UI = {
 	en: {
-		faq_title: 'Frequently asked questions',
+		faq_title: 'Frequently asked questions', illustration: 'Illustration',
 		learn_more: 'Learn more',
 		aud_other: 'Other audiences',
 		aud_for: 'For',
@@ -53,7 +53,7 @@ const UI = {
 		n_limit: 'Too many messages from your network. Your text is still here, please try again later.',
 	},
 	nl: {
-		faq_title: 'Veelgestelde vragen',
+		faq_title: 'Veelgestelde vragen', illustration: 'Illustratie',
 		learn_more: 'Meer informatie',
 		aud_other: 'Andere doelgroepen',
 		aud_for: 'Voor',
@@ -92,7 +92,7 @@ const UI = {
 		n_limit: 'Te veel berichten vanaf uw netwerk. Uw tekst staat er nog, probeer het later opnieuw.',
 	},
 	de: {
-		faq_title: 'Häufig gestellte Fragen',
+		faq_title: 'Häufig gestellte Fragen', illustration: 'Illustration',
 		learn_more: 'Mehr erfahren',
 		aud_other: 'Weitere Zielgruppen',
 		aud_for: 'Für',
@@ -131,7 +131,7 @@ const UI = {
 		n_limit: 'Zu viele Nachrichten aus Ihrem Netzwerk. Ihr Text ist noch da, bitte versuchen Sie es später erneut.',
 	},
 	fr: {
-		faq_title: 'Questions fréquentes',
+		faq_title: 'Questions fréquentes', illustration: 'Illustration',
 		learn_more: 'En savoir plus',
 		aud_other: 'Autres publics',
 		aud_for: 'Pour',

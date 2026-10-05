@@ -1,17 +1,17 @@
 # Aethra website
 
-Five short pages (Home, The problem, How it works, Applications, Contact) plus a privacy page, in English, Dutch, German and French, with a built-in admin panel at `/admin`.
-Node.js 20+ only: no npm packages, no database, no external requests (fonts, scripts and analytics are all local).
+Five short pages (Home, The problem, How it works, Applications, Contact), five audience pages and a privacy page, in English, Dutch, German and French, with its own CMS at `/admin` (pages, templates, live preview, media, messages, users).
+Node.js 22.13+ only: no npm packages (SQLite is built into Node), no external requests (fonts, scripts and analytics are all local). The CMS is documented in [docs/cms.md](../docs/cms.md).
 
 ## Start
 ```bash
 cd aethra-site
-npm run set-password      # once: choose an admin password of at least 12 characters
-npm run reset-2fa          # only if the phone and recovery codes are lost: turns two-step verification off
-npm start                 # http://127.0.0.1:3000   (PORT / HOST can be set)
-npm test                  # 22 tests: security, languages, SEO, form, upload, admin
+npm run user:create -- --email=jij@voorbeeld.nl --naam="Jouw naam"   # once: the first account (an administrator), asks for a password
+npm run user:reset-2fa -- --email=jij@voorbeeld.nl                    # only if the phone and recovery codes are lost
+npm start                 # http://127.0.0.1:3000   (PORT / HOST can be set); the CMS is at /admin
+npm test                  # security, languages, SEO, form, templates, pages, media, mail queue, edit locks, admin
 ```
-Data (texts, photos, messages, password hash) lives in `aethra-site/data/` (git-ignored; set `DATA_DIR` to move it). **Back this folder up.**
+Everything editable lives in one SQLite database, `aethra-site/data/aethra.db` (git-ignored; set `DATA_DIR` to move it), plus the photos in `data/uploads`. Data from the old JSON-based admin is imported automatically on the first start. **Back this folder up** (`npm run backup`).
 
 ## Languages and SEO
 - Visitors are sent to `/en/`, `/nl/`, `/de/` or `/fr/` based on their browser language (a language they pick is remembered in one functional cookie; unknown languages get English). Every language has its own URL.
@@ -32,12 +32,8 @@ Start with `DEV_TOGGLE=1` (ignored when `NODE_ENV=production`): a small switch a
 ## Conversion
 Every page ends in one call to action; segment cards link to the contact form with the right role preselected; the form asks for the minimum, says when you will reply (editable) and what happens with the details; a fixed contact button appears on phones. No analytics are installed on purpose: the admin inbox shows each message with its role and language.
 
-## Admin panel (`/admin`)
-- **Content:** every text, per language (tabs), grouped by section.
-- **Photos:** upload to the hero, problem or status section (JPG/PNG/WebP, max 5 MB). Sections show fine without photos.
-- **Privacy statement:** editable text for `/privacy`, per language (a draft with [brackets] is pre-filled; complete and have it reviewed).
-- **Messages:** contact-form inbox with delete; messages are deleted automatically after `RETENTION_DAYS` (default 365).
-- **Account:** change password.
+## The CMS (`/admin`)
+Dutch interface, own accounts with roles (beheerder, editor, lezer), two-step verification. Pages and texts are edited with all four languages side by side and a live preview; new pages are made from seven templates; photos need a description and a rights type; messages have a status, notes and a privacy-request tool; every change is versioned and logged. See [docs/cms.md](../docs/cms.md).
 
 ## Getting messages by e-mail
 Set these environment variables and every new message is also e-mailed to your team (it always stays in the admin inbox too):
@@ -46,19 +42,15 @@ Set these environment variables and every new message is also e-mailed to your t
 ## Photos
 Uploads are checked by structure, location data (EXIF) and other metadata are removed automatically, and the size is stored so the page does not jump while loading. The hero photo is loaded first for speed. Use photos about 2000 px wide; a 1200 x 630 image in the "Social sharing image" slot is used when the site is shared. The photo itself is not resized, so compress large files before uploading.
 
-## CMS at `/admin2` (Payload, open source)
-
-A headless CMS for editing texts, pages and photos and reading contact messages. Setup and security: [docs/cms.md](../docs/cms.md). Quick start: `npm run cms:init -- --email=you@example.com`, `npm run cms`, `npm run cms:setup`, `npm run start:cms`.
-
 ## Back-ups
-`npm run backup` copies the data folder to `backups/<date-time>` and keeps the newest 14. Schedule it (cron) and also copy the folder off the server.
+`npm run backup` copies the data folder to `backups/<date-time>` (the database as a consistent snapshot, also while the site is running) and keeps the newest 14. Schedule it (cron) and also copy the folder off the server.
 
 ## Going live
 Run it behind an HTTPS reverse proxy (Caddy, nginx) and set:
 `INDEXNOW_KEY` (optional: serves the IndexNow key file; then `npm run indexnow` tells Bing and others about all URLs), `AI_TRAINING=allow` (optional: lets AI model-training crawlers read the site; by default they are blocked in robots.txt while search and answer bots stay allowed), `SITE_URL` (your public address), `NODE_ENV=production` (Secure cookies and HSTS), `TRUST_PROXY=1` (correct client IP for rate limits; the proxy must append the client address to `X-Forwarded-For`), optionally `SECURITY_CONTACT` (publishes `/.well-known/security.txt`), and keep a process manager (systemd/pm2) running `npm start`. Fonts (Exo 2, IBM Plex Sans and Mono, SIL Open Font License) are self-hosted in `public/fonts/`. Domain and hosting should be registered in the client's name. There is no outgoing mail: new messages appear in the admin inbox, so check it regularly (or ask for an email notification to be added with an SMTP provider).
 
 ## Security built in
-Scrypt password hash, rate-limited login, 8 h sessions with HttpOnly/SameSite=Strict cookies, CSRF tokens on every admin action, strict Content-Security-Policy (no inline scripts), output escaping, upload checked by file signature and stored under random names, signed form token + honeypot + per-IP limit on the contact form, path-traversal-safe static serving.
+Scrypt password hash per user, login lockout (15 minutes, 1 hour, 24 hours), 8 h sessions bound to browser and network with HttpOnly/SameSite=Strict cookies, CSRF tokens on every admin action, nonce-based Content-Security-Policy in the admin, append-only audit log, strict Content-Security-Policy (no inline scripts), output escaping, upload checked by file signature and stored under random names, signed form token + honeypot + per-IP limit on the contact form, path-traversal-safe static serving.
 
 ## Before launch (not handled by code)
 - Trademark check for the name (BOIP/EUIPO): a company called AETHRA exists in the same sector.
@@ -68,7 +60,7 @@ Scrypt password hash, rate-limited login, 8 h sessions with HttpOnly/SameSite=St
 
 ## Two-step verification
 
-Admin > Account > Two-step verification > Set up. Scan the QR code with any authenticator app (or type the key it shows under "Cannot scan it?"), enter the code, and save the 8 one-time recovery codes. After that, logging in needs the password and a code. The authenticator secret is stored encrypted (AES-256-GCM, key derived from `data/secret.key`), a code can be used once, and five wrong tries end the login step. Setting it up, turning it off and creating new recovery codes all ask for your password (and, except for setting up, a code). Keep `data/` in your backups: without `secret.key` the stored secret cannot be read (run `npm run reset-2fa` and set it up again).
+Admin > your name (Account) > Tweestapsverificatie > Instellen. Scan the QR code with any authenticator app (or type the key it shows under "Cannot scan it?"), enter the code, and save the 8 one-time recovery codes. After that, logging in needs the password and a code. The authenticator secret is stored encrypted (AES-256-GCM, key derived from `data/secret.key`), a code can be used once, and five wrong tries end the login step. Setting it up, turning it off and creating new recovery codes all ask for your password (and, except for setting up, a code). Keep `data/` in your backups: without `secret.key` the stored secret cannot be read (run `npm run reset-2fa` and set it up again).
 
 ## SEO checks
 

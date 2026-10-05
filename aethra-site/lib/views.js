@@ -152,7 +152,15 @@ function photo(images, slot, cls, { priority = false } = {}) {
 	if (!img) return '';
 	const size = img.w && img.h ? ` width="${Number(img.w)}" height="${Number(img.h)}"` : '';
 	const load = priority ? ' fetchpriority="high" decoding="async"' : ' loading="lazy" decoding="async"';
-	return `<img class="${cls}" src="${img.url ? esc(img.url) : '/uploads/' + esc(img.file)}" alt="${esc(img.alt || '')}"${size}${load}>`;
+	const src = img.url ? esc(img.url) : '/uploads/' + esc(img.file);
+	const tag = `<img class="${cls}" src="${src}" alt="${esc(img.alt || '')}"${size}${load}>`;
+	// Modern formats made by the upload pipeline (cwebp / avifenc), 1x and 2x; the original stays the fallback.
+	const by = (type) => (img.variants || []).filter((v) => v.type === type).sort((a, b) => a.d - b.d);
+	const sources = ['image/avif', 'image/webp'].map((type) => {
+		const list = by(type);
+		return list.length ? `<source type="${type}" srcset="${list.map((v) => `${esc(v.url)} ${v.d === 2 ? '2x' : '1x'}`).join(', ')}">` : '';
+	}).join('');
+	return sources ? `<picture>${sources}${tag}</picture>` : tag;
 }
 
 const pageHead = (kicker, title, lead) => `
@@ -451,73 +459,198 @@ ${ctaBand(lang, v)}
 }
 
 /** Small, safe Markdown subset for plain-text pages: ## and ### headings, - lists, **bold**, [text](https://link or /path). Everything is escaped first. */
-function mdToHtml(text) {
-	const inline = (raw) => esc(raw)
-		.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
-		.replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+|\/[^\s)]*)\)/g, (m, label, href) => `<a href="${href}" rel="noopener">${label}</a>`);
-	return String(text || '').replace(/\r/g, '').split(/\n{2,}/).map((b) => b.trim()).filter(Boolean).map((block) => {
-		const lines = block.split('\n');
-		if (lines.every((l) => /^[-*] /.test(l))) return `<ul>${lines.map((l) => `<li>${inline(l.slice(2))}</li>`).join('')}</ul>`;
-		if (/^### /.test(block)) return `<h3>${inline(block.slice(4).split('\n')[0])}</h3>${lines.length > 1 ? `<p>${inline(lines.slice(1).join(' '))}</p>` : ''}`;
-		if (/^## /.test(block)) return `<h2>${inline(block.slice(3).split('\n')[0])}</h2>${lines.length > 1 ? `<p>${inline(lines.slice(1).join(' '))}</p>` : ''}`;
-		return `<p>${inline(lines.join(' '))}</p>`;
-	}).join('\n');
-}
+/* ---- Pages made in the CMS: a template = an ordered list of sections. Every section is a pure function of its values. ---- */
+const { sanitizeHtml } = require('./cms/sanitize');
+const { safeHref } = require('./cms/sanitize');
 
-/**
- * Rich text written in the CMS (Lexical editor state) to safe HTML. Only the node types the editor is limited to are
- * rendered (paragraph, h2/h3, lists, quote, links, bold/italic); anything else is skipped and all text is escaped.
- */
-function lexicalToHtml(state) {
-	const safeHref = (u) => (/^(https?:\/\/|mailto:|\/(?!\/))/i.test(String(u || '').trim()) ? esc(String(u).trim()) : null);
-	const text = (n) => {
-		let t = esc(n.text || '');
-		if (n.format & 1) t = `<strong>${t}</strong>`;
-		if (n.format & 2) t = `<em>${t}</em>`;
-		return t;
-	};
-	const inline = (children) => (children || []).map((n) => {
-		if (!n) return '';
-		if (n.type === 'text') return text(n);
-		if (n.type === 'linebreak') return '<br>';
-		if (n.type === 'link' || n.type === 'autolink') {
-			const href = safeHref(n.fields && n.fields.url);
-			const inner = inline(n.children);
-			return href ? `<a href="${href}" rel="noopener">${inner}</a>` : inner;
-		}
-		return n.children ? inline(n.children) : '';
-	}).join('');
-	const block = (n) => {
-		if (!n) return '';
-		switch (n.type) {
-			case 'paragraph': { const h = inline(n.children); return h ? `<p>${h}</p>` : ''; }
-			case 'heading': return `<${n.tag === 'h2' ? 'h2' : 'h3'}>${inline(n.children)}</${n.tag === 'h2' ? 'h2' : 'h3'}>`;
-			case 'quote': return `<blockquote>${inline(n.children)}</blockquote>`;
-			case 'list': { const tag = n.listType === 'number' ? 'ol' : 'ul'; return `<${tag}>${(n.children || []).map((li) => `<li>${inline((li && li.children || []).filter((c) => c && c.type !== 'list'))}</li>`).join('')}</${tag}>`; }
-			default: return '';
-		}
-	};
-	const root = state && state.root;
-	return root && Array.isArray(root.children) ? root.children.map(block).filter(Boolean).join('\n') : '';
-}
+/** A link from the editor: addresses on this site get the language prefix. */
+const localHref = (lang, raw) => {
+	const h = safeHref(raw);
+	if (!h) return null;
+	if (/^\/(?!\/)/.test(h) && !/^\/[a-z]{2}(\/|$)/.test(h)) return link(lang, h);
+	return h;
+};
+const items = (values, max) => {
+	const out = [];
+	for (let n = 1; n <= max; n++) {
+		const row = {};
+		const prefix = `items.${n}.`;
+		for (const [k, val] of Object.entries(values)) if (k.startsWith(prefix)) row[k.slice(prefix.length)] = val;
+		if (Object.values(row).some((x) => String(x).trim())) out.push(row);
+	}
+	return out;
+};
+const heading = (id, text) => (text ? `<h2 id="${id}">${esc(text)}</h2>` : '');
+
+const SECTION_RENDER = {
+	hero: (s, c) => {
+		const v = s.values;
+		const href = v.cta_url ? localHref(c.lang, v.cta_url) : null;
+		return `
+<section class="hero" aria-labelledby="hero-title">
+	<div class="hero-sky" aria-hidden="true"></div>
+	<div class="wrap hero-inner">
+		${v.eyebrow ? `<p class="eyebrow">${esc(v.eyebrow)}</p>` : ''}
+		<h1 id="hero-title">${esc(v.title || c.page.title)}</h1>
+		${v.text ? `<p class="lead">${esc(v.text)}</p>` : ''}
+		${href && v.cta_label ? `<p class="hero-actions"><a class="btn btn-light" href="${esc(href)}">${esc(v.cta_label)}</a></p>` : ''}
+	</div>
+</section>`;
+	},
+	tekst: (s) => `
+<section class="section">
+	<div class="wrap prose page-body">
+${sanitizeHtml(s.values.body || '')}
+	</div>
+</section>`,
+	citaat: (s) => (s.values.quote ? `
+<section class="section">
+	<div class="wrap prose"><blockquote class="quote"><p>${esc(s.values.quote)}</p>${s.values.by ? `<footer>${esc(s.values.by)}</footer>` : ''}</blockquote></div>
+</section>` : ''),
+	foto: (s, c) => {
+		const img = s.values.media ? require('./cms/media').imageFor(s.values.media, c.lang) : null;
+		if (!img) return '';
+		return `
+<section class="section">
+	<div class="wrap"><figure class="figure">${photo({ x: img }, 'x', 'photo section-photo')}${s.values.caption || img.illustratie ? `<figcaption>${esc(s.values.caption || '')}${img.illustratie ? ` <span class="illustration">(${esc(c.t.illustration)})</span>` : ''}</figcaption>` : ''}</figure></div>
+</section>`;
+	},
+	feiten: (s, c) => {
+		const rows = items(s.values, 4).filter((f) => f.value || f.label);
+		if (!rows.length) return '';
+		const fig = (f) => `
+		<figure class="fact" data-reveal>
+			<p class="fact-value">${esc(f.value)}</p>
+			<figcaption>${esc(f.label)}
+				${f.source || f.url ? `<span class="source">${esc(c.t.source)}: ${f.url && localHref(c.lang, f.url) ? `<a href="${esc(localHref(c.lang, f.url))}" rel="noopener noreferrer" target="_blank">${esc(f.source || f.url)}</a>` : esc(f.source || '')}</span>` : ''}
+			</figcaption>
+		</figure>`;
+		return `
+<section class="section" aria-labelledby="${s.id}-t">
+	<div class="wrap">${heading(`${s.id}-t`, s.values.title)}
+		<div class="facts">${rows.map(fig).join('')}</div>
+	</div>
+</section>`;
+	},
+	stappen: (s) => {
+		const rows = items(s.values, 6).filter((r) => r.title || r.text);
+		if (!rows.length) return '';
+		return `
+<section class="section" aria-labelledby="${s.id}-t">
+	<div class="wrap">${heading(`${s.id}-t`, s.values.title)}
+		<ol class="steps">${rows.map((r, i) => `
+		<li class="step" data-reveal>${icon(STEP_ICONS[i % 3])}<span class="step-num" aria-hidden="true">0${i + 1}</span><h3>${esc(r.title)}</h3><p>${esc(r.text)}</p></li>`).join('')}
+		</ol>
+	</div>
+</section>`;
+	},
+	kaarten: (s, c) => {
+		const rows = items(s.values, 6).filter((r) => r.title || r.text);
+		if (!rows.length) return '';
+		return `
+<section class="section" aria-labelledby="${s.id}-t">
+	<div class="wrap">${heading(`${s.id}-t`, s.values.title)}
+		<div class="cards">${rows.map((r, i) => {
+			const href = r.url ? localHref(c.lang, r.url) : null;
+			return `
+		<article class="card" data-reveal>${icon(APP_ICONS[i % 4])}<h3>${esc(r.title)}</h3><p>${esc(r.text)}</p>${href ? `<p class="card-links"><a class="more" href="${esc(href)}">${esc(r.link_label || r.title)}</a></p>` : ''}</article>`;
+		}).join('')}
+		</div>
+	</div>
+</section>`;
+	},
+	punten: (s) => {
+		const rows = items(s.values, 8).filter((r) => r.text);
+		if (!rows.length) return '';
+		return `
+<section class="section" aria-labelledby="${s.id}-t">
+	<div class="wrap">${heading(`${s.id}-t`, s.values.title) || `<h2 id="${s.id}-t" class="sr">${esc(s.pageTitle)}</h2>`}
+		<ul class="points">${rows.map((r) => `<li data-reveal>${icon('check')}<p>${esc(r.text)}</p></li>`).join('')}</ul>
+	</div>
+</section>`;
+	},
+	faq: (s, c) => {
+		const rows = items(s.values, 10).filter((r) => r.q && r.a);
+		if (!rows.length) return '';
+		c.faq.push(...rows.map((r) => ({ q: r.q, a: r.a })));
+		return `
+<section class="section section-tint" aria-labelledby="${s.id}-t">
+	<div class="wrap narrow-form">
+		<h2 id="${s.id}-t">${esc(s.values.title || c.t.faq_title)}</h2>
+		<div class="faq">${rows.map((r) => `<details><summary>${esc(r.q)}</summary><p>${esc(r.a)}</p></details>`).join('')}</div>
+	</div>
+</section>`;
+	},
+	statusband: (s, c) => `
+<section class="section section-dark" aria-labelledby="${s.id}-t">
+	<div class="wrap status-grid">
+		<div>
+			<p class="kicker">${esc(c.t.k_status)}</p>
+			${heading(`${s.id}-t`, s.values.title)}
+			${s.values.text ? `<p class="section-lead">${esc(s.values.text)}</p>` : ''}
+			${s.values.note ? `<p class="status-note">${esc(s.values.note)}</p>` : ''}
+		</div>
+		<div class="status-track" aria-label="${esc(c.t.phase)}">${roadmap(c.t)}</div>
+	</div>
+</section>`,
+	chips: (s, c) => {
+		const rows = items(s.values, 8).filter((r) => r.label && r.url && localHref(c.lang, r.url));
+		if (!rows.length) return '';
+		return `
+<section class="section" aria-labelledby="${s.id}-t">
+	<div class="wrap">${heading(`${s.id}-t`, s.values.title)}
+		<ul class="chips">${rows.map((r) => `<li><a href="${esc(localHref(c.lang, r.url))}"><span>${esc(r.label)}</span></a></li>`).join('')}</ul>
+	</div>
+</section>`;
+	},
+	over: (s) => {
+		const rows = items(s.values, 6).filter((r) => r.name);
+		if (!rows.length && !s.values.text) return '';
+		return `
+<section class="section" aria-labelledby="${s.id}-t">
+	<div class="wrap">${heading(`${s.id}-t`, s.values.title)}
+		${s.values.text ? `<p class="section-lead">${esc(s.values.text)}</p>` : ''}
+		${rows.length ? `<ul class="people">${rows.map((r) => `<li class="person" data-reveal><h3>${esc(r.name)}</h3>${r.role ? `<p class="person-role">${esc(r.role)}</p>` : ''}${r.bio ? `<p>${esc(r.bio)}</p>` : ''}</li>`).join('')}</ul>` : ''}
+	</div>
+</section>`;
+	},
+	cta: (s, c) => {
+		const v = s.values;
+		const href = (v.url && localHref(c.lang, v.url)) || link(c.lang, '/contact');
+		return `
+<section class="cta-band" aria-labelledby="${s.id}-t">
+	<div class="wrap cta-inner">
+		<div><h2 id="${s.id}-t">${esc(v.title || c.v.cta_title)}</h2>${v.text || c.v.cta_text ? `<p>${esc(v.text || c.v.cta_text)}</p>` : ''}</div>
+		<a class="btn btn-light" href="${esc(href)}">${esc(v.label || c.v.hero_cta)}</a>
+	</div>
+</section>`;
+	},
+	disclaimer: (s) => (s.values.tekst ? `
+<section class="section" aria-label="Disclaimer">
+	<div class="wrap prose"><p class="disclaimer" role="note">${esc(s.values.tekst)}</p></div>
+</section>` : ''),
+};
 
 /** A page created in the CMS: /<lang>/<slug>. */
 function renderPage({ lang, values: v, images }, { siteUrl }, page, versions) {
 	const t = UI[lang];
 	const path = `/${page.slug}`;
 	const alt = Object.fromEntries(Object.entries(versions).map(([l, slug]) => [l, `/${slug}`]));
+	const c = { lang, t, v, page, faq: [] };
+	const sections = page.sections || [];
+	const startsWithHero = sections[0] && sections[0].type === 'hero';
+	const html = sections.map((s) => (SECTION_RENDER[s.type] ? SECTION_RENDER[s.type]({ ...s, pageTitle: page.title }, c) : '')).filter(Boolean).join('\n');
 	const body = `
 <main id="main">
-${pageHead(v.site_name, page.title, page.lead)}
-<section class="section">
-	<div class="wrap prose page-body">
-${typeof page.body === 'object' ? lexicalToHtml(page.body) : mdToHtml(page.body)}
-	</div>
-</section>
-${ctaBand(lang, v)}
+${startsWithHero ? '' : pageHead(v.site_name, page.title, page.lead)}
+${html}
 </main>`;
-	const graph = { '@context': 'https://schema.org', '@graph': [crumbs(lang, siteUrl, v, path, page.title), { '@type': 'WebPage', name: page.title, url: siteUrl + url(lang, path), inLanguage: lang, isPartOf: { '@id': `${siteUrl}/#website` } }] };
-	return layout({ lang, page: path, title: `${page.seo_title || page.title} | ${v.site_name}`, description: page.seo_description || page.lead, body, v, siteUrl, images, graph, alt });
+	const graph = { '@context': 'https://schema.org', '@graph': [
+		crumbs(lang, siteUrl, v, path, page.title),
+		{ '@type': 'WebPage', name: page.title, url: siteUrl + url(lang, path), inLanguage: lang, isPartOf: { '@type': 'WebSite', name: v.site_name, url: siteUrl } },
+		...(c.faq.length ? [{ '@type': 'FAQPage', mainEntity: c.faq.map((f) => ({ '@type': 'Question', name: f.q, acceptedAnswer: { '@type': 'Answer', text: f.a } })) }] : []),
+	] };
+	return layout({ lang, page: path, title: `${page.seo_title || page.title} | ${v.site_name}`, description: page.seo_description || page.lead, body, v, siteUrl, images, graph, alt, noindex: page.indexeren === false });
 }
 
 function renderPrivacy({ lang, values: v, privacy, images }, { siteUrl }) {
@@ -545,6 +678,7 @@ function renderSitemap(siteUrl, lastmod, extra = [], pages = [], versionsOf = ()
 	const alt = (page) => [...LANGS.map((l) => `<xhtml:link rel="alternate" hreflang="${l}" href="${esc(siteUrl + url(l, page))}"/>`), `<xhtml:link rel="alternate" hreflang="x-default" href="${esc(siteUrl + '/')}"/>`].join('');
 	const entries = [...PAGES, ...extra].flatMap((page) => LANGS.map((l) => `<url><loc>${esc(siteUrl + url(l, page))}</loc><lastmod>${lastmod}</lastmod>${alt(page)}</url>`));
 	for (const p of pages) {
+		if (p.indexeren === false) continue;
 		const versions = versionsOf(p);
 		const links = [...LANGS.filter((l) => versions[l]).map((l) => `<xhtml:link rel="alternate" hreflang="${l}" href="${esc(siteUrl + url(l, '/' + versions[l]))}"/>`), `<xhtml:link rel="alternate" hreflang="x-default" href="${esc(siteUrl + url(versions.en ? 'en' : p.language, '/' + (versions.en || p.slug)))}"/>`].join('');
 		entries.push(`<url><loc>${esc(siteUrl + url(p.language, '/' + p.slug))}</loc><lastmod>${p.updated || lastmod}</lastmod>${links}</url>`);
@@ -552,4 +686,4 @@ function renderSitemap(siteUrl, lastmod, extra = [], pages = [], versionsOf = ()
 	return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">\n${entries.join('\n')}\n</urlset>\n`;
 }
 
-module.exports = { lexicalToHtml, mdToHtml, renderPage, setFooterPages, asset, renderToday, setToday, esc, url, setCarry, renderAudience, PAGES, renderHome, renderProblem, renderHow, renderApplications, renderContact, renderPrivacy, renderNotFound, renderSitemap };
+module.exports = { renderPage, SECTION_RENDER, setFooterPages, asset, renderToday, setToday, esc, url, setCarry, renderAudience, PAGES, renderHome, renderProblem, renderHow, renderApplications, renderContact, renderPrivacy, renderNotFound, renderSitemap };

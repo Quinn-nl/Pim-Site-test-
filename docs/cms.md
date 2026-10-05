@@ -1,50 +1,74 @@
-# CMS (Payload) at `/admin2`
+# Het CMS van Aethra (`/admin`)
 
-Open-source (MIT) headless CMS, no paid tiers. Pim edits texts, pages and photos here and reads the contact messages.
-`/admin` stays the site's own simple panel. When the CMS is on, `/admin` shows a banner that content lives in the CMS.
+Een eigen CMS in puur Node.js (22.13 of nieuwer): geen npm-pakketten, geen framework. Opslag in SQLite (ingebouwd in Node). Alle schermen zijn Nederlands.
 
-## First start (Windows, macOS, Linux; Node 22 LTS)
+## Starten
 
 ```
 cd aethra-site
-npm run cms:init -- --email=pim@jouwdomein.nl     # once: creates payload/.env, installs dependencies
-npm run cms                                       # terminal 1: CMS on 127.0.0.1:3001 (use `npm run cms:build` + `npm run cms:start` for production)
-npm run cms:setup                                 # terminal 2, once the CMS is up: first admin, texts per language, "website" API key
-npm run start:cms                                 # terminal 2: website on http://localhost:3000, CMS on /admin2
+npm run user:create -- --email=jij@voorbeeld.nl --naam="Jouw naam"     # eenmalig: eerste account (beheerder), vraagt om een wachtwoord
+npm start                                                              # http://localhost:3000 en het CMS op /admin
 ```
 
-Open `http://localhost:3000/admin2`. The first account created is always an admin.
+Op Windows werkt dit in cmd of PowerShell. Weer een wachtwoord kwijt: `npm run user:password -- --email=…`. Telefoon en herstelcodes kwijt: `npm run user:reset-2fa -- --email=…`. Overzicht: `npm run user:list`.
 
-## How it fits together
+Gegevens: `data/aethra.db` (database) en `data/uploads` (foto's). Oude JSON-gegevens van het vorige beheerpaneel worden bij de eerste start automatisch overgenomen. Back-up: `npm run backup`.
 
-- The website reads texts, photos and pages from the CMS every `CMS_POLL_MS` (default 30 s). If the CMS is down it keeps showing the last saved content.
-- Env vars for the website: `CONTENT_SOURCE=payload`, `CMS_URL`, `CMS_API_KEY`, `CMS_POLL_MS` (`npm run start:cms` sets them from `payload/.env`).
-- Contact messages are stored in the site's own inbox first, then copied to **Inbox > Messages** in the CMS. Deleting a message in the site inbox removes the copy; messages are purged after the retention period.
-- Pages (**Website > Pages**) are written per language, with drafts. Only published pages appear on the site, in the sitemap (with hreflang) and optionally in the footer.
-- Rich text is converted to safe HTML (headings, lists, quotes, bold/italic, http(s)/mailto links); nothing else is passed through.
+## Wat je kunt
 
-## Handy to know
+| Onderdeel | Wat |
+|---|---|
+| **Pagina's en teksten** | Alle vaste teksten per pagina gegroepeerd. Alle vier de talen naast elkaar, met per veld de status (standaardtekst, eerste versie, nagekeken). Live voorbeeld rechts, per taal en breedte. |
+| **Extra pagina's** | Kies een van zeven sjablonen (standaard, doelgroep, investeerder, landing, feiten, update, vrije secties), vul de bouwstenen in per taal. Concept → publiceren. Het adres verandert? Dan komt er automatisch een redirect. |
+| **Media** | Upload (JPG/PNG/WebP), verplichte omschrijving, rechten (eigen, gelicentieerd, AI-sfeer). WebP/AVIF-varianten in 1x en 2x als `cwebp`/`avifenc` op de server staan. |
+| **Berichten** | Zoeken en filteren, status (nieuw, gelezen, beantwoord, afgesloten), notitie, toewijzen, CSV-export, privacyverzoek (zoeken, exporteren, wissen). |
+| **Mailwachtrij** | Meldingen per e-mail gaan via een wachtrij met herhaalpogingen. Zie hieronder. |
+| **Versies** | Bij elke publicatie wordt de vorige staat bewaard. Vergelijken regel voor regel en terugzetten met één klik. |
+| **Redirects, statistieken, gebruikers, auditlog** | Zie het menu. Gebruikers en auditlog zijn alleen voor beheerders. |
 
-- The dashboard groups texts per page (Home, The problem, How it works, Applications, Contact, Audience pages, Extra pages, Settings). The icon next to Save opens the live page.
-- Edits show on the website within a second (the CMS tells the site; `SITE_REFRESH_TOKEN` in `payload/.env` is the shared secret). If the token was added later, restart the CMS once.
-- Messages: search on name, e-mail, organisation and text; tick Handled when replied. The dashboard shows how many are unhandled.
-- Pages: the address is filled in from the heading when left empty; drafts autosave; photos need a description.
-- GraphQL is switched off, uploads are limited to 8 MB, and editors do not see the Users list.
+## Rollen
 
-## Security
+- **beheerder**: alles, ook gebruikers en het auditlog.
+- **editor**: teksten, pagina's, media, berichten, redirects.
+- **lezer**: alleen kijken.
 
-- Roles: `admin` (everything), `editor` (content and messages), `site` (API key used by the website, only creates messages and reads content).
-- Login lockout after 5 failed tries for 15 minutes; two-step verification (TOTP) via the `payload-totp` plugin, set up on the account page.
-- `/admin2` responses are `noindex`; the proxy target is fixed (`CMS_URL`), so it is not an open proxy.
-- Keep `payload/.env` secret (gitignored). Change the test password and `PAYLOAD_SECRET` before going live.
+## Inhoudelijke bewaking (voor elke publicatie)
 
-## Limits to know
+- **Hard geblokkeerd** (422): woorden over aandelen, rendement of garanties (Nederlands, Engels, Duits, Frans), tenzij de zin zelf zegt dat iets *niet* wordt aangeboden. Een cijfer zonder bronnaam. Een investeerderspagina zonder “geen aanbod”-verklaring.
+- **Waarschuwing** (409): twijfelachtige woorden (“bewezen”, “reduceert”), technische details, een pagina zonder zoekomschrijving. Publiceren kan dan toch, met een reden van minstens 10 tekens. Die reden komt in het auditlog (`publicatie.override`).
 
-- One Payload global per text group (SQLite fails above ~127 columns per query).
-- Photos: those uploaded in the CMS replace the ones from `/admin` while the CMS is the source.
-- Run behind HTTPS in production (set `SITE_URL`).
-- Dev mode (`npm run cms`) can be slow on the first page load; the production build is fast.
+## Veiligheid
 
-## Database tables
+- Wachtwoorden: scrypt (N=16384, r=8, p=1), eigen zout per gebruiker. Inloggen: 5 pogingen per 15 minuten per IP + e-mailadres, daarna een blokkade van 15 minuten, 1 uur en 24 uur.
+- Tweestapsverificatie (TOTP, RFC 6238) met QR-code, het geheim staat versleuteld (AES-256-GCM); 8 herstelcodes, gehasht en eenmalig bruikbaar.
+- Sessies: willekeurig id (alleen de hash staat in de database), vastgemaakt aan browser en netwerk (/24), vervalt na 1 uur inactiviteit of 8 uur. Het id verandert na elke kritieke actie (wachtwoord, 2FA, gebruikersbeheer), waarvoor je je wachtwoord opnieuw invult.
+- Cookie: `HttpOnly; SameSite=Strict; Path=/admin` (en `Secure` in productie). CSRF-token per sessie op elke POST. Controle van de herkomst.
+- Elke beheerpagina: CSP met een nieuwe nonce per verzoek, `X-Frame-Options: DENY`, `nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, `no-store`.
+- Opgemaakte tekst gaat door een strikte whitelist (alleen koppen, alinea’s, lijsten, citaat, vet, cursief en veilige links).
+- Auditlog: de tabel is append-only (de database weigert UPDATE en het wissen van rijen jonger dan 180 dagen). Oudere rijen gaan maandelijks naar een gezipt archief in `data/archief`.
 
-Tables come from the migrations in `aethra-site/payload/src/migrations`, which run automatically on start (also with `cms:start`). After changing a collection or field, create a new migration: `npm run payload -- migrate:create naam` (inside `aethra-site/payload`) and commit it.
+## Bewerken door meerdere mensen
+
+- Wie een pagina opent, claimt een **bewerkingsslot** (WebSocket). Een tweede persoon ziet “Pim is deze pagina momenteel aan het bewerken” en kan alleen meekijken. Het slot vervalt na 5 minuten zonder hartslag of zodra het tabblad sluit. De server weigert opslaan ook (423).
+- Daarnaast een versiecontrole bij opslaan: is de pagina ondertussen gewijzigd, dan volgt een 409 en een melding om te herladen.
+- **Auto-save**: elke 30 seconden een concept in een aparte tabel (nooit zichtbaar op de site). Bij terugkomen kun je het concept terugzetten.
+
+## Berichten en e-mail
+
+Een bericht staat altijd eerst in de database; daarna pas wordt er gemaild. Stel `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `MAIL_FROM` en `MAIL_TO` in om meldingen en bevestigingen te versturen. Mislukt een mail, dan probeert het systeem het opnieuw na 10, 20, 40 en 80 minuten en geeft na 5 pogingen op. Duurt een storing langer dan een uur, dan zie je een melding bovenaan het CMS. Op de pagina Mailwachtrij kun je een opgegeven mail opnieuw laten proberen.
+
+## Betrouwbaarheid
+
+- Schema via migraties (`database/migrations/*.sql`), die bij het starten één keer worden uitgevoerd.
+- Opslaan is één transactie: lukt één veld niet, dan wordt de hele pagina teruggedraaid.
+- Elke 24 uur controleert een taak of alle velden uit `lib/fields.js` in de database staan en meldt ontbrekende vertalingen op het dashboard.
+- Is de database niet bereikbaar, dan blijft de site pagina’s uit het geheugen tonen en antwoordt het CMS met 503 tot de database weer werkt.
+- Netjes afsluiten: bij SIGTERM of SIGINT stopt de server met nieuwe verbindingen en rondt hij lopend werk af (maximaal 10 seconden).
+- Publieke pagina’s staan in een geheugencache die bij elke publicatie wordt leeggemaakt. Antwoorden worden gecomprimeerd met Brotli of gzip.
+
+## Beperkingen en aandachtspunten
+
+- De veldlabels van de vaste teksten staan nog in het Engels (de rest van het CMS is Nederlands).
+- WebP en AVIF vragen om `cwebp` en `avifenc` op de server; zonder blijft het origineel in gebruik.
+- Het CMS draait in hetzelfde proces als de site. Achter HTTPS (reverse proxy) instellen: `SITE_URL`, `NODE_ENV=production`, `TRUST_PROXY=1`.
+- Tweestapsverificatie van het oude paneel is niet overgenomen: elke gebruiker zet die opnieuw aan op de accountpagina.

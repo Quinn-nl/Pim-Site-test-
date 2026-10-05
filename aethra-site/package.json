@@ -2,26 +2,21 @@
   "name": "aethra-site",
   "version": "1.0.0",
   "private": true,
-  "description": "Single-page website for Aethra with a built-in admin panel. No runtime dependencies.",
+  "description": "Website for Aethra with its own CMS (SQLite, Node.js built-ins only). No runtime dependencies.",
   "engines": {
-    "node": ">=20"
+    "node": ">=22.13"
   },
   "scripts": {
     "start": "node server.js",
-    "set-password": "node scripts/set-password.js",
-    "reset-2fa": "node scripts/reset-2fa.js",
     "seo": "node scripts/seo-audit.cjs",
     "seo:baseline": "node scripts/seo-audit.cjs --baseline",
     "seo:compare": "node scripts/seo-audit.cjs --compare",
     "indexnow": "node scripts/indexnow.cjs",
     "backup": "node scripts/backup.js",
     "test": "node --test test/*.test.js",
-    "payload:fields": "node scripts/payload-fields.cjs",
-    "cms:init": "node scripts/payload-init.cjs",
-    "cms": "npm --prefix payload run dev",
-    "cms:build": "npm --prefix payload run build",
-    "cms:start": "npm --prefix payload run start",
-    "cms:setup": "node scripts/payload-setup.cjs",
-    "start:cms": "node scripts/start-cms.cjs"
+    "user:create": "node scripts/user.js create",
+    "user:password": "node scripts/user.js password",
+    "user:reset-2fa": "node scripts/user.js reset-2fa",
+    "user:list": "node scripts/user.js list"
   }
 }

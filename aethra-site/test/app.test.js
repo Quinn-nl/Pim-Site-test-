@@ -6,10 +6,13 @@ const os = require('os');
 const path = require('path');
 
 process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'aethra-'));
-const auth = require('../lib/auth');
 const store = require('../lib/store');
+const content = require('../lib/cms/content');
+const users = require('../lib/cms/users');
+const messages = require('../lib/cms/messages');
+const { GROUPS } = require('../lib/fields');
 const { parseMultipart, detectImage } = require('../lib/multipart');
-const { createServer, contactLimiter, loginLimiter } = require('../server');
+const { createServer, contactLimiter } = require('../server');
 const resetContactLimit = () => ['127.0.0.1', '::ffff:127.0.0.1', '::1'].forEach((k) => contactLimiter.clear(k));
 
 const zlib = require('zlib');
@@ -28,23 +31,31 @@ function makeJpeg(w, h) {
 	const sos = Buffer.from([0xff, 0xda, 0x00, 0x08, 0x01, 0x01, 0x00, 0x00, 0x3f, 0x00, 0x12, 0x34, 0xff, 0xd9]);
 	return Buffer.concat([Buffer.from([0xff, 0xd8]), app1, sof, sos]);
 }
+
+const groupOfKey = Object.fromEntries(GROUPS.flatMap((g) => g.fields.map((f) => [f.key, g.id])));
+/** Test helper: write texts straight to the database (what an editor's publish does, minus the editorial checks). */
+function saveContent({ lang = 'en', values }) {
+	const byGroup = {};
+	for (const [k, v] of Object.entries(values || {})) (byGroup[groupOfKey[k]] = byGroup[groupOfKey[k]] || {})[k] = v;
+	for (const [g, fields] of Object.entries(byGroup)) content.writeFields(`tekst:${g}`, { [lang]: fields }, { user: { id: adminId } });
+}
+let adminId;
 let base;
 let server;
-let cookie = '';
-let csrf = '';
 
 test.before(async () => {
-	auth.setPassword('correct horse battery');
 	server = createServer();
+	adminId = users.create({ email: 'pim@example.org', naam: 'Pim', rol: 'beheerder', wachtwoord: 'correct horse battery' });
 	await new Promise((r) => server.listen(0, '127.0.0.1', r));
 	base = `http://127.0.0.1:${server.address().port}`;
 });
 test.after(() => server.close());
 
-const post = (p, form, headers = {}) => fetch(base + p, { method: 'POST', redirect: 'manual', headers: { 'content-type': 'application/x-www-form-urlencoded', cookie, ...headers }, body: new URLSearchParams(form) });
+const post = (p, form, headers = {}) => fetch(base + p, { method: 'POST', redirect: 'manual', headers: { 'content-type': 'application/x-www-form-urlencoded', ...headers }, body: new URLSearchParams(form) });
+
 
 test('public page renders, escapes and sets security headers', async () => {
-	store.saveContent({ values: { hero_title: '<script>alert(1)</script>' } });
+	saveContent({ values: { hero_title: '<script>alert(1)</script>' } });
 	const res = await fetch(base + '/en/');
 	const html = await res.text();
 	assert.equal(res.status, 200);
@@ -52,117 +63,189 @@ test('public page renders, escapes and sets security headers', async () => {
 	assert.ok(html.includes('&lt;script&gt;'));
 	assert.match(res.headers.get('content-security-policy'), /default-src 'none'/);
 	assert.equal(res.headers.get('x-content-type-options'), 'nosniff');
-	store.saveContent({ values: { hero_title: 'Cleaner air, right where traffic is heaviest' } });
+	saveContent({ values: { hero_title: 'Cleaner air, right where traffic is heaviest' } });
 });
 
-test('admin requires login and rejects wrong password', async () => {
-	const r = await fetch(base + '/admin/photos', { redirect: 'manual' });
-	assert.equal(r.status, 303);
-	const bad = await post('/admin/login', { password: 'nope' });
-	assert.equal(bad.status, 401);
+test('edits show at once: the micro-cache is cleared by a publish', async () => {
+	const cache = require('../lib/cms/cache');
+	await fetch(base + '/en/problem');
+	const before = cache.stats().hits;
+	await fetch(base + '/en/problem');
+	assert.equal(cache.stats().hits, before + 1, 'second plain visit comes from memory');
+	saveContent({ values: { problem_title: 'A new problem title' } });
+	assert.ok((await (await fetch(base + '/en/problem')).text()).includes('A new problem title'));
+	saveContent({ values: { problem_title: 'Air pollution is concentrated where people and traffic meet' } });
 });
 
-test('login sets hardened cookie and CSRF is enforced', async () => {
-	const ok = await post('/admin/login', { password: 'correct horse battery' });
-	assert.equal(ok.status, 303);
-	const set = ok.headers.get('set-cookie');
-	assert.match(set, /HttpOnly/);
-	assert.match(set, /SameSite=Strict/);
-	cookie = set.split(';')[0];
-	const page = await (await fetch(base + '/admin', { headers: { cookie } })).text();
-	csrf = /name="csrf" value="([0-9a-f]+)"/.exec(page)[1];
-	const noToken = await post('/admin/content', { hero_title: 'x' });
-	assert.equal(noToken.status, 403);
-	const saved = await post('/admin/content', { csrf, hero_title: 'New title', fact1_url: 'https://example.org/a' });
-	assert.equal(saved.status, 303);
-	assert.ok((await (await fetch(base + '/en/')).text()).includes('New title'));
-	const badUrl = await post('/admin/content', { csrf, fact1_url: 'javascript:alert(1)' });
-	assert.equal(badUrl.status, 400);
+test('content is editable per language and the contact form localises and preselects the segment', async () => {
+	saveContent({ lang: 'nl', values: { hero_title: 'Nieuwe kop' } });
+	assert.ok((await (await fetch(base + '/nl/')).text()).includes('Nieuwe kop'));
+	assert.ok((await (await fetch(base + '/de/')).text()).includes('Sauberere Luft'));
+	assert.ok(!(await (await fetch(base + '/en/')).text()).includes('Nieuwe kop'));
+	const contact = await (await fetch(base + '/fr/contact?role=Municipality')).text();
+	assert.match(contact, /<option value="Municipality" selected>Commune<\/option>/);
+	assert.ok(contact.includes('Envoyer le message'));
+	assert.ok(/name="token" value="([^"]+)"/.exec(contact)[1]);
 });
 
-test('contact form: bots dropped, errors keep input, valid message stored, shown in admin, deletable', async () => {
+const tokenAged = (secs) => { const crypto = require('crypto'); const ts = String(Math.floor(Date.now() / 1000) - secs); return `${ts}.${crypto.createHmac('sha256', store.getSecret()).update(ts).digest('hex')}`; };
+
+test('contact form: bots dropped, errors keep input, the message is stored first and shows in the inbox', async () => {
 	const tokenOf = async () => /name="token" value="([^"]+)"/.exec(await (await fetch(base + '/en/contact')).text())[1];
-	const crypto = require('crypto');
-	const aged = (secs) => { const ts = String(Math.floor(Date.now() / 1000) - secs); return `${ts}.${crypto.createHmac('sha256', store.getSecret()).update(ts).digest('hex')}`; };
-	const old = aged(30);
-	// Sent within two seconds: not stored, but the visitor sees a message and keeps their text.
+	const old = tokenAged(30);
 	const fast = await post('/en/contact', { token: await tokenOf(), name: 'Fast', email: 'a@b.nl', message: 'keep me', consent: '1' });
 	assert.equal(fast.status, 200);
 	const fastHtml = await fast.text();
 	assert.ok(fastHtml.includes('keep me') && fastHtml.includes('expired'));
-	assert.equal(store.listMessages().length, 0);
-	// Missing consent: 422 with an inline error and the typed values preserved.
+	assert.equal(messages.count(), 0);
 	const bad = await post('/en/contact', { token: old, name: 'Anna', email: 'bad-email', message: 'hello', role: 'Investor' });
 	assert.equal(bad.status, 422);
 	const badHtml = await bad.text();
 	assert.ok(badHtml.includes('value="Anna"') && badHtml.includes('hello'));
 	assert.ok(badHtml.includes('Enter a valid email address.') && badHtml.includes('Tick the box to agree.'));
 	assert.match(badHtml, /<option value="Investor" selected>/);
-	// Honeypot and forged tokens look like success but store nothing.
 	const honey = await post('/en/contact', { token: old, name: 'Bot', email: 'a@b.nl', message: 'hi', consent: '1', website: 'x' });
 	assert.match(honey.headers.get('location'), /contact=sent/);
 	const forged = await post('/en/contact', { token: 'x.y', name: 'A', email: 'a@b.nl', message: 'hi', consent: '1' });
 	assert.match(forged.headers.get('location'), /contact=sent/);
-	assert.equal(store.listMessages().length, 0);
-	// An expired token (over 24 h) asks the visitor to send again.
-	const stale = await post('/en/contact', { token: aged(90000), name: 'Slow', email: 'a@b.nl', message: 'old form', consent: '1' });
+	assert.equal(messages.count(), 0);
+	const stale = await post('/en/contact', { token: tokenAged(90000), name: 'Slow', email: 'a@b.nl', message: 'old form', consent: '1' });
 	assert.ok((await stale.text()).includes('old form'));
-	// A valid message is stored, shows the thank-you page, and appears in the admin inbox.
 	const good = await post('/en/contact', { token: old, name: 'Pat <b>', email: 'pat@example.org', organisation: 'City', role: 'Municipality', message: 'Hello\nthere', consent: '1' });
 	assert.match(good.headers.get('location'), /contact=sent/);
 	const thanks = await (await fetch(base + '/en/contact?contact=sent')).text();
 	assert.ok(thanks.includes('Message sent') && !thanks.includes('<form'));
-	assert.equal(store.unreadCount(), 1);
-	const nav = await (await fetch(base + '/admin/photos', { headers: { cookie } })).text();
-	assert.match(nav, /class="badge"/);
-	const html = await (await fetch(base + '/admin/messages', { headers: { cookie } })).text();
-	assert.ok(html.includes('Pat &lt;b&gt;'));
-	assert.equal(store.unreadCount(), 0);
-	const id = store.listMessages()[0].id;
-	await post('/admin/messages/delete', { csrf, id });
-	assert.equal(store.listMessages().length, 0);
+	assert.equal(messages.unreadCount(), 1);
+	const m = messages.list()[0];
+	assert.equal(m.naam, 'Pat <b>');
+	assert.equal(m.status, 'nieuw');
+	messages.remove(m.id, null);
 });
 
-test('CSV export neutralises spreadsheet formulas', async () => {
-	store.addMessage({ lang: 'en', role: 'Other', name: '=HYPERLINK("http://evil")', email: 'x@y.nl', org: '+1', message: 'a "quoted"\nline' });
-	const res = await fetch(base + '/admin/messages.csv', { headers: { cookie } });
-	assert.match(res.headers.get('content-disposition'), /attachment/);
-	const csv = await res.text();
-	assert.ok(csv.includes('"\'=HYPERLINK'));
-	assert.ok(csv.includes('"\'+1"'));
-	assert.ok(csv.includes('a ""quoted"" line'));
-	for (const m of store.listMessages()) await post('/admin/messages/delete', { csrf, id: m.id });
-	assert.equal((await fetch(base + '/admin/messages.csv', { redirect: 'manual' })).status, 303);
+test('statistics: cookieless, bot- and DNT-aware, UTM carried to the message', async () => {
+	const stats = require('../lib/stats');
+	const http = require('http');
+	const rawGet = (p, headers = {}) => new Promise((resolve) => http.get(base + p, { headers }, (res) => { let t = ''; res.on('data', (d) => (t += d)); res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, text: t })); }));
+	const nav = { 'sec-fetch-dest': 'document', 'sec-fetch-mode': 'navigate' };
+	const before = stats.summary(30);
+	const r1 = await rawGet('/en/problem?utm_source=LinkedIn&utm_campaign=Launch-1', nav);
+	assert.equal(r1.headers['set-cookie'], undefined, 'public pages set no cookie');
+	await rawGet('/en/problem', { ...nav, dnt: '1' });
+	await rawGet('/en/problem', { ...nav, 'sec-gpc': '1' });
+	await rawGet('/en/problem', { 'user-agent': 'Googlebot' });
+	await rawGet('/en/problem', { ...nav, 'sec-purpose': 'prefetch' });
+	await rawGet('/en/applications', { ...nav, referer: 'https://www.example.org/some/path?x=1' });
+	const after = stats.summary(30);
+	assert.equal(after.views - before.views, 2, 'only the two real navigations count');
+	assert.equal(after.sources['linkedin / launch-1'], 1);
+	assert.equal(after.sources['example.org'], 1);
+	assert.ok(!JSON.stringify(store.readJson('stats.json', {})).includes('/some/path'), 'no referrer path stored');
+	const html = await (await fetch(base + '/en/problem?utm_source=linkedin&utm_campaign=launch-1')).text();
+	assert.ok(html.includes('href="/en/contact?utm_source=linkedin&amp;utm_campaign=launch-1"'));
+	assert.ok(/<link rel="canonical" href="[^"?]*\/en\/problem">/.test(html), 'canonical has no tracking tags');
+	const contact = await (await fetch(base + '/en/contact?utm_source=linkedin&utm_campaign=launch-1')).text();
+	assert.ok(contact.includes('name="utm_source" value="linkedin"'));
+	resetContactLimit();
+	await post('/en/contact', { token: tokenAged(30), name: 'Lead', email: 'lead@example.org', message: 'Hi', consent: '1', role: 'Fleet operator', utm_source: 'LinkedIn!', utm_campaign: 'Launch-1' });
+	const msg = messages.list()[0];
+	assert.equal(msg.bron, 'linkedin');
+	assert.equal(msg.campagne, 'launch-1');
+	const sum = stats.summary(30);
+	assert.equal(sum.sent - before.sent, 1);
+	messages.remove(msg.id, null);
 });
 
-test('photo upload validates structure, strips metadata, records size, and can be removed', async () => {
-	const send = async (file, extra = {}) => {
-		const fd = new FormData();
-		fd.set('csrf', csrf);
-		fd.set('slot', 'hero');
-		fd.set('alt', 'Atmosphere');
-		for (const [k, v] of Object.entries(extra)) fd.set(k, v);
-		if (file) fd.set('file', new Blob([file]), 'a.png');
-		return fetch(base + '/admin/photos', { method: 'POST', redirect: 'manual', headers: { cookie }, body: fd });
+test('visitor confirmation mail goes through the queue: once per address, fixed text, can be disabled', async () => {
+	const net = require('net');
+	const mails = [];
+	const smtp = net.createServer((sock) => {
+		let data = false, buf = '';
+		sock.write('220 t\r\n');
+		sock.on('data', (d) => {
+			buf += d.toString();
+			if (data) { if (buf.endsWith('\r\n.\r\n')) { mails.push(buf); data = false; buf = ''; sock.write('250 ok\r\n'); } return; }
+			for (const line of buf.split('\r\n').slice(0, -1)) {
+				if (/^EHLO/.test(line)) sock.write('250 t\r\n');
+				else if (/^(MAIL|RCPT)/.test(line)) sock.write('250 ok\r\n');
+				else if (line === 'DATA') { data = true; sock.write('354 go\r\n'); buf = ''; return; }
+				else if (line === 'QUIT') sock.end('221 bye\r\n');
+			}
+			buf = '';
+		});
+	});
+	await new Promise((r) => smtp.listen(0, '127.0.0.1', r));
+	Object.assign(process.env, { SMTP_HOST: '127.0.0.1', SMTP_PORT: String(smtp.address().port), MAIL_FROM: 'site@example.org', MAIL_TO: 'team@example.org' });
+	const send = async (email, lang) => {
+		resetContactLimit();
+		await post(`/${lang}/contact`, { token: tokenAged(30), name: 'Ana', email, message: 'secret body', consent: '1' });
+		await new Promise((r) => setTimeout(r, 600));
 	};
-	assert.match((await send(Buffer.from('<?php echo 1; ?>'))).headers.get('location'), /badimg/);
-	assert.match((await send(Buffer.concat([PNG.subarray(0, 8), Buffer.alloc(64, 1)]))).headers.get('location'), /badimg/);
-	assert.match((await send(makePng(7000, 10))).headers.get('location'), /badimg/);
-	const withText = makePng(4, 3, [pngChunk('tEXt', Buffer.from('GPS\0PNG-SECRET'))]);
-	assert.match((await send(withText)).headers.get('location'), /saved/);
+	await send('visitor@example.org', 'nl');
+	await send('visitor@example.org', 'nl');
+	await send('other@example.org', 'en');
+	process.env.AUTO_REPLY = '0';
+	await send('third@example.org', 'en');
+	for (const k of ['SMTP_HOST', 'SMTP_PORT', 'MAIL_FROM', 'MAIL_TO', 'AUTO_REPLY']) delete process.env[k];
+	smtp.close();
+	const decode = (m) => { const body = m.split('\r\n\r\n')[1].replace(/\r\n\.\r\n$/, '').replace(/\r\n/g, ''); return Buffer.from(body, 'base64').toString('utf8'); };
+	const toVisitors = mails.filter((m) => /^To: (visitor|other)@/m.test(m));
+	assert.equal(toVisitors.length, 2, 'one confirmation per address, none when disabled');
+	assert.ok(decode(toVisitors[0]).includes('Bedankt voor uw bericht'));
+	assert.ok(!toVisitors.some((m) => decode(m).includes('secret body')), 'visitor text is never echoed');
+	assert.ok(mails.some((m) => /^To: team@example.org/m.test(m)), 'the team is notified too');
+	for (const m of messages.list({}, { limit: 100 })) messages.remove(m.id, null);
+});
+
+test('hardening: malformed cookie, forged X-Forwarded-For, cross-site admin POST, strict e-mail', async () => {
+	const r = await fetch(base + '/en/', { headers: { cookie: 'aethra_lang=%E0%A4%A' } });
+	assert.equal(r.status, 200);
+	assert.equal(r.headers.get('cross-origin-resource-policy'), 'same-origin');
+	const forged = await fetch(base + '/admin/login', { method: 'POST', redirect: 'manual', headers: { 'content-type': 'application/x-www-form-urlencoded', origin: 'https://evil.example' }, body: new URLSearchParams({ email: 'x@y.nl', password: 'x' }) });
+	assert.equal(forged.status, 403);
+	const { clientIp } = require('../lib/http');
+	const cfg = require('../lib/config');
+	cfg.TRUST_PROXY = true;
+	assert.equal(clientIp({ headers: { 'x-forwarded-for': '6.6.6.6, 203.0.113.9' }, socket: {} }), '203.0.113.9');
+	assert.equal(clientIp({ headers: { 'x-forwarded-for': 'junk<>' }, socket: { remoteAddress: '10.0.0.1' } }), '10.0.0.1');
+	cfg.TRUST_PROXY = false;
+	const EMAIL = /const EMAIL = (\/.*\/);/.exec(fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8'))[1];
+	const re = eval(EMAIL);
+	assert.ok(re.test('jan.de-vries+x@bedrijf.nl'));
+	for (const bad of ['a>@b.co', 'a@b.co>,evil@x.nl', '"a"@b.co', 'a b@c.nl']) assert.ok(!re.test(bad), bad);
+});
+
+test('uploaded photos: slots show on the site with size, alt text and metadata removed', async () => {
+	const media = require('../lib/cms/media');
+	const tmp = path.join(os.tmpdir(), `up-${Date.now()}.png`);
+	fs.writeFileSync(tmp, makePng(4, 3, [pngChunk('tEXt', Buffer.from('GPS\0PNG-SECRET'))]));
+	const id = await media.saveUpload({ tmpPath: tmp, alt: { en: 'Atmosphere', nl: 'Sfeer' }, rechten: 'eigen', user: { id: adminId }, slot: 'hero' });
 	const home = await (await fetch(base + '/en/')).text();
 	const tag = /<img class="photo hero-photo"[^>]*>/.exec(home)[0];
 	assert.match(tag, /width="4" height="3"/);
+	assert.match(tag, /alt="Atmosphere"/);
 	assert.match(tag, /fetchpriority="high"/);
-	assert.ok(!tag.includes('loading="lazy"'));
-	const src = /src="(\/uploads\/hero-[0-9a-f]+\.png)"/.exec(tag)[1];
+	assert.match((await (await fetch(base + '/nl/')).text()), /alt="Sfeer"/, 'alt text per language');
+	const src = /src="(\/uploads\/[0-9a-f]+\.png)"/.exec(tag)[1];
 	const img = await fetch(base + src);
 	assert.equal(img.headers.get('content-type'), 'image/png');
 	assert.ok(!Buffer.from(await img.arrayBuffer()).includes('PNG-SECRET'));
 	assert.equal((await fetch(base + '/uploads/..%2Fsecret.key')).status, 404);
 	assert.equal((await fetch(base + '/js/../../data/secret.key')).status, 404);
-	await send(null, { action: 'remove' });
+	media.setSlot('hero', null, null);
+	media.remove(id, null);
 	assert.equal((await fetch(base + src)).status, 404);
+});
+
+test('social image becomes og:image and a large Twitter card', async () => {
+	const media = require('../lib/cms/media');
+	const tmp = path.join(os.tmpdir(), `soc-${Date.now()}.png`);
+	fs.writeFileSync(tmp, makePng(1200, 630));
+	const id = await media.saveUpload({ tmpPath: tmp, alt: { en: 'Share image' }, user: { id: adminId }, slot: 'social' });
+	const html = await (await fetch(base + '/nl/problem')).text();
+	assert.match(html, /property="og:image" content="http:\/\/127\.0\.0\.1:\d+\/uploads\/[0-9a-f]+\.png"/);
+	assert.match(html, /twitter:card" content="summary_large_image"/);
+	media.setSlot('social', null, null);
+	media.remove(id, null);
 });
 
 test('JPEG metadata is removed and the size is read', () => {
@@ -175,19 +258,6 @@ test('JPEG metadata is removed and the size is read', () => {
 	assert.equal(out.height, 480);
 	assert.ok(!out.data.includes('GPS-SECRET-1'));
 	assert.equal(inspectImage(src.subarray(0, 10)), null);
-});
-
-test('social image becomes og:image and a large Twitter card', async () => {
-	const fd = new FormData();
-	fd.set('csrf', csrf); fd.set('slot', 'social'); fd.set('alt', '');
-	fd.set('file', new Blob([makePng(1200, 630)]), 's.png');
-	await fetch(base + '/admin/photos', { method: 'POST', redirect: 'manual', headers: { cookie }, body: fd });
-	const html = await (await fetch(base + '/nl/problem')).text();
-	assert.match(html, /property="og:image" content="http:\/\/127\.0\.0\.1:\d+\/uploads\/social-[0-9a-f]+\.png"/);
-	assert.match(html, /twitter:card" content="summary_large_image"/);
-	const body = new FormData();
-	body.set('csrf', csrf); body.set('slot', 'social'); body.set('action', 'remove');
-	await fetch(base + '/admin/photos', { method: 'POST', redirect: 'manual', headers: { cookie }, body });
 });
 
 test('e-mail notification is sent over SMTP when configured', async () => {
@@ -242,20 +312,6 @@ test('titles stay within search limits, HEAD works and pages revalidate with ETa
 	assert.equal((await fetch(base + '/en/contact')).headers.get('cache-control'), 'no-store');
 });
 
-test('login is rate limited and password change works', async () => {
-	const change = await post('/admin/account', { csrf, current: 'wrong', password: 'another long password' });
-	assert.match(change.headers.get('location'), /badpw/);
-	await post('/admin/account', { csrf, current: 'correct horse battery', password: 'another long password' });
-	assert.ok(auth.checkPassword('another long password'));
-	const other = auth.createSession();
-	await post('/admin/account', { csrf, current: 'another long password', password: 'yet another password' });
-	assert.equal(auth.getSession({ headers: { cookie: `${auth.COOKIE}=${other.id}` } }), null);
-	await post('/admin/account', { csrf, current: 'yet another password', password: 'another long password' });
-	let last;
-	for (let i = 0; i < 7; i++) last = await post('/admin/login', { password: 'bad' });
-	assert.equal(last.status, 429);
-});
-
 test('every public page renders with its own heading and nav state', async () => {
 	for (const [path, text] of [['/problem', 'Air pollution is concentrated'], ['/how-it-works', 'Detect'], ['/applications', 'Municipalities'], ['/contact', 'Send message'], ['/privacy', 'Privacy statement']]) {
 		const res = await fetch(base + '/en' + path);
@@ -304,24 +360,9 @@ test('SEO: canonical, hreflang, Open Graph, JSON-LD, sitemap and robots', async 
 	const robots = await (await fetch(base + '/robots.txt')).text();
 	assert.match(robots, /Disallow: \/admin/);
 	assert.match(robots, /Sitemap: http/);
-	const admin = await (await fetch(base + '/admin')).text();
-	assert.match(admin, /noindex/);
-});
-
-test('content is editable per language and the contact form localises and preselects the segment', async () => {
-	await post('/admin/login', { password: 'another long password' }).then(async (r) => { if (r.status === 303) cookie = r.headers.get('set-cookie').split(';')[0]; });
-	const page = await (await fetch(base + '/admin?lang=nl', { headers: { cookie } })).text();
-	csrf = /name="csrf" value="([0-9a-f]+)"/.exec(page)[1];
-	assert.ok(page.includes('Schonere lucht'));
-	await post('/admin/content', { csrf, lang: 'nl', hero_title: 'Nieuwe kop' });
-	assert.ok((await (await fetch(base + '/nl/')).text()).includes('Nieuwe kop'));
-	assert.ok((await (await fetch(base + '/de/')).text()).includes('Sauberere Luft'));
-	assert.ok(!(await (await fetch(base + '/en/')).text()).includes('Nieuwe kop'));
-	const contact = await (await fetch(base + '/fr/contact?role=Municipality')).text();
-	assert.match(contact, /<option value="Municipality" selected>Commune<\/option>/);
-	assert.ok(contact.includes('Envoyer le message'));
-	const tok = /name="token" value="([^"]+)"/.exec(contact)[1];
-	assert.ok(tok);
+	const admin = await fetch(base + '/admin');
+	assert.match(await admin.text(), /noindex/);
+	assert.equal(admin.headers.get('x-robots-tag'), 'noindex, nofollow');
 });
 
 test('responses are gzip-compressed and static files support ETag', async () => {
@@ -355,107 +396,6 @@ test('audience pages: one per audience and language, FAQ markup, links and title
 	assert.equal((await fetch(base + '/en/for/unknown')).status, 404);
 	const home = await (await fetch(base + '/en/')).text();
 	assert.ok(home.includes('/en/for/municipalities') && home.includes('/en/for/investors'));
-});
-
-test('statistics: cookieless, bot- and DNT-aware, UTM carried to the message, dashboard renders', async () => {
-	const stats = require('../lib/stats');
-	const http = require('http');
-	// Node's fetch strips Sec-Fetch-* headers (browsers send them), so use raw HTTP here.
-	const rawGet = (p, headers = {}) => new Promise((resolve) => http.get(base + p, { headers }, (res) => { let t = ''; res.on('data', (d) => (t += d)); res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, text: t })); }));
-	const nav = { 'sec-fetch-dest': 'document', 'sec-fetch-mode': 'navigate' };
-	const before = stats.summary(30);
-	const r1 = await rawGet('/en/problem?utm_source=LinkedIn&utm_campaign=Launch-1', nav);
-	assert.equal(r1.headers['set-cookie'], undefined, 'public pages set no cookie');
-	await rawGet('/en/problem', { ...nav, dnt: '1' });
-	await rawGet('/en/problem', { ...nav, 'sec-gpc': '1' });
-	await rawGet('/en/problem', { 'user-agent': 'Googlebot' });
-	await rawGet('/en/problem', { ...nav, 'sec-purpose': 'prefetch' });
-	await rawGet('/en/applications', { ...nav, referer: 'https://www.example.org/some/path?x=1' });
-	const after = stats.summary(30);
-	assert.equal(after.views - before.views, 2, 'only the two real navigations count');
-	assert.equal(after.sources['linkedin / launch-1'], 1);
-	assert.equal(after.sources['example.org'], 1);
-	assert.ok(!JSON.stringify(require('../lib/store').readJson('stats.json', {})).includes('/some/path'), 'no referrer path stored');
-	// UTM tags stay on internal links and end up on the message.
-	const html = await (await fetch(base + '/en/problem?utm_source=linkedin&utm_campaign=launch-1')).text();
-	assert.ok(html.includes('href="/en/contact?utm_source=linkedin&amp;utm_campaign=launch-1"'));
-	assert.ok(/<link rel="canonical" href="[^"?]*\/en\/problem">/.test(html), 'canonical has no tracking tags');
-	const contact = await (await fetch(base + '/en/contact?utm_source=linkedin&utm_campaign=launch-1')).text();
-	assert.ok(contact.includes('name="utm_source" value="linkedin"'));
-	const crypto = require('crypto');
-	const ts = String(Math.floor(Date.now() / 1000) - 30);
-	const token = `${ts}.${crypto.createHmac('sha256', store.getSecret()).update(ts).digest('hex')}`;
-	resetContactLimit();
-	await post('/en/contact', { token, name: 'Lead', email: 'lead@example.org', message: 'Hi', consent: '1', role: 'Fleet operator', utm_source: 'LinkedIn!', utm_campaign: 'Launch-1' });
-	const msg = store.listMessages()[0];
-	assert.equal(msg.source, 'linkedin');
-	assert.equal(msg.campaign, 'launch-1');
-	const sum = stats.summary(30);
-	assert.equal(sum.sent - before.sent, 1);
-	assert.equal((sum.roles['Fleet operator'] || 0) - (before.roles['Fleet operator'] || 0), 1);
-	const page = await (await fetch(base + '/admin/stats?days=7', { headers: { cookie } })).text();
-	assert.ok(page.includes('Page views per day') && page.includes('linkedin / launch-1') && page.includes('Fleet operator'));
-	assert.equal((await fetch(base + '/admin/stats', { redirect: 'manual' })).status, 303);
-	store.deleteMessage(msg.id);
-});
-
-test('visitor confirmation mail: sent once per address, fixed text, can be disabled', async () => {
-	const net = require('net');
-	const crypto = require('crypto');
-	const mails = [];
-	const smtp = net.createServer((sock) => {
-		let data = false, buf = '';
-		sock.write('220 t\r\n');
-		sock.on('data', (d) => {
-			buf += d.toString();
-			if (data) { if (buf.endsWith('\r\n.\r\n')) { mails.push(buf); data = false; buf = ''; sock.write('250 ok\r\n'); } return; }
-			for (const line of buf.split('\r\n').slice(0, -1)) {
-				if (/^EHLO/.test(line)) sock.write('250 t\r\n');
-				else if (/^(MAIL|RCPT)/.test(line)) sock.write('250 ok\r\n');
-				else if (line === 'DATA') { data = true; sock.write('354 go\r\n'); buf = ''; return; }
-				else if (line === 'QUIT') sock.end('221 bye\r\n');
-			}
-			buf = '';
-		});
-	});
-	await new Promise((r) => smtp.listen(0, '127.0.0.1', r));
-	Object.assign(process.env, { SMTP_HOST: '127.0.0.1', SMTP_PORT: String(smtp.address().port), MAIL_FROM: 'site@example.org', MAIL_TO: 'team@example.org' });
-	const send = async (email, lang) => {
-		const ts = String(Math.floor(Date.now() / 1000) - 30);
-		const token = `${ts}.${crypto.createHmac('sha256', store.getSecret()).update(ts).digest('hex')}`;
-		resetContactLimit();
-		await post(`/${lang}/contact`, { token, name: 'Ana', email, message: 'secret body', consent: '1' });
-		await new Promise((r) => setTimeout(r, 400));
-	};
-	await send('visitor@example.org', 'nl');
-	await send('visitor@example.org', 'nl');
-	await send('other@example.org', 'en');
-	process.env.AUTO_REPLY = '0';
-	await send('third@example.org', 'en');
-	for (const k of ['SMTP_HOST', 'SMTP_PORT', 'MAIL_FROM', 'MAIL_TO', 'AUTO_REPLY']) delete process.env[k];
-	smtp.close();
-	const decode = (m) => { const body = m.split('\r\n\r\n')[1].replace(/\r\n\.\r\n$/, '').replace(/\r\n/g, ''); return Buffer.from(body, 'base64').toString('utf8'); };
-	const toVisitors = mails.filter((m) => /^To: (visitor|other)@/m.test(m));
-	assert.equal(toVisitors.length, 2, 'one confirmation per address, none when disabled');
-	assert.ok(decode(toVisitors[0]).includes('Bedankt voor uw bericht'));
-	assert.ok(!toVisitors.some((m) => decode(m).includes('secret body')), 'visitor text is never echoed');
-	for (const m of store.listMessages()) store.deleteMessage(m.id);
-});
-
-test('admin messages are paginated and counts are formatted; dev toggle is absent in normal runs', async () => {
-	for (let i = 0; i < 120; i++) store.addMessage({ lang: 'en', role: 'Other', name: `Person ${i}`, email: `p${i}@example.org`, org: '', message: 'm' });
-	const first = await (await fetch(base + '/admin/messages', { headers: { cookie } })).text();
-	assert.equal((first.match(/class="card msg"/g) || []).length, 50);
-	assert.ok(first.includes('Page 1 of 3') && first.includes('(120)'));
-	assert.ok(first.includes('/admin/messages?page=2'));
-	assert.equal(store.unreadCount(), 70, 'only the messages shown are marked read');
-	const last = await (await fetch(base + '/admin/messages?page=3', { headers: { cookie } })).text();
-	assert.equal((last.match(/class="card msg"/g) || []).length, 20);
-	assert.equal((await (await fetch(base + '/admin/messages?page=999', { headers: { cookie } })).text()).includes('Page 3 of 3'), true);
-	for (const m of store.listMessages()) store.deleteMessage(m.id);
-	const home = await (await fetch(base + '/en/')).text();
-	assert.ok(!home.includes('dev-toggle'), 'the stress-data switch only exists with DEV_TOGGLE=1');
-	assert.equal((await fetch(base + '/__data?mode=worst', { redirect: 'manual' })).status, 404);
 });
 
 test('pages carry a default sharing image per language until one is uploaded', async () => {
@@ -498,100 +438,15 @@ test('multipart parser and image sniffing', () => {
 	assert.equal(detectImage(Buffer.from('GIF89a......')), null);
 });
 
-test('hardening: malformed cookie, forged X-Forwarded-For, cross-site admin POST, strict e-mail', async () => {
-	const r = await fetch(base + '/en/', { headers: { cookie: 'aethra_lang=%E0%A4%A' } });
-	assert.equal(r.status, 200);
-	assert.equal(r.headers.get('cross-origin-resource-policy'), 'same-origin');
-	const forged = await fetch(base + '/admin/login', { method: 'POST', redirect: 'manual', headers: { 'content-type': 'application/x-www-form-urlencoded', origin: 'https://evil.example' }, body: new URLSearchParams({ password: 'x' }) });
-	assert.equal(forged.status, 403);
-	const { clientIp } = require('../lib/http');
-	const cfg = require('../lib/config');
-	cfg.TRUST_PROXY = true;
-	assert.equal(clientIp({ headers: { 'x-forwarded-for': '6.6.6.6, 203.0.113.9' }, socket: {} }), '203.0.113.9');
-	assert.equal(clientIp({ headers: { 'x-forwarded-for': 'junk<>' }, socket: { remoteAddress: '10.0.0.1' } }), '10.0.0.1');
-	cfg.TRUST_PROXY = false;
-	const EMAIL = /const EMAIL = (\/.*\/);/.exec(fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8'))[1];
-	const re = eval(EMAIL);
-	assert.ok(re.test('jan.de-vries+x@bedrijf.nl'));
-	for (const bad of ['a>@b.co', 'a@b.co>,evil@x.nl', '"a"@b.co', 'a b@c.nl']) assert.ok(!re.test(bad), bad);
-});
-
-test('two-step verification: setup, login needs a code, replay and recovery codes, disable', async () => {
-	const totp = require('../lib/totp');
-	// RFC 6238 test vector (SHA1, secret "12345678901234567890", T=59 s -> 94287082, last 6 digits 287082)
-	assert.equal(totp.codeAt(totp.base32(Buffer.from('12345678901234567890')), 1), '287082');
-	auth.setPassword('another long password');
-	['127.0.0.1', '::ffff:127.0.0.1', '::1'].forEach((k) => loginLimiter.clear(k));
-	await post('/admin/login', { password: 'another long password' }).then((r) => { cookie = r.headers.get('set-cookie').split(';')[0]; });
-	csrf = /name="csrf" value="([a-f0-9]+)"/.exec(await (await fetch(base + '/admin/account', { headers: { cookie } })).text())[1];
-	assert.equal((await post('/admin/2fa/start', { csrf, current: 'wrong password!' })).status, 400);
-	assert.ok(!auth.pendingTwoFactor());
-	await post('/admin/2fa/start', { csrf, current: 'another long password' });
-	const setup = auth.pendingTwoFactor();
-	assert.ok(setup && /^[A-Z2-7]{32}$/.test(setup.secret));
-	assert.ok(!fs.readFileSync(path.join(process.env.DATA_DIR, 'admin.json'), 'utf8').includes(setup.secret), 'secret is stored encrypted');
-	const setupHtml = await (await fetch(base + '/admin/account', { headers: { cookie } })).text();
-	assert.match(setupHtml, /<svg class="qr"[\s\S]*?<path d="M/);
-	assert.ok(!/<svg[^>]*style=/.test(setupHtml), 'no inline styles (CSP)');
-	await post('/admin/2fa/restart', { csrf });
-	const renewed = auth.pendingTwoFactor();
-	assert.notEqual(renewed.secret, setup.secret, 'restart gives a new key');
-	setup.secret = renewed.secret;
-	const wrong = await post('/admin/2fa/confirm', { csrf, code: '000000' });
-	assert.equal(wrong.status, 400);
-	assert.ok(!auth.twoFactorEnabled());
-	const ok = await post('/admin/2fa/confirm', { csrf, code: totp.codeAt(setup.secret, Math.floor(Date.now() / 30000)) });
-	assert.equal(ok.status, 200);
-	const codes = [...(await ok.text()).matchAll(/<code>([a-z]{5}-[a-z]{5})<\/code>/g)].map((m) => m[1]);
-	assert.equal(codes.length, 8);
-	assert.ok(auth.twoFactorEnabled());
-	// password alone no longer gives a session
-	const step1 = await post('/admin/login', { password: 'another long password' }, { cookie: '' });
-	assert.equal(step1.status, 200);
-	assert.ok(!step1.headers.get('set-cookie'));
-	const ticket = /name="ticket" value="([a-f0-9]+)"/.exec(await step1.text())[1];
-	const bad = await post('/admin/login/code', { ticket, code: '123456' }, { cookie: '' });
-	assert.equal(bad.status, 401);
-	// the code that confirmed setup cannot be replayed; the next time step is accepted
-	const now = Math.floor(Date.now() / 30000);
-	const replay = await post('/admin/login/code', { ticket, code: totp.codeAt(setup.secret, now) }, { cookie: '' });
-	assert.equal(replay.status, 401);
-	const good = await post('/admin/login/code', { ticket, code: totp.codeAt(setup.secret, now + 1) }, { cookie: '' });
-	assert.equal(good.status, 303);
-	assert.ok(good.headers.get('set-cookie').includes('aethra_sid='));
-	// a ticket is single use
-	assert.equal((await post('/admin/login/code', { ticket, code: totp.codeAt(setup.secret, now + 1) }, { cookie: '' })).status, 401);
-	// recovery code works once
-	const t2 = /name="ticket" value="([a-f0-9]+)"/.exec(await (await post('/admin/login', { password: 'another long password' }, { cookie: '' })).text())[1];
-	assert.equal((await post('/admin/login/code', { ticket: t2, code: codes[0] }, { cookie: '' })).status, 303);
-	const t3 = /name="ticket" value="([a-f0-9]+)"/.exec(await (await post('/admin/login', { password: 'another long password' }, { cookie: '' })).text())[1];
-	assert.equal((await post('/admin/login/code', { ticket: t3, code: codes[0] }, { cookie: '' })).status, 401);
-	// new recovery codes need password and code, and replace the old ones
-	assert.equal((await post('/admin/2fa/recovery', { csrf, current: 'another long password', code: 'bad' })).status, 400);
-	const regen = await post('/admin/2fa/recovery', { csrf, current: 'another long password', code: codes[2] });
-	assert.equal(regen.status, 200);
-	const fresh = [...(await regen.text()).matchAll(/<code>([a-z]{5}-[a-z]{5})<\/code>/g)].map((m) => m[1]);
-	assert.equal(fresh.length, 8);
-	assert.ok(!auth.verifySecondFactor(codes[3]), 'old codes stop working');
-	// password change keeps two-step on; disabling needs password and a code
-	auth.setPassword('another long password');
-	assert.ok(auth.twoFactorEnabled());
-	assert.equal((await post('/admin/2fa/disable', { csrf, current: 'another long password', code: 'nope' })).status, 400);
-	assert.ok(auth.twoFactorEnabled());
-	const off = await post('/admin/2fa/disable', { csrf, current: 'another long password', code: fresh[0] });
-	assert.equal(off.status, 303);
-	assert.ok(!auth.twoFactorEnabled());
-});
-
 test('who is behind the company: hidden until filled in, then shown with Person data', async () => {
 	assert.ok(!(await (await fetch(base + '/en/')).text()).includes('id="about-title"'));
-	store.saveContent({ lang: 'en', values: { p1_name: 'Test Founder', p1_role: 'Founder', p1_bio: 'Background <b>text</b>', p1_link: 'https://www.linkedin.com/in/test', company_details: 'Aethra B.V.\nKvK 12345678' } });
+	saveContent({ lang: 'en', values: { p1_name: 'Test Founder', p1_role: 'Founder', p1_bio: 'Background <b>text</b>', p1_link: 'https://www.linkedin.com/in/test', company_details: 'Aethra B.V.\nKvK 12345678' } });
 	const html = await (await fetch(base + '/en/')).text();
 	assert.match(html, /id="about-title"/);
 	assert.ok(html.includes('Test Founder') && html.includes('KvK 12345678') && html.includes('&lt;b&gt;'));
 	assert.match(html, /"founder":\[\{"@type":"Person","name":"Test Founder"/);
 	assert.match(await (await fetch(base + '/en/for/fleets')).text(), /id="about-title"/);
-	store.saveContent({ lang: 'en', values: { p1_name: '', p1_role: '', p1_bio: '', p1_link: '', company_details: '' } });
+	saveContent({ lang: 'en', values: { p1_name: '', p1_role: '', p1_bio: '', p1_link: '', company_details: '' } });
 	assert.ok(!(await (await fetch(base + '/en/')).text()).includes('id="about-title"'));
 });
 
@@ -610,7 +465,7 @@ test('context page: hidden until published, then sourced, linked and in the site
 	assert.equal((await fetch(base + '/en/eco-mode-today')).status, 404);
 	assert.ok(!(await (await fetch(base + '/sitemap.xml')).text()).includes('eco-mode-today'));
 	assert.ok(!(await (await fetch(base + '/en/')).text()).includes('/en/eco-mode-today'));
-	store.saveContent({ lang: 'en', values: { today_enabled: 'yes' } });
+	saveContent({ lang: 'en', values: { today_enabled: 'yes' } });
 	const res = await fetch(base + '/en/eco-mode-today');
 	const html = await res.text();
 	assert.equal(res.status, 200);
@@ -621,7 +476,7 @@ test('context page: hidden until published, then sourced, linked and in the site
 	assert.match(await (await fetch(base + '/sitemap.xml')).text(), /\/nl\/eco-mode-today/);
 	assert.ok((await (await fetch(base + '/nl/')).text()).includes('/nl/eco-mode-today'));
 	for (const l of ['nl', 'de', 'fr']) assert.equal((await fetch(base + `/${l}/eco-mode-today`)).status, 200);
-	store.saveContent({ lang: 'en', values: { today_enabled: '' } });
+	saveContent({ lang: 'en', values: { today_enabled: '' } });
 	assert.equal((await fetch(base + '/en/eco-mode-today')).status, 404);
 });
 
@@ -653,155 +508,3 @@ test('improvements: versioned immutable assets, favicon redirect, Content-Signal
 	delete process.env.INDEXNOW_KEY;
 });
 
-test('CMS: proxy is off by default; content refresh maps texts, photos, pages and privacy; empty values keep defaults', async () => {
-	assert.equal((await fetch(base + '/admin2/admin')).status, 404);
-	const pc = require('../lib/payload-content');
-	const seen = [];
-	const nlBefore = store.getContent('nl').values.hero_title;
-	const payloads = {
-		'/globals/site-hero': { hero_title: { en: 'From the CMS', nl: null }, hero_cta: { en: '' }, evil: { en: 'x' } },
-		'/globals/site-status': { status_note: { en: '' } },
-		'/globals/privacy': { text: { en: 'CMS privacy text' } },
-		'/globals/photos': { hero: { filename: 'a b.jpg', alt: 'Hero alt', width: 800, height: 600 }, social: null },
-		'/pages': { docs: [
-			{ id: 7, _status: 'published', title: { en: 'About us', nl: 'Over ons', de: null }, slug: { en: 'about-us', nl: 'over-ons' }, lead: { en: 'Lead' }, body: { en: { root: { children: [{ type: 'paragraph', children: [{ type: 'text', text: 'Hi', format: 1 }] }] } }, nl: 'Hallo' }, showInFooter: true, updatedAt: '2026-10-05T10:00:00Z' },
-		] },
-	};
-	const fake = async (url) => {
-		const path = url.replace(/^http:\/\/cms\.test\/admin2\/api/, '').replace(/\?.*$/, '');
-		seen.push(url);
-		return { ok: true, status: 200, json: async () => payloads[path] || {} };
-	};
-	await pc.refresh(fake, 'http://cms.test');
-	assert.ok(seen.some((u) => u.includes('/globals/site-hero?locale=all')), 'one request per group of texts');
-	const en = store.getContent('en');
-	assert.equal(en.values.hero_title, 'From the CMS');
-	assert.ok(en.values.hero_cta.length > 0, 'an empty required text falls back to the default');
-	assert.equal(en.values.evil, undefined);
-	assert.equal(en.privacy, 'CMS privacy text');
-	assert.equal(store.getContent('nl').values.hero_title, nlBefore, 'null from the CMS changes nothing');
-	assert.equal(en.images.hero.url, '/admin2/api/media/file/a%20b.jpg');
-	assert.equal(en.images.hero.alt, 'Hero alt');
-	assert.deepEqual(store.publishedPages().map((p) => `${p.language}/${p.slug}`).sort(), ['en/about-us', 'nl/over-ons']);
-	assert.deepEqual(store.pageVersions(store.findPage('en', 'about-us')), { en: 'about-us', nl: 'over-ons' });
-	const page = await (await fetch(base + '/en/about-us')).text();
-	assert.ok(page.includes('<strong>Hi</strong>'), 'rich text rendered');
-	assert.ok(page.includes('src="/admin2/api/media/file/a%20b.jpg"') || (await (await fetch(base + '/en/')).text()).includes('src="/admin2/api/media/file/a%20b.jpg"'), 'CMS photo is used');
-	assert.ok(!Object.keys(store.getLocalImages()).includes('hero'), 'CMS photos are never written into our own content');
-	await assert.rejects(() => pc.refresh(async () => ({ ok: false, status: 500 }), 'http://cms.test'), /500/);
-	store.setRemote({});
-	store.setRemotePages([]);
-	store.setRemoteImages({});
-});
-
-test('CMS: /admin2 proxy keeps the path, adds noindex, keeps /admin as our own panel', async () => {
-	const http = require('http');
-	const upstream = http.createServer((req, res) => { res.writeHead(200, { 'Content-Type': 'text/plain', 'X-Seen-Path': req.url }); res.end('cms says hi'); });
-	await new Promise((r) => upstream.listen(0, '127.0.0.1', r));
-	process.env.CMS_URL = `http://127.0.0.1:${upstream.address().port}`;
-	delete require.cache[require.resolve('../server')];
-	const { createServer: create2 } = require('../server');
-	const s2 = create2();
-	await new Promise((r) => s2.listen(0, '127.0.0.1', r));
-	const b2 = `http://127.0.0.1:${s2.address().port}`;
-	const r = await fetch(b2 + '/admin2/admin/login?x=1');
-	assert.equal(r.headers.get('x-seen-path'), '/admin2/admin/login?x=1', 'the CMS is served under /admin2, the path is passed on unchanged');
-	assert.equal(await r.text(), 'cms says hi');
-	assert.equal(r.headers.get('x-robots-tag'), 'noindex, nofollow');
-	assert.equal(r.headers.get('content-security-policy'), null, 'the CMS brings its own CSP');
-	const bare = await fetch(b2 + '/admin2', { redirect: 'manual' });
-	assert.equal(bare.status, 302);
-	assert.match(bare.headers.get('location'), /\/admin2\/admin$/);
-	const ours = await fetch(b2 + '/admin');
-	assert.match(await ours.text(), /Aethra admin|Log in/);
-	assert.match(ours.headers.get('content-security-policy') || '', /default-src 'none'/);
-	s2.close();
-	upstream.close();
-	delete process.env.CMS_URL;
-	delete require.cache[require.resolve('../server')];
-});
-
-test('CMS inbox: messages are handed over with the API key, removed on delete and purged by age; failures are silent', async () => {
-	const cm = require('../lib/cms-messages');
-	assert.equal(cm.enabled(), false);
-	assert.equal(await cm.push({ name: 'x' }), false);
-	process.env.CMS_URL = 'http://cms.test';
-	process.env.CMS_API_KEY = 'KEY123';
-	const calls = [];
-	const fake = async (url, opts) => { calls.push({ url, method: opts.method, auth: opts.headers.Authorization, body: opts.body && JSON.parse(opts.body) }); return { ok: true, status: 201 }; };
-	assert.equal(await cm.push({ id: 'abc', name: 'Jan', email: 'jan@example.org', org: 'Gemeente', role: 'Municipality', message: 'Hallo', lang: 'nl', source: 'linkedin', campaign: 'launch', at: '2026-10-05T10:00:00.000Z' }, fake), true);
-	assert.equal(calls[0].url, 'http://cms.test/admin2/api/messages');
-	assert.equal(calls[0].auth, 'users API-Key KEY123');
-	assert.deepEqual(calls[0].body, { name: 'Jan', email: 'jan@example.org', organisation: 'Gemeente', role: 'Municipality', message: 'Hallo', language: 'nl', source: 'linkedin / launch', receivedAt: '2026-10-05T10:00:00.000Z', externalId: 'abc' });
-	await cm.remove('abc', fake);
-	assert.match(calls[1].url, /messages\?where\[externalId\]\[equals\]=abc$/);
-	assert.equal(calls[1].method, 'DELETE');
-	await cm.purge(365, fake);
-	assert.match(calls[2].url, /where\[receivedAt\]\[less_than\]=/);
-	const boom = async () => { throw new Error('down'); };
-	const log = console.error; console.error = () => {};
-	assert.equal(await cm.push({ id: 'z', name: 'n', email: 'e@e.nl', message: 'm' }, boom), false);
-	assert.equal(await cm.remove('z', boom), false);
-	console.error = log;
-	delete process.env.CMS_URL;
-	delete process.env.CMS_API_KEY;
-});
-
-test('rich text from the CMS: only known nodes, escaped text, safe links', () => {
-	const views = require('../lib/views');
-	const t = (children) => ({ type: 'text', text: children, format: 0 });
-	const html = views.lexicalToHtml({ root: { children: [
-		{ type: 'heading', tag: 'h2', children: [t('Title <b>')] },
-		{ type: 'heading', tag: 'h1', children: [t('Mapped to h3')] },
-		{ type: 'paragraph', children: [{ type: 'text', text: 'Bold', format: 1 }, { type: 'text', text: 'It', format: 2 }, { type: 'link', fields: { url: 'https://example.org/x' }, children: [t('ok')] }, { type: 'link', fields: { url: 'javascript:alert(1)' }, children: [t('bad')] }, { type: 'link', fields: { url: '//evil.example' }, children: [t('proto-relative')] }] },
-		{ type: 'list', listType: 'bullet', children: [{ type: 'listitem', children: [t('one')] }, { type: 'listitem', children: [t('two')] }] },
-		{ type: 'quote', children: [t('Quote')] },
-		{ type: 'upload', value: 'x' }, { type: 'paragraph', children: [] },
-	] } });
-	assert.ok(html.includes('<h2>Title &lt;b&gt;</h2>') && html.includes('<h3>Mapped to h3</h3>'));
-	assert.ok(html.includes('<strong>Bold</strong>') && html.includes('<em>It</em>'));
-	assert.ok(html.includes('href="https://example.org/x"') && !html.includes('javascript:') && !html.includes('//evil.example'));
-	assert.ok(html.includes('<ul><li>one</li><li>two</li></ul>') && html.includes('<blockquote>Quote</blockquote>'));
-	assert.ok(!html.includes('upload'));
-	assert.equal(views.lexicalToHtml(null), '');
-});
-
-test('pages made in the CMS: rules, safe Markdown, routes, hreflang, sitemap, footer, llms.txt', async () => {
-	const views = require('../lib/views');
-	// Markdown is escaped first; only http(s) and /path links survive
-	const html = views.mdToHtml('## Title\n\nA **bold** <script>alert(1)</script> [ok](https://example.org/x) [bad](javascript:alert(1)) [rel](/en/contact)\n\n- one\n- two\n\n### Sub');
-	assert.ok(!html.includes('<script>') && html.includes('&lt;script&gt;'));
-	assert.ok(html.includes('<h2>Title</h2>') && html.includes('<strong>bold</strong>') && html.includes('<ul><li>one</li><li>two</li></ul>') && html.includes('<h3>Sub</h3>'));
-	assert.ok(html.includes('href="https://example.org/x"') && html.includes('href="/en/contact"') && !html.includes('href="javascript'));
-
-	store.setRemotePages([
-		{ id: 1, status: 'published', language: 'en', slug: 'about-us', title: 'About us', lead: 'Who we are', body: 'Hello **world**', translation_group: 'about', show_in_footer: true, seo_title: 'About Aethra', date_updated: '2026-10-05T10:00:00Z' },
-		{ id: 2, status: 'published', language: 'nl', slug: 'over-ons', title: 'Over ons', body: 'Hallo', translation_group: 'about', show_in_footer: true },
-		{ id: 3, status: 'draft', language: 'en', slug: 'secret', title: 'Draft' },
-		{ id: 4, status: 'published', language: 'en', slug: 'problem', title: 'Clash with a fixed page' },
-		{ id: 5, status: 'published', language: 'en', slug: 'Bad Slug!', title: 'Bad slug' },
-		{ id: 6, status: 'published', language: 'en', slug: 'about-us', title: 'Duplicate, later id' },
-		{ id: 7, status: 'published', language: 'xx', slug: 'nolang', title: 'Unknown language' },
-	]);
-	assert.deepEqual(store.publishedPages().map((p) => `${p.language}/${p.slug}`), ['en/about-us', 'nl/over-ons']);
-	const res = await fetch(base + '/en/about-us');
-	const page = await res.text();
-	assert.equal(res.status, 200);
-	assert.match(page, /<h1 id="page-title">About us<\/h1>/);
-	assert.ok(page.includes('<strong>world</strong>') && page.includes('Who we are'));
-	assert.match(page, /<title>About Aethra \| /);
-	assert.match(page, /rel="canonical" href="[^"]*\/en\/about-us"/);
-	assert.match(page, /hreflang="nl" href="[^"]*\/nl\/over-ons"/);
-	assert.ok(!/<link rel="alternate" hreflang="de"/.test(page), 'no alternate for a language without this page');
-	assert.match(page, /hreflang="nl" lang="nl"[^>]*>NL|href="\/nl\/over-ons" hreflang="nl"/);
-	assert.match(page, /<nav aria-label="[^"]*">[^<]*(<a[^>]*>[^<]*<\/a>)*[^]*?href="\/en\/about-us"[^>]*>About us/, 'footer link');
-	assert.equal((await fetch(base + '/en/secret')).status, 404);
-	assert.equal((await fetch(base + '/de/about-us')).status, 404);
-	assert.equal((await fetch(base + '/nl/over-ons')).status, 200);
-	const sm = await (await fetch(base + '/sitemap.xml')).text();
-	assert.ok(sm.includes('/en/about-us') && sm.includes('/nl/over-ons') && !sm.includes('/secret'));
-	assert.match(sm, /<loc>[^<]*\/en\/about-us<\/loc><lastmod>2026-10-05<\/lastmod>/);
-	assert.ok((await (await fetch(base + '/llms.txt')).text()).includes('About us'));
-	store.setRemotePages([]);
-	assert.equal((await fetch(base + '/en/about-us')).status, 404);
-});

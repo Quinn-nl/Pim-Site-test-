@@ -18,7 +18,7 @@ process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'aethra-seo-'));
 process.env.SITE_URL = process.env.SITE_URL || 'https://aethra.example';
 const { createServer } = require('../server');
 const { AUDIENCES } = require('../lib/audiences');
-if (process.env.SEO_TODAY === '1') { const store = require('../lib/store'); store.ensureDirs(); store.saveContent({ lang: 'en', values: { today_enabled: 'yes' } }); }
+if (process.env.SEO_TODAY === '1') { const db = require('../lib/cms/db'); const content = require('../lib/cms/content'); db.open(); content.writeFields('tekst:today', { en: { today_enabled: 'yes' } }, { user: null }); db.close(); }
 const { LANGS } = require('../lib/i18n');
 const BASELINE = path.join(__dirname, '..', 'seo', 'baseline.json');
 

@@ -3,75 +3,42 @@ const http = require('http');
 const cfg = require('./lib/config');
 const store = require('./lib/store');
 const auth = require('./lib/auth');
-const { send, sendPage, redirect, clientIp, readBody, readForm, serveFile } = require('./lib/http');
-const { inspectImage } = require('./lib/image');
+const { send, sendPage, redirect, clientIp, readForm, serveFile } = require('./lib/http');
 const mail = require('./lib/mail');
 const stats = require('./lib/stats');
 const { AUDIENCES } = require('./lib/audiences');
 const worst = require('./lib/worst-case');
 const DEV_TOGGLE = process.env.DEV_TOGGLE === '1' && process.env.NODE_ENV !== 'production';
-const { parseMultipart } = require('./lib/multipart');
 const { createLimiter } = require('./lib/ratelimit');
-const { ROLES, GROUPS, IMAGE_SLOTS } = require('./lib/fields');
-const { LANGS, isLang, detectLang, UI } = require('./lib/i18n');
+const { ROLES } = require('./lib/fields');
+const { LANGS, isLang, detectLang } = require('./lib/i18n');
 const views = require('./lib/views');
-const admin = require('./lib/admin-views');
-const crypto = require('crypto');
-const cmsProxy = process.env.CMS_URL ? require('./lib/cms-proxy').create(process.env.CMS_URL) : null;
-const cmsMessages = require('./lib/cms-messages');
+const db = require('./lib/cms/db');
+const cmsAdmin = require('./lib/cms/admin');
+const messages = require('./lib/cms/messages');
+const redirects = require('./lib/cms/redirects');
+const cache = require('./lib/cms/cache');
+const cmsContent = require('./lib/cms/content');
+const render = require('./lib/cms/render');
+const ws = require('./lib/cms/ws');
+const events = require('./lib/cms/events');
+const jobs = require('./lib/cms/jobs');
+const legacy = require('./lib/cms/legacy');
 
-const loginLimiter = createLimiter(5, 15 * 60 * 1000);
-const accountLimiter = createLimiter(5, 15 * 60 * 1000);
 const contactLimiter = createLimiter(5, 60 * 60 * 1000);
 const EMAIL = /^[^\s@<>(),;:\\"\[\]]+@[^\s@<>(),;:\\"\[\]]+\.[^\s@<>(),;:\\"\[\]]+$/;
-
-const flashFrom = (url) => {
-	const f = url.searchParams.get('f');
-	const map = { saved: { ok: true, text: 'Saved.' }, deleted: { ok: true, text: 'Deleted.' }, pw: { ok: true, text: 'Password changed.' }, badpw: { ok: false, text: 'Current password is incorrect.' }, short: { ok: false, text: 'Use at least 12 characters.' }, badimg: { ok: false, text: 'Upload a JPG, PNG or WebP image of at most 5 MB.' }, nofile: { ok: false, text: 'Choose a file first.' } };
-	return map[f] || null;
-};
-
-function requireAdmin(req, res) {
-	const session = auth.getSession(req);
-	if (!session) {
-		redirect(res, '/admin');
-		return null;
-	}
-	return session;
-}
-
-function csrfOk(session, token) {
-	return !!token && auth.safeEqual(token, session.csrf);
-}
 
 const dailyReplyCap = createLimiter(200, 24 * 3600 * 1000); // overall ceiling, whatever the senders' addresses or IPs
 const replyLimiter = createLimiter(1, 24 * 3600 * 1000); // one confirmation per address per day: the form can not be used to mail strangers repeatedly
 
-/** Confirmation to the visitor (only when SMTP is configured and AUTO_REPLY is not 0). Fixed text, no visitor input. */
-function confirmToVisitor(m, content) {
+/** Confirmation to the visitor: queued like every mail (only when SMTP is configured and AUTO_REPLY is not 0). Fixed text, no visitor input. */
+function confirmToVisitor(saved) {
 	if (process.env.AUTO_REPLY === '0' || !mail.configured()) return;
-	if (!replyLimiter.allow(m.email.toLowerCase()) || !dailyReplyCap.allow('all')) return;
-	const t = UI[m.lang] || UI.en;
-	mail.sendMail({
-		to: [m.email],
-		subject: t.ar_subject,
-		text: t.ar_body.replace('{name}', content.values.site_name).replace('{reply}', content.values.contact_reply),
-	}).then((r) => { if (!r.sent) console.error(`Confirmation mail failed: ${r.reason}`); });
-}
-
-/** E-mail the team about a new message. Failures are logged without personal data; the message stays in the inbox. */
-function notify(m) {
-	mail.sendMail({
-		subject: `New website message (${m.role}, ${String(m.lang).toUpperCase()})`,
-		text: `From: ${m.name} <${m.email}>\nOrganisation: ${m.org || '-'}\nRole: ${m.role}\nLanguage: ${m.lang}\n\n${m.message}\n`,
-		replyTo: m.email,
-	}).then((r) => {
-		if (!r.sent && r.reason !== 'not configured') console.error(`Mail notification failed: ${r.reason}`);
-	});
+	if (!replyLimiter.allow(saved.email.toLowerCase()) || !dailyReplyCap.allow('all')) return;
+	messages.enqueue(saved.id, 'bezoeker');
 }
 
 const LANG_COOKIE = 'aethra_lang';
-const PAGE_RENDERERS = { '/': views.renderHome, '/problem': views.renderProblem, '/how-it-works': views.renderHow, '/applications': views.renderApplications, '/privacy': views.renderPrivacy, '/eco-mode-today': views.renderToday };
 const LEGACY = new Set(['/problem', '/how-it-works', '/applications', '/contact', '/privacy']);
 /** The context page is published only when the English content has today_enabled = yes (sources are checked by a person first). */
 const todayOn = () => String(store.getContent('en').values.today_enabled || '').trim().toLowerCase() === 'yes';
@@ -95,9 +62,8 @@ async function handlePublic(req, res, url) {
 		return send(res, 200, `${training}User-agent: *\nAllow: /\nDisallow: /admin\nContent-Signal: search=yes, ai-input=yes, ai-train=${process.env.AI_TRAINING === 'allow' ? 'yes' : 'no'}\n\nSitemap: ${siteUrl}/sitemap.xml\n`, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'public, max-age=3600' });
 	}
 	if (get && url.pathname === '/sitemap.xml') {
-		let modified = new Date();
-		try { modified = require('fs').statSync(store.file('content.json')).mtime; } catch (e) { /* no edits yet */ }
-		return send(res, 200, views.renderSitemap(siteUrl, modified.toISOString().slice(0, 10), todayOn() ? ['/eco-mode-today'] : [], store.publishedPages(), store.pageVersions), { 'Content-Type': 'application/xml; charset=utf-8', 'Cache-Control': 'public, max-age=3600' });
+		const modified = cmsContent.lastModified();
+		return send(res, 200, views.renderSitemap(siteUrl, modified, todayOn() ? ['/eco-mode-today'] : [], store.publishedPages(), store.pageVersions), { 'Content-Type': 'application/xml; charset=utf-8', 'Cache-Control': 'public, max-age=3600' });
 	}
 	if (get && url.pathname === '/llms.txt') {
 		const v = store.getContent('en').values;
@@ -115,14 +81,6 @@ async function handlePublic(req, res, url) {
 	if (get && url.pathname === '/favicon.ico') return redirect(res, '/img/favicon.svg', { 'Cache-Control': 'public, max-age=86400' }, 301);
 	const indexNowKey = String(process.env.INDEXNOW_KEY || '');
 	if (get && /^[A-Za-z0-9-]{8,128}$/.test(indexNowKey) && url.pathname === `/${indexNowKey}.txt`) return send(res, 200, indexNowKey, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'public, max-age=86400' });
-	// The CMS calls this after every save so changes show up at once (the background poll stays as a safety net)
-	if (req.method === 'POST' && url.pathname === '/api/cms-refresh' && process.env.CMS_URL && process.env.CMS_REFRESH_TOKEN) {
-		const given = Buffer.from(String(req.headers['x-refresh-token'] || ''));
-		const want = Buffer.from(String(process.env.CMS_REFRESH_TOKEN));
-		if (given.length !== want.length || !require('crypto').timingSafeEqual(given, want)) return send(res, 403, 'forbidden', { 'Content-Type': 'text/plain' });
-		require('./lib/payload-content').refresh().catch(() => {});
-		return send(res, 202, 'ok', { 'Content-Type': 'text/plain', 'Cache-Control': 'no-store' });
-	}
 	if (get && url.pathname === '/healthz') return send(res, 200, 'ok', { 'Content-Type': 'text/plain' });
 
 	if (DEV_TOGGLE && get && url.pathname === '/__data') {
@@ -157,28 +115,27 @@ async function handlePublic(req, res, url) {
 	const utm = { source: stats.tag(url.searchParams.get('utm_source')), campaign: stats.tag(url.searchParams.get('utm_campaign')) };
 	views.setCarry(utm);
 	const ctx = { siteUrl };
-	const aud = /^\/for\/([a-z-]+)$/.exec(page);
-	const audience = aud && AUDIENCES.some((a) => a.slug === aud[1]) ? aud[1] : null;
 	const countView = (key) => { if (get && stats.countable(req)) stats.record('v', { lang, page: key, ...attribution }); };
 
-	if (get && /^\/[a-z0-9-]+$/.test(page)) {
-		const created = store.findPage(lang, page.slice(1)); // a page made in the CMS
-		if (created) {
-			countView(page);
-			return sendPage(req, res, views.renderPage(content, ctx, created, store.pageVersions(created)));
-		}
-	}
 	if (get && page === '/contact') {
 		countView('/contact');
 		return send(res, 200, views.renderContact(content, { ...ctx, status: url.searchParams.get('contact') || '', token: auth.formToken(), role: url.searchParams.get('role') || '', utm }));
 	}
-	if (get && audience) {
-		countView(page);
-		return sendPage(req, res, views.renderAudience(content, ctx, audience));
-	}
-	if (get && PAGE_RENDERERS[page]) {
-		countView(page);
-		return sendPage(req, res, PAGE_RENDERERS[page](content, ctx));
+	if (get) {
+		// Micro-cache: plain visits (no tags, no dev toggle) are answered from memory until something is published.
+		// While the database is down the cache is served even past its time limit.
+		const cacheable = !url.search && !DEV_TOGGLE;
+		const key = `${lang}|${siteUrl}|${page}`;
+		let html = cacheable ? (db.degraded() ? cache.getStale(key) : cache.get(key)) : null;
+		if (!html) {
+			const created = /^\/[a-z0-9-]+$/.test(page) ? store.findPage(lang, page.slice(1)) : null; // a page made in the CMS
+			html = created ? views.renderPage(content, ctx, created, store.pageVersions(created)) : render.renderFixed(page, content, ctx);
+			if (html && cacheable) cache.set(key, html);
+		}
+		if (html) {
+			countView(page);
+			return sendPage(req, res, html);
+		}
 	}
 
 	if (req.method === 'POST' && page === '/contact') {
@@ -205,213 +162,35 @@ async function handlePublic(req, res, url) {
 		if (!msg.message || msg.message.length > 5000) errors.message = true;
 		if (!form.consent) errors.consent = true;
 		if (Object.keys(errors).length) return again('invalid', errors, 422);
-		const saved = store.addMessage(msg);
+		let saved = null;
+		try { saved = messages.add(msg); } catch (e) { console.error(`Message could not be stored: ${e.message}`); }
 		if (!saved) return again('error', {}, 503);
-		notify(saved);
-		cmsMessages.push(saved); // copy into the CMS inbox (best effort)
-		confirmToVisitor(saved, content);
+		confirmToVisitor(saved);
 		stats.record('s', { lang, page: msg.role, source: msg.source, campaign: msg.campaign });
 		return redirect(res, `/${lang}/contact?contact=sent`);
 	}
 	return false;
 }
 
-/** Defence in depth next to SameSite=Strict and the CSRF token: a cross-site Origin on an admin POST is refused. */
-function sameOrigin(req) {
-	const origin = req.headers.origin;
-	if (!origin || origin === 'null') return !origin;
-	try {
-		const host = new URL(origin).host;
-		return host === String(req.headers.host || '') || (!!cfg.SITE_URL && host === new URL(cfg.SITE_URL).host);
-	} catch (e) {
-		return false;
-	}
-}
-
-async function handleAdmin(req, res, url) {
-	const p = url.pathname;
-	if (req.method === 'POST' && !sameOrigin(req)) return send(res, 403, 'Forbidden', { 'Content-Type': 'text/plain' });
-	const flash = flashFrom(url);
-	const qlang = url.searchParams.get('lang');
-	const lang = isLang(qlang) ? qlang : 'en';
-
-	if (req.method === 'POST' && p === '/admin/login') {
-		const ip = clientIp(req);
-		const form = await readForm(req, 4096);
-		if (!loginLimiter.allow(ip)) return send(res, 429, admin.loginPage({ ok: false, text: 'Too many attempts. Try again in 15 minutes.' }, false));
-		if (!auth.checkPassword(form.password || '')) return send(res, 401, admin.loginPage({ ok: false, text: 'Incorrect password.' }, !auth.hasAdmin()));
-		if (auth.twoFactorEnabled()) return send(res, 200, admin.codePage(auth.createTicket()));
-		loginLimiter.clear(ip);
-		const s = auth.createSession();
-		return redirect(res, '/admin', { 'Set-Cookie': auth.cookieHeader(s.id, 8 * 3600) });
-	}
-
-	if (req.method === 'POST' && p === '/admin/login/code') {
-		const ip = clientIp(req);
-		const form = await readForm(req, 4096);
-		if (!loginLimiter.allow(ip)) return send(res, 429, admin.loginPage({ ok: false, text: 'Too many attempts. Try again in 15 minutes.' }, false));
-		const ticket = String(form.ticket || '');
-		if (!auth.useTicket(ticket)) return send(res, 401, admin.loginPage({ ok: false, text: 'That step expired. Log in again.' }, false));
-		if (!auth.verifySecondFactor(form.code)) return send(res, 401, admin.codePage(ticket, { ok: false, text: 'That code is not correct.' }));
-		auth.endTicket(ticket);
-		loginLimiter.clear(ip);
-		const s = auth.createSession();
-		return redirect(res, '/admin', { 'Set-Cookie': auth.cookieHeader(s.id, 8 * 3600) });
-	}
-
-	const session = auth.getSession(req);
-	if (req.method === 'GET' && p === '/admin' && !session) return send(res, 200, admin.loginPage(null, !auth.hasAdmin()));
-	if (!session) return redirect(res, '/admin');
-
-	if (req.method === 'GET') {
-		const c = store.getContent(lang);
-		if (p === '/admin') return send(res, 200, admin.contentPage(session, lang, c.values, flash));
-		if (p === '/admin/photos') return send(res, 200, admin.photosPage(session, store.getLocalImages(), flash));
-		if (p === '/admin/privacy') return send(res, 200, admin.privacyPage(session, lang, c.privacy, flash));
-		if (p === '/admin/stats') {
-			const days = [7, 30, 90].includes(Number(url.searchParams.get('days'))) ? Number(url.searchParams.get('days')) : 30;
-			return send(res, 200, admin.statsPage(session, stats.summary(days), days));
-		}
-		if (p === '/admin/messages.csv') {
-			return send(res, 200, store.messagesCsv(), { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': 'attachment; filename="aethra-messages.csv"' });
-		}
-		if (p === '/admin/messages') {
-			const per = 50;
-			const all = store.listMessages();
-			const pages = Math.max(1, Math.ceil(all.length / per));
-			const page = Math.min(pages, Math.max(1, parseInt(url.searchParams.get('page'), 10) || 1));
-			const shown = all.slice((page - 1) * per, page * per);
-			const html = admin.messagesPage(session, shown, cfg.RETENTION_DAYS, flash, { page, pages, total: all.length });
-			store.markRead(shown.map((m) => m.id));
-			return send(res, 200, html);
-		}
-		if (p === '/admin/account') return send(res, 200, admin.accountPage(session, flash, { enabled: auth.twoFactorEnabled(), left: auth.recoveryLeft(), setup: auth.pendingTwoFactor() }));
-		return false;
-	}
-
-	if (req.method !== 'POST') return false;
-
-	if (p === '/admin/photos') {
-		const body = await readBody(req, cfg.MAX_IMAGE_BYTES + 64 * 1024);
-		let parsed;
-		try {
-			parsed = parseMultipart(body, req.headers['content-type']);
-		} catch (e) {
-			return redirect(res, '/admin/photos?f=badimg');
-		}
-		const { fields, files } = parsed;
-		if (!csrfOk(session, fields.csrf)) return send(res, 403, 'Forbidden', { 'Content-Type': 'text/plain' });
-		if (!IMAGE_SLOTS.some((s) => s.slot === fields.slot)) return redirect(res, '/admin/photos?f=badimg');
-		const alt = String(fields.alt || '').replace(/\s+/g, ' ').trim().slice(0, 200);
-		const existing = store.getLocalImages()[fields.slot];
-		if (fields.action === 'remove') {
-			store.setImage(fields.slot, null);
-			return redirect(res, '/admin/photos?f=deleted');
-		}
-		const upload = files.find((f) => f.name === 'file' && f.data.length > 0);
-		if (!upload) {
-			if (existing) {
-				store.setImage(fields.slot, { ...existing, alt });
-				return redirect(res, '/admin/photos?f=saved');
-			}
-			return redirect(res, '/admin/photos?f=nofile');
-		}
-		const img = upload.data.length <= cfg.MAX_IMAGE_BYTES && inspectImage(upload.data);
-		if (!img) return redirect(res, '/admin/photos?f=badimg');
-		const name = `${fields.slot}-${crypto.randomBytes(8).toString('hex')}.${img.ext}`;
-		store.ensureDirs();
-		require('fs').writeFileSync(require('path').join(store.uploadsDir(), name), img.data, { mode: 0o600 });
-		store.setImage(fields.slot, { file: name, alt, w: img.width, h: img.height });
-		return redirect(res, '/admin/photos?f=saved');
-	}
-
-	const form = await readForm(req, 300 * 1024);
-	if (!csrfOk(session, form.csrf)) return send(res, 403, 'Forbidden', { 'Content-Type': 'text/plain' });
-
-	if (p === '/admin/logout') {
-		auth.destroySession(req);
-		return redirect(res, '/admin', { 'Set-Cookie': auth.cookieHeader('', 0) });
-	}
-	if (p === '/admin/content') {
-		const flang = isLang(form.lang) ? form.lang : 'en';
-		const values = {};
-		for (const g of GROUPS) for (const f of g.fields) if (f.key in form) values[f.key] = form[f.key];
-		const r = store.saveContent({ lang: flang, values });
-		if (!r.ok) return send(res, 400, admin.contentPage(session, flang, { ...store.getContent(flang).values, ...values }, { ok: false, text: r.errors.join(' ') }));
-		return redirect(res, `/admin?lang=${flang}&f=saved`);
-	}
-	if (p === '/admin/privacy') {
-		const flang = isLang(form.lang) ? form.lang : 'en';
-		store.saveContent({ lang: flang, privacy: form.privacy || '' });
-		return redirect(res, `/admin/privacy?lang=${flang}&f=saved`);
-	}
-	if (p === '/admin/messages/delete') {
-		store.deleteMessage(String(form.id || ''));
-		cmsMessages.remove(String(form.id || ''));
-		return redirect(res, '/admin/messages?f=deleted');
-	}
-	if (p === '/admin/2fa/start') {
-		if (auth.twoFactorEnabled()) return redirect(res, '/admin/account');
-		if (!accountLimiter.allow(clientIp(req))) return send(res, 429, 'Too many attempts', { 'Content-Type': 'text/plain' });
-		if (!auth.checkPassword(form.current || '')) return send(res, 400, admin.accountPage(session, { ok: false, text: 'Password is not correct.' }, { enabled: false }));
-		accountLimiter.clear(clientIp(req));
-		auth.beginTwoFactor();
-		return redirect(res, '/admin/account');
-	}
-	if (p === '/admin/2fa/restart') { // a fresh key and QR code while set-up is open; the old one stops working
-		if (!auth.twoFactorEnabled() && auth.pendingTwoFactor()) auth.beginTwoFactor();
-		return redirect(res, '/admin/account');
-	}
-	if (p === '/admin/2fa/confirm') {
-		if (!accountLimiter.allow(clientIp(req))) return send(res, 429, 'Too many attempts', { 'Content-Type': 'text/plain' });
-		const codes = auth.confirmTwoFactor(form.code);
-		if (!codes) return send(res, 400, admin.accountPage(session, { ok: false, text: 'That code is not correct. Check the key and the time on your phone.' }, { setup: auth.pendingTwoFactor(), enabled: false }));
-		accountLimiter.clear(clientIp(req));
-		auth.destroyOtherSessions(req);
-		return send(res, 200, admin.accountPage(session, { ok: true, text: 'Two-step verification is on.' }, { codes }));
-	}
-	if (p === '/admin/2fa/recovery') {
-		if (!accountLimiter.allow(clientIp(req))) return send(res, 429, 'Too many attempts', { 'Content-Type': 'text/plain' });
-		if (!auth.twoFactorEnabled() || !auth.checkPassword(form.current || '') || !auth.verifySecondFactor(form.code)) return send(res, 400, admin.accountPage(session, { ok: false, text: 'Password or code is not correct.' }, { enabled: auth.twoFactorEnabled(), left: auth.recoveryLeft() }));
-		accountLimiter.clear(clientIp(req));
-		return send(res, 200, admin.accountPage(session, { ok: true, text: 'New recovery codes created. The old ones no longer work.' }, { codes: auth.regenerateRecoveryCodes() }));
-	}
-	if (p === '/admin/2fa/disable') {
-		if (!accountLimiter.allow(clientIp(req))) return send(res, 429, 'Too many attempts', { 'Content-Type': 'text/plain' });
-		if (!auth.checkPassword(form.current || '') || !auth.verifySecondFactor(form.code)) return send(res, 400, admin.accountPage(session, { ok: false, text: 'Password or code is not correct.' }, { enabled: true, left: auth.recoveryLeft() }));
-		accountLimiter.clear(clientIp(req));
-		auth.disableTwoFactor();
-		auth.destroyOtherSessions(req);
-		return redirect(res, '/admin/account');
-	}
-	if (p === '/admin/account') {
-		if (!accountLimiter.allow(clientIp(req))) return send(res, 429, 'Too many attempts', { 'Content-Type': 'text/plain' });
-		if (!auth.checkPassword(form.current || '')) return redirect(res, '/admin/account?f=badpw');
-		accountLimiter.clear(clientIp(req));
-		if (String(form.password || '').length < 12) return redirect(res, '/admin/account?f=short');
-		auth.setPassword(form.password);
-		auth.destroyOtherSessions(req);
-		return redirect(res, '/admin/account?f=pw');
-	}
-	return false;
-}
-
 function createServer() {
 	store.ensureDirs();
-	return http.createServer(async (req, res) => {
+	db.open();
+	legacy.importLegacy();
+	const server = http.createServer(async (req, res) => {
 		try {
 			if (req.method === 'HEAD') req.method = 'GET'; // Node drops the body of a HEAD response itself
 			const url = new URL(req.url, 'http://localhost');
 			let handled = false;
-			if (cmsProxy && cmsProxy.matches(url.pathname)) { // /admin2: the CMS
-				if (url.pathname === '/admin2' || url.pathname === '/admin2/') return redirect(res, '/admin2/admin', {}, 302);
-				return cmsProxy.handle(req, res);
-			}
-			if (url.pathname === '/admin' || url.pathname.startsWith('/admin/')) handled = await handleAdmin(req, res, url);
+			if (url.pathname === '/admin' || url.pathname.startsWith('/admin/')) handled = await cmsAdmin.handleAdmin(req, res, url);
 			else if (req.method === 'GET' && url.pathname.startsWith('/uploads/')) handled = serveFile(res, store.uploadsDir(), url.pathname.slice('/uploads/'.length), 'public, max-age=31536000, immutable');
 			else if (req.method === 'GET' && (url.pathname.startsWith('/css/') || url.pathname.startsWith('/js/') || url.pathname.startsWith('/img/') || url.pathname.startsWith('/fonts/') || url.pathname.startsWith('/deck/'))) handled = serveFile(res, cfg.PUBLIC_DIR, url.pathname.slice(1), url.pathname.startsWith('/fonts/') ? 'public, max-age=604800' : (url.searchParams.has('v') ? 'public, max-age=31536000, immutable' : 'public, max-age=3600'));
 			else handled = await handlePublic(req, res, url);
 			if (handled === false) {
+				if (req.method === 'GET' && !db.degraded()) { // a page whose address changed: permanent redirect
+					let to = null;
+					try { to = redirects.find(url.pathname); } catch (e) { /* no redirect table access: plain 404 */ }
+					if (to) return redirect(res, to, {}, 301);
+				}
 				const seg = /^\/([a-z]{2})(\/|$)/.exec(url.pathname);
 				const lang = seg && isLang(seg[1]) ? seg[1] : visitorLang(req);
 				send(res, 404, views.renderNotFound(store.getContent(lang), { siteUrl: siteUrlFor(req) }));
@@ -420,31 +199,47 @@ function createServer() {
 			if (res.headersSent) return res.end();
 			const status = err.status || 500;
 			if (status === 500) console.error(err);
-			send(res, status, status === 413 ? 'Payload too large' : 'Server error', { 'Content-Type': 'text/plain' });
+			send(res, status, status === 413 ? 'Payload too large' : status === 503 ? 'Service unavailable' : 'Server error', { 'Content-Type': 'text/plain' });
 		}
 	});
+	server.on('upgrade', (req, socket, head) => ws.upgrade(req, socket, head)); // edit locks (WebSocket)
+	return server;
 }
 
-if (require.main === module) {
-	if (require('./lib/payload-content').start()) console.log('Content source: the CMS (read-only, refreshed in the background)');
+/** Starts listening with the upgrade handler (edit locks), the background jobs and a graceful shutdown. */
+function start() {
 	const server = createServer();
 	server.headersTimeout = 15000;
 	server.requestTimeout = 30000; // slow-loris: a request must complete within 30 s
 	server.keepAliveTimeout = 5000;
 	server.maxHeadersCount = 50;
-	if (cmsProxy) server.on('upgrade', (req, socket, head) => {
-		const p = (req.url || '').split('?')[0];
-		if (cmsProxy.matches(p) || p.startsWith('/_next/')) cmsProxy.upgrade(req, socket, head); else socket.destroy();
-	});
+	let active = 0;
+	server.on('request', (req, res) => { active += 1; res.on('close', () => { active -= 1; }); });
+	ws.start();
+	jobs.start();
 	server.listen(cfg.PORT, cfg.HOST, () => console.log(`Aethra site on http://${cfg.HOST}:${cfg.PORT}`));
-	if (cmsMessages.enabled()) { const purge = () => cmsMessages.purge(cfg.RETENTION_DAYS); setTimeout(purge, 60000).unref(); setInterval(purge, 3600000).unref(); } // keep the CMS inbox within the retention period
-	for (const sig of ['SIGTERM', 'SIGINT']) {
-		process.on(sig, () => {
-			stats.flush();
-			server.close(() => process.exit(0));
-			setTimeout(() => process.exit(0), 5000).unref();
-		});
-	}
+	let stopping = false;
+	const shutdown = (sig) => {
+		if (stopping) return;
+		stopping = true;
+		console.log(`${sig}: no new connections, finishing running work (at most 10 seconds)`);
+		server.close(); // no new HTTP connections
+		events.closeAll();
+		ws.closeAll();
+		jobs.stop();
+		const started = Date.now();
+		const wait = setInterval(() => {
+			if ((active <= 0 && !messages.busy()) || Date.now() - started > 10000) {
+				clearInterval(wait);
+				try { stats.flush(); db.close(); } catch (e) { /* closing */ }
+				process.exit(0);
+			}
+		}, 100);
+	};
+	for (const sig of ['SIGTERM', 'SIGINT']) process.on(sig, () => shutdown(sig));
+	return server;
 }
 
-module.exports = { createServer, contactLimiter, loginLimiter };
+if (require.main === module) start();
+
+module.exports = { createServer, start, contactLimiter };

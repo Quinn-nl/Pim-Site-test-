@@ -1,0 +1,492 @@
+'use strict';
+/**
+ * The admin: every route under /admin. Frameworkless.
+ * Security on every response: CSP with a per-request nonce, X-Frame-Options, nosniff, Referrer-Policy, no-store.
+ * Session cookie: HttpOnly, SameSite=Strict, Path=/admin (Secure in production). CSRF token per session on every POST.
+ * While the database is unreachable every route answers 503 (the public site keeps serving its cached pages).
+ */
+const crypto = require('crypto');
+const cfg = require('../config');
+const db = require('./db');
+const users = require('./users');
+const content = require('./content');
+const pages = require('./pages');
+const media = require('./media');
+const messages = require('./messages');
+const redirects = require('./redirects');
+const audit = require('./audit');
+const events = require('./events');
+const ws = require('./ws');
+const cache = require('./cache');
+const publish = require('./publish');
+const render = require('./render');
+const views = require('./views');
+const stats = require('../stats');
+const { GROUPS, FIELDS } = require('../fields');
+const { LANGS, PRIVACY } = require('../i18n');
+const { readForm, readBody, clientIp } = require('../http');
+const { TEMPLATES } = require('./templates');
+
+const VERSION = require('../../package.json').version;
+
+/* ---- responses ---- */
+function headers(nonce, extra = {}) {
+	const h = {
+		'Content-Security-Policy': `default-src 'self'; script-src 'self' 'nonce-${nonce}'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'; object-src 'none'`,
+		'X-Frame-Options': 'DENY',
+		'X-Content-Type-Options': 'nosniff',
+		'Referrer-Policy': 'strict-origin-when-cross-origin',
+		'Permissions-Policy': 'camera=(), microphone=(), geolocation=(), interest-cohort=()',
+		'Cross-Origin-Opener-Policy': 'same-origin',
+		'Cross-Origin-Resource-Policy': 'same-origin',
+		'Cache-Control': 'no-store',
+		'X-Robots-Tag': 'noindex, nofollow',
+		...extra,
+	};
+	if (cfg.SECURE) h['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains';
+	return h;
+}
+
+const FLASH = {
+	opgeslagen: { ok: true, text: 'Opgeslagen.' }, verwijderd: { ok: true, text: 'Verwijderd.' }, wachtwoord: { ok: true, text: 'Wachtwoord gewijzigd. Andere sessies zijn uitgelogd.' },
+	foutwachtwoord: { ok: false, text: 'Het huidige wachtwoord klopt niet.' }, kort: { ok: false, text: 'Gebruik minstens 12 tekens.' }, nofile: { ok: false, text: 'Kies eerst een bestand.' },
+	badimg: { ok: false, text: 'Upload een JPG-, PNG- of WebP-afbeelding van maximaal 5 MB.' }, teruggezet: { ok: true, text: 'Teruggezet. De vorige staat staat in de geschiedenis.' }, gemaakt: { ok: true, text: 'Aangemaakt.' },
+	geblokkeerd: { ok: false, text: 'Te veel pogingen. Probeer het later opnieuw.' },
+};
+
+async function handleAdmin(req, res, url) {
+	const nonce = crypto.randomBytes(16).toString('base64');
+	const ip = clientIp(req);
+	const p = url.pathname;
+	const out = (status, body, extra = {}) => { res.writeHead(status, headers(nonce, { 'Content-Type': 'text/html; charset=utf-8', ...extra })); res.end(body); return true; };
+	const jsonOut = (status, obj) => { res.writeHead(status, headers(nonce, { 'Content-Type': 'application/json; charset=utf-8' })); res.end(JSON.stringify(obj)); return true; };
+	const go = (to, extra = {}) => { res.writeHead(303, headers(nonce, { Location: to, ...extra })); res.end(); return true; };
+	const wantsJson = () => /json/.test(String(req.headers.accept || '')) || /json/.test(String(req.headers['content-type'] || '')) || req.headers['x-requested-with'] === 'fetch';
+	const fail = (status, text, ctx) => (wantsJson() ? jsonOut(status, { ok: false, melding: text }) : out(status, views.errorPage(ctx || { nonce }, status, text)));
+
+	if (req.method === 'POST' && !sameOrigin(req)) return fail(403, 'Verzoek geweigerd (andere herkomst).');
+	if (db.degraded()) { if (!db.ping()) return fail(503, 'De database is tijdelijk niet bereikbaar. De website blijft gewoon draaien; wijzigen kan pas als de database weer werkt.'); }
+
+	let session = null;
+	try { session = users.getSession(req, ip); } catch (e) { return fail(503, 'De database is tijdelijk niet bereikbaar.'); }
+	const flash = FLASH[url.searchParams.get('f')] || null;
+	const badges = () => { try { return { berichten: messages.unreadCount() || '' }; } catch (e) { return {}; } };
+	const ctx = { session, nonce, flash, get badges() { return badges(); } };
+	const can = (action) => users.can(session && session.user, action);
+
+	/* ---- signing in ---- */
+	if (!session) {
+		if (req.method === 'GET' && p === '/admin') return out(200, views.loginPage(ctx, { setup: users.count() === 0 }));
+		if (req.method === 'POST' && p === '/admin/login') {
+			const form = await readForm(req, 4096);
+			const email = String(form.email || '').trim().toLowerCase();
+			const r = users.checkLogin(ip, email, form.password || '');
+			if (r.locked) return out(429, views.loginPage(ctx, { flash: { ok: false, text: `Te veel pogingen. Probeer het opnieuw na ${new Date(r.until).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })}.` } }));
+			if (r.error) return out(401, views.loginPage(ctx, { flash: { ok: false, text: 'E-mailadres of wachtwoord klopt niet.' }, setup: users.count() === 0 }));
+			if (r.user.totp_geheim) return out(200, views.codePage(ctx, users.createTicket(r.user.id, ip, email)));
+			users.clearAttempts(ip, email);
+			const s = users.createSession(r.user.id, ip, req.headers['user-agent']);
+			audit.log({ user: r.user.id, actie: 'login.gelukt', entiteit: `gebruiker:${r.user.id}` });
+			return go('/admin', { 'Set-Cookie': users.cookieHeader(s.id, 8 * 3600) });
+		}
+		if (req.method === 'POST' && p === '/admin/login/code') {
+			const form = await readForm(req, 4096);
+			const t = users.useTicket(String(form.ticket || ''));
+			if (!t) return out(401, views.loginPage(ctx, { flash: { ok: false, text: 'Deze stap is verlopen. Log opnieuw in.' } }));
+			const st = users.lockState(ip, t.email);
+			if (st.locked) return out(429, views.loginPage(ctx, { flash: { ok: false, text: 'Te veel pogingen. Probeer het later opnieuw.' } }));
+			if (!users.verifySecondFactor(t.userId, form.code)) {
+				const f = users.failedAttempt(ip, t.email);
+				audit.log({ user: t.userId, actie: 'login.code_mislukt', entiteit: `gebruiker:${t.userId}` });
+				if (f.locked) return out(429, views.loginPage(ctx, { flash: { ok: false, text: 'Te veel pogingen. Probeer het later opnieuw.' } }));
+				return out(401, views.codePage(ctx, String(form.ticket), { ok: false, text: 'Die code klopt niet.' }));
+			}
+			users.endTicket(String(form.ticket));
+			users.clearAttempts(ip, t.email);
+			const s = users.createSession(t.userId, ip, req.headers['user-agent']);
+			audit.log({ user: t.userId, actie: 'login.gelukt', entiteit: `gebruiker:${t.userId}`, nieuw: { tweestaps: true } });
+			return go('/admin', { 'Set-Cookie': users.cookieHeader(s.id, 8 * 3600) });
+		}
+		if (wantsJson()) return jsonOut(401, { ok: false, melding: 'Je bent uitgelogd. Log opnieuw in.' });
+		return go('/admin');
+	}
+
+	/* ---- everything below needs a session ---- */
+	ctx.session = session;
+	const isPost = req.method === 'POST';
+	let form = null;
+	let body = null;
+	const csrfOk = (token) => !!token && users.safeEqual(token, session.csrf);
+	if (isPost && p !== '/admin/media/upload') {
+		if (/json/.test(String(req.headers['content-type'] || ''))) {
+			if (!csrfOk(req.headers['x-csrf-token'])) return fail(403, 'Verzoek geweigerd (CSRF).', ctx);
+			try { body = JSON.parse((await readBody(req, 700 * 1024)).toString('utf8')); } catch (e) { if (e.status === 413) return fail(413, 'Te groot.', ctx); return fail(400, 'Ongeldige gegevens.', ctx); }
+		} else {
+			try { form = await readForm(req, 700 * 1024); } catch (e) { return fail(e.status || 400, 'Verzoek te groot of ongeldig.', ctx); }
+			if (!csrfOk(form.csrf)) return fail(403, 'Verzoek geweigerd (CSRF).', ctx);
+		}
+	}
+	const needWrite = () => (can('schrijven') ? true : (fail(403, 'Je hebt alleen leesrechten.', ctx), false));
+	const needAdmin = () => (can('beheer') ? true : (fail(403, 'Alleen een beheerder mag dit.', ctx), false));
+	const user = session.user;
+
+	if (p === '/admin/logout' && isPost) {
+		users.destroySession(req);
+		audit.log({ user: user.id, actie: 'logout', entiteit: `gebruiker:${user.id}` });
+		return go('/admin', { 'Set-Cookie': users.cookieHeader('', 0) });
+	}
+
+	/* ---- dashboard ---- */
+	if (req.method === 'GET' && p === '/admin') {
+		const extra = pages.list();
+		return out(200, views.dashboardPage(ctx, {
+			nieuw: messages.unreadCount(), mailMislukt: messages.alarmCount(), concepten: extra.filter((x) => x.status === 'concept').length, publiek: extra.filter((x) => x.status === 'gepubliceerd').length,
+			gezondheid: db.all('SELECT bericht, ernst FROM gezondheid ORDER BY ernst, sleutel'), locks: ws.snapshot(),
+			recent: audit.list({ limit: 8 }).filter((a) => !/^login|logout/.test(a.actie)), dbOk: !db.degraded(), cache: cache.stats(), versie: VERSION,
+		}));
+	}
+	if (req.method === 'GET' && p === '/admin/events') { messages.alarm(); events.broadcast('berichten', { nieuw: messages.unreadCount() }); return events.handle(req, res, headers(nonce)), true; }
+
+	/* ---- pages and texts: lists ---- */
+	if (req.method === 'GET' && p === '/admin/paginas') return out(200, views.pagesPage(ctx, { extra: pages.list(), locks: ws.snapshot() }));
+	if (req.method === 'GET' && p === '/admin/paginas/nieuw') return out(200, views.newPagePage(ctx));
+	if (isPost && p === '/admin/paginas/nieuw') {
+		if (!needWrite()) return true;
+		if (!TEMPLATES[form.sjabloon]) return go('/admin/paginas/nieuw');
+		const id = pages.create({ sjabloon: form.sjabloon, user });
+		return go(`/admin/paginas/${id}`);
+	}
+
+	/* ---- editors ---- */
+	const draftFor = (object, versie) => {
+		const d = content.getDraft(object, user.id);
+		if (!d) return null;
+		const info = db.get('SELECT gewijzigd_op FROM objecten WHERE object = ?', object);
+		if (d.basis_versie !== versie || (info && d.bijgewerkt < info.gewijzigd_op)) { content.deleteDraft(object, user.id); return null; }
+		return d;
+	};
+	let m;
+	if (req.method === 'GET' && (m = /^\/admin\/tekst\/([a-z_]+)$/.exec(p))) {
+		const group = GROUPS.find((g) => g.id === m[1]);
+		if (!group) return fail(404, 'Onbekende tekstgroep.', ctx);
+		const object = content.textObject(group.id);
+		const values = {};
+		for (const l of LANGS) { const v = content.textValues(l); values[l] = Object.fromEntries(group.fields.map((f) => [f.key, v[f.key]])); }
+		const versie = content.objectVersion(object);
+		return out(200, views.textEditorPage(ctx, group.id, { values, statuses: content.readStatus(object), versie, draft: draftFor(object, versie), locked: ws.heldByOther(object, user.id) }));
+	}
+	if (req.method === 'GET' && p === '/admin/privacy') {
+		const saved = content.readObject('privacy');
+		const values = Object.fromEntries(LANGS.map((l) => [l, (saved[l] && saved[l].text) || content.privacyText(l) || PRIVACY[l]]));
+		const versie = content.objectVersion('privacy');
+		return out(200, views.privacyEditorPage(ctx, { values, versie, draft: draftFor('privacy', versie) }));
+	}
+	if (req.method === 'GET' && (m = /^\/admin\/paginas\/(\d+)$/.exec(p))) {
+		const pg = pages.get(Number(m[1]));
+		if (!pg) return fail(404, 'Pagina niet gevonden.', ctx);
+		pg.draft = draftFor(pages.object(pg.meta.id), pg.versie);
+		return out(200, views.pageEditorPage(ctx, pg.meta.id, pg));
+	}
+	if (isPost && (m = /^\/admin\/paginas\/(\d+)\/verwijderen$/.exec(p))) {
+		if (!needWrite()) return true;
+		const holder = ws.heldByOther(pages.object(Number(m[1])), user.id);
+		if (holder) return fail(423, `${holder} is deze pagina momenteel aan het bewerken.`, ctx);
+		pages.remove(Number(m[1]), user);
+		return go('/admin/paginas?f=verwijderd');
+	}
+
+	/* ---- JSON API of the editors ---- */
+	const objectOf = (b) => (b.kind === 'tekst' ? content.textObject(String(b.id || '')) : b.kind === 'pagina' ? pages.object(Number(b.id)) : b.kind === 'privacy' ? 'privacy' : null);
+	if (isPost && (p === '/admin/publish' || p === '/admin/publish/override')) {
+		if (!can('schrijven')) return jsonOut(403, { ok: false, melding: 'Je hebt alleen leesrechten.' });
+		if (!body) return jsonOut(400, { ok: false, melding: 'Ongeldige gegevens.' });
+		const object = objectOf(body);
+		if (!object) return jsonOut(400, { ok: false, melding: 'Onbekend onderdeel.' });
+		const holder = ws.heldByOther(object, user.id);
+		if (holder) return jsonOut(423, { ok: false, melding: `${holder} is deze pagina momenteel aan het bewerken.` });
+		const override = p === '/admin/publish/override';
+		const reden = override ? String(body.override_reason || '').trim() : '';
+		if (override && reden.length < 10) return jsonOut(400, { ok: false, melding: 'Geef een reden van minstens 10 tekens op.' });
+		try {
+			const params = { velden: body.velden, meta: body.meta, baseVersie: body.baseVersie, overrideReden: reden || null };
+			if (body.kind === 'tekst') params.groupId = String(body.id); else params.id = Number(body.id);
+			const r = publish.publish(body.kind, params, user);
+			return jsonOut(200, { ok: true, versie: r.versie, gewijzigd: r.gewijzigd, notes: r.notes || [] });
+		} catch (e) {
+			const status = [400, 404, 409, 413, 422, 423].includes(e.status) ? e.status : 500;
+			if (status === 500) { console.error(e); return jsonOut(500, { ok: false, melding: 'Er ging iets mis bij het opslaan. Er is niets gewijzigd.' }); }
+			return jsonOut(status, { ok: false, melding: e.message, fouten: e.fouten || null, waarschuwingen: e.waarschuwingen || null, huidige_versie: e.huidige_versie == null ? null : e.huidige_versie });
+		}
+	}
+	if (isPost && p === '/admin/auto-save') {
+		if (!can('schrijven')) return jsonOut(403, { ok: false });
+		const object = body && typeof body.object === 'string' ? body.object : '';
+		const known = /^tekst:([a-z_]+)$/.exec(object) ? GROUPS.some((g) => `tekst:${g.id}` === object) : /^pagina:(\d+)$/.test(object) ? !!pages.get(Number(object.slice(7))) : object === 'privacy';
+		if (!known) return jsonOut(400, { ok: false });
+		if (ws.heldByOther(object, user.id)) return jsonOut(423, { ok: false });
+		try { content.saveDraft(object, user.id, body.data, Number(body.basisVersie) || 0); } catch (e) { return jsonOut(e.status || 500, { ok: false }); }
+		return jsonOut(200, { ok: true, tijd: db.iso() });
+	}
+	if (isPost && p === '/admin/api/concept-weg') {
+		const object = objectOf({ kind: body && body.kind, id: body && body.id });
+		if (object) content.deleteDraft(object, user.id);
+		return jsonOut(200, { ok: true });
+	}
+	if (isPost && p === '/admin/api/check') {
+		if (!body) return jsonOut(400, { ok: false });
+		try {
+			const params = { velden: body.velden, meta: body.meta };
+			if (body.kind === 'tekst') params.groupId = String(body.id); else params.id = Number(body.id);
+			return jsonOut(200, { ok: true, ...publish.check(body.kind, params) });
+		} catch (e) { return jsonOut(e.status || 400, { ok: false, melding: e.message, fouten: e.fouten || null }); }
+	}
+	if (isPost && p === '/admin/api/nagekeken') {
+		if (!can('schrijven')) return jsonOut(403, { ok: false });
+		const object = objectOf({ kind: body && body.kind, id: body && body.id });
+		if (!object || !LANGS.includes(body.taal)) return jsonOut(400, { ok: false });
+		return jsonOut(200, { ok: true, velden: content.markReviewed(object, body.taal, user) });
+	}
+
+	/* ---- live preview: a form posts the editor state into a sandboxed iframe; nothing is stored ---- */
+	if (isPost && p === '/admin/preview') {
+		let payload;
+		try { payload = JSON.parse(String(form.payload || '{}')); } catch (e) { return out(400, '<p>Ongeldig voorbeeld.</p>'); }
+		const lang = LANGS.includes(payload.lang) ? payload.lang : 'en';
+		const siteUrl = cfg.SITE_URL || `${cfg.SECURE ? 'https' : 'http'}://${req.headers.host || 'localhost'}`;
+		let html = null;
+		try {
+			if (payload.kind === 'pagina') html = render.previewPage({ lang, velden: payload.velden, meta: payload.meta, siteUrl });
+			else if (payload.kind === 'privacy') html = render.previewText({ lang, path: '/privacy', velden: {}, privacy: payload.velden && payload.velden[lang] && payload.velden[lang].text, siteUrl });
+			else html = render.previewText({ lang, path: String(payload.path || '/'), velden: payload.velden, siteUrl });
+		} catch (e) { html = null; }
+		if (!html) return out(200, '<!doctype html><meta charset="utf-8"><p style="font:16px system-ui;padding:2rem">Voor deze pagina is geen voorbeeld beschikbaar.</p>', { 'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'", 'X-Frame-Options': 'SAMEORIGIN' });
+		html = html.replace('<head>', '<head>\n<base target="_blank">').replace(/<script[\s\S]*?<\/script>/g, '');
+		res.writeHead(200, headers(nonce, { 'Content-Type': 'text/html; charset=utf-8', 'Content-Security-Policy': "default-src 'none'; style-src 'self'; img-src 'self'; font-src 'self'; script-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'", 'X-Frame-Options': 'SAMEORIGIN' }));
+		res.end(html);
+		return true;
+	}
+
+	/* ---- history ---- */
+	if (req.method === 'GET' && p === '/admin/historie') {
+		const object = String(url.searchParams.get('object') || '');
+		return out(200, views.historyPage(ctx, { object, entries: content.history(object) }));
+	}
+	if (req.method === 'GET' && (m = /^\/admin\/historie\/(\d+)$/.exec(p))) {
+		const entry = content.historyEntry(Number(m[1]));
+		if (!entry) return fail(404, 'Versie niet gevonden.', ctx);
+		const now = content.readObject(entry.object);
+		return out(200, views.diffPage(ctx, { entry, object: entry.object, diff: content.diffObjects(entry.snapshot.velden, now), huidigeVersie: content.objectVersion(entry.object) }));
+	}
+	if (isPost && (m = /^\/admin\/historie\/(\d+)\/terugzetten$/.exec(p))) {
+		if (!needWrite()) return true;
+		const entry = content.historyEntry(Number(m[1]));
+		if (!entry) return fail(404, 'Versie niet gevonden.', ctx);
+		const holder = ws.heldByOther(entry.object, user.id);
+		if (holder) return fail(423, `${holder} is dit onderdeel momenteel aan het bewerken.`, ctx);
+		try {
+			const basis = Number(form.basis);
+			if (/^pagina:(\d+)$/.test(entry.object)) pages.rollback(Number(entry.object.slice(7)), entry.id, { user, baseVersie: basis });
+			else content.writeFields(entry.object, entry.snapshot.velden, { user, baseVersie: basis, reden: 'rollback' });
+		} catch (e) { return fail(e.status || 500, e.message, ctx); }
+		return go(`/admin/historie?object=${encodeURIComponent(entry.object)}&f=teruggezet`);
+	}
+
+	/* ---- media ---- */
+	if (req.method === 'GET' && p === '/admin/media') return out(200, views.mediaPage({ ...ctx }, { items: media.list(), slots: media.slots(), enc: media.encodersAvailable() }));
+	if (isPost && p === '/admin/media/upload') {
+		if (!can('schrijven')) { res.writeHead(403, headers(nonce, { Connection: 'close' })); res.end(); return true; }
+		let up;
+		try {
+			up = await media.streamUpload(req);
+		} catch (e) {
+			if (e.abort) { res.writeHead(413, headers(nonce, { 'Content-Type': 'text/plain; charset=utf-8', Connection: 'close' })); res.end('Bestand te groot', () => req.socket.destroy()); return true; }
+			return go(`/admin/media?f=${e.code === 'badimg' ? 'badimg' : 'nofile'}`);
+		}
+		if (!csrfOk(up.fields.csrf)) { if (up.file) require('fs').rmSync(up.file.path, { force: true }); return fail(403, 'Verzoek geweigerd (CSRF).', ctx); }
+		if (!up.file) return go('/admin/media?f=nofile');
+		try {
+			await media.saveUpload({ tmpPath: up.file.path, alt: Object.fromEntries(LANGS.map((l) => [l, up.fields[`alt_${l}`]])), rechten: up.fields.rechten, bron: up.fields.bron, user });
+		} catch (e) { return out(e.status || 500, views.mediaPage({ ...ctx, flash: { ok: false, text: e.message } }, { items: media.list(), slots: media.slots(), enc: media.encodersAvailable() })); }
+		return go('/admin/media?f=opgeslagen');
+	}
+	if (isPost && p === '/admin/media/plek') {
+		if (!needWrite()) return true;
+		try { media.setSlot(String(form.plek), form.media ? Number(form.media) : null, user); } catch (e) { return fail(e.status || 400, e.message, ctx); }
+		return go('/admin/media?f=opgeslagen');
+	}
+	if (isPost && (m = /^\/admin\/media\/(\d+)$/.exec(p))) {
+		if (!needWrite()) return true;
+		try { media.update(Number(m[1]), { alt: Object.fromEntries(LANGS.map((l) => [l, form[`alt_${l}`]])), rechten: form.rechten, bron: form.bron }, user); } catch (e) { return fail(e.status || 400, e.message, ctx); }
+		return go('/admin/media?f=opgeslagen');
+	}
+	if (isPost && (m = /^\/admin\/media\/(\d+)\/verwijderen$/.exec(p))) {
+		if (!needWrite()) return true;
+		try { media.remove(Number(m[1]), user); } catch (e) { return fail(e.status || 400, e.message, ctx); }
+		return go('/admin/media?f=verwijderd');
+	}
+
+	/* ---- messages ---- */
+	const filterOf = (u) => Object.fromEntries(['q', 'status', 'rol', 'taal', 'bron', 'van', 'tot'].map((k) => [k, String(u.searchParams.get(k) || '').slice(0, 200)]));
+	if (req.method === 'GET' && p === '/admin/berichten') {
+		const filter = filterOf(url);
+		const per = 50;
+		const total = messages.count(filter);
+		const pagesN = Math.max(1, Math.ceil(total / per));
+		const page = Math.min(pagesN, Math.max(1, parseInt(url.searchParams.get('page'), 10) || 1));
+		return out(200, views.messagesPage(ctx, { list: messages.list(filter, { limit: per, offset: (page - 1) * per }), total, page, pages: pagesN, filter, sources: messages.sources(), roles: messages.roles(), retention: cfg.RETENTION_DAYS }));
+	}
+	if (req.method === 'GET' && p === '/admin/berichten.csv') {
+		audit.log({ user, actie: 'bericht.export', entiteit: 'bericht', nieuw: filterOf(url) });
+		res.writeHead(200, headers(nonce, { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': 'attachment; filename="aethra-berichten.csv"' }));
+		res.end(messages.csv(filterOf(url)));
+		return true;
+	}
+	if (req.method === 'GET' && p === '/admin/berichten/privacy') {
+		const email = String(url.searchParams.get('email') || '').trim();
+		return out(200, views.privacyRequestPage(ctx, { email, list: email ? messages.byEmail(email) : [] }));
+	}
+	if (req.method === 'GET' && p === '/admin/berichten/privacy.json') {
+		const email = String(url.searchParams.get('email') || '').trim();
+		audit.log({ user, actie: 'bericht.privacy_export', entiteit: 'bericht', nieuw: { email_hash: crypto.createHash('sha256').update(email.toLowerCase()).digest('hex').slice(0, 12) } });
+		res.writeHead(200, headers(nonce, { 'Content-Type': 'application/json; charset=utf-8', 'Content-Disposition': 'attachment; filename="berichten-export.json"' }));
+		res.end(JSON.stringify({ email, berichten: messages.byEmail(email) }, null, 2));
+		return true;
+	}
+	if (isPost && p === '/admin/berichten/privacy/wissen') {
+		if (!needWrite()) return true;
+		const n = messages.removeByEmail(form.email, user);
+		return go(`/admin/berichten/privacy?email=${encodeURIComponent(form.email || '')}&f=verwijderd&n=${n}`);
+	}
+	if (req.method === 'GET' && (m = /^\/admin\/berichten\/(\d+)$/.exec(p))) {
+		const msg = messages.get(Number(m[1]));
+		if (!msg) return fail(404, 'Bericht niet gevonden.', ctx);
+		if (can('schrijven')) messages.markRead(msg.id);
+		return out(200, views.messagePage(ctx, { m: { ...msg, status: msg.status === 'nieuw' && can('schrijven') ? 'gelezen' : msg.status }, gebruikers: users.list(), aantalVanAdres: messages.byEmail(msg.email).length }));
+	}
+	if (isPost && (m = /^\/admin\/berichten\/(\d+)\/(status|notitie|toewijzen|verwijderen)$/.exec(p))) {
+		if (!needWrite()) return true;
+		const id = Number(m[1]);
+		try {
+			if (m[2] === 'status') messages.setStatus(id, form.status, user);
+			else if (m[2] === 'notitie') messages.setNote(id, form.notitie, user);
+			else if (m[2] === 'toewijzen') messages.assign(id, form.gebruiker ? Number(form.gebruiker) : null, user);
+			else { messages.remove(id, user); return go('/admin/berichten?f=verwijderd'); }
+		} catch (e) { return fail(e.status || 400, e.message, ctx); }
+		return go(`/admin/berichten/${id}?f=opgeslagen`);
+	}
+	if (req.method === 'GET' && p === '/admin/wachtrij') return out(200, views.queuePage(ctx, { rows: messages.queueList(), stats: messages.queueStats() }));
+	if (isPost && (m = /^\/admin\/wachtrij\/(\d+)\/opnieuw$/.exec(p))) { if (!needWrite()) return true; messages.retry(Number(m[1]), user); return go('/admin/wachtrij'); }
+
+	/* ---- redirects ---- */
+	if (req.method === 'GET' && p === '/admin/redirects') return out(200, views.redirectsPage(ctx, redirects.list()));
+	if (isPost && p === '/admin/redirects') { if (!needWrite()) return true; if (!redirects.add(form.van, form.naar, user)) return fail(400, 'Gebruik adressen als /nl/oude-pagina en /nl/nieuwe-pagina (twee verschillende adressen).', ctx); return go('/admin/redirects?f=opgeslagen'); }
+	if (isPost && p === '/admin/redirects/verwijderen') { if (!needWrite()) return true; redirects.remove(String(form.van), user); return go('/admin/redirects?f=verwijderd'); }
+
+	/* ---- statistics, audit ---- */
+	if (req.method === 'GET' && p === '/admin/stats') {
+		const days = [7, 30, 90].includes(Number(url.searchParams.get('days'))) ? Number(url.searchParams.get('days')) : 30;
+		return out(200, views.statsPage(ctx, stats.summary(days), days));
+	}
+	if (req.method === 'GET' && p === '/admin/audit') {
+		if (!needAdmin()) return true;
+		const actie = String(url.searchParams.get('actie') || '').slice(0, 60);
+		const page = Math.max(1, parseInt(url.searchParams.get('page'), 10) || 1);
+		return out(200, views.auditPage(ctx, { rows: audit.list({ limit: 100, offset: (page - 1) * 100, actie }), total: audit.count(actie), page, actie }));
+	}
+
+	/* ---- re-authentication for critical actions ---- */
+	const reauth = (password) => {
+		const key = `reauth:${user.email}`;
+		if (users.lockState(ip, key).locked) return 'locked';
+		const row = users.byId(user.id);
+		if (!users.verifyPassword(password || '', row.wachtwoord_hash)) { users.failedAttempt(ip, key); return false; }
+		users.clearAttempts(ip, key);
+		return true;
+	};
+	/** After a critical action the session id changes. */
+	const rotated = (to, extra = {}) => { const s = users.rotateSession(session, req, ip); return go(to, { 'Set-Cookie': users.cookieHeader(s.id, 8 * 3600), ...extra }); };
+
+	/* ---- users (administrators) ---- */
+	if (p.startsWith('/admin/gebruikers')) {
+		if (!needAdmin()) return true;
+		if (req.method === 'GET' && p === '/admin/gebruikers') return out(200, views.usersPage(ctx, { list: users.list() }));
+		if (isPost && p === '/admin/gebruikers') {
+			const ok = reauth(form.huidig);
+			if (ok !== true) return go('/admin/gebruikers?f=foutwachtwoord');
+			try { users.create({ email: form.email, naam: form.naam, rol: form.rol, wachtwoord: form.wachtwoord }, user); } catch (e) { return out(e.status || 400, views.usersPage({ ...ctx, flash: { ok: false, text: e.message } }, { list: users.list() })); }
+			return rotated('/admin/gebruikers?f=gemaakt');
+		}
+		if (isPost && (m = /^\/admin\/gebruikers\/(\d+)$/.exec(p))) {
+			try { users.update(Number(m[1]), { naam: form.naam, rol: form.rol, actief: form.actief === '1' }, user); } catch (e) { return out(e.status || 400, views.usersPage({ ...ctx, flash: { ok: false, text: e.message } }, { list: users.list() })); }
+			return go('/admin/gebruikers?f=opgeslagen');
+		}
+		if (isPost && (m = /^\/admin\/gebruikers\/(\d+)\/wachtwoord$/.exec(p))) {
+			if (reauth(form.huidig) !== true) return go('/admin/gebruikers?f=foutwachtwoord');
+			try { users.setPassword(Number(m[1]), form.nieuw, user); users.destroyOthers(Number(m[1]), ''); } catch (e) { return out(e.status || 400, views.usersPage({ ...ctx, flash: { ok: false, text: e.message } }, { list: users.list() })); }
+			return rotated('/admin/gebruikers?f=opgeslagen');
+		}
+		if (isPost && (m = /^\/admin\/gebruikers\/(\d+)\/2fa-uit$/.exec(p))) {
+			if (reauth(form.huidig) !== true) return go('/admin/gebruikers?f=foutwachtwoord');
+			users.disableTwoFactor(Number(m[1]), user);
+			return rotated('/admin/gebruikers?f=opgeslagen');
+		}
+		return false;
+	}
+
+	/* ---- own account ---- */
+	const account = (flash2, tf = {}) => out(200, views.accountPage({ ...ctx }, { flash: flash2 || flash, tf: { enabled: !!users.byId(user.id).totp_geheim, left: users.recoveryLeft(user.id), setup: users.pendingTwoFactor(user.id), ...tf } }));
+	if (req.method === 'GET' && p === '/admin/account') return account();
+	if (isPost && p === '/admin/account') {
+		const ok = reauth(form.current);
+		if (ok !== true) return go('/admin/account?f=foutwachtwoord');
+		if (String(form.password || '').length < 12) return go('/admin/account?f=kort');
+		users.setPassword(user.id, form.password, user);
+		const s = users.rotateSession(session, req, ip);
+		users.destroyOthers(user.id, s.id);
+		return go('/admin/account?f=wachtwoord', { 'Set-Cookie': users.cookieHeader(s.id, 8 * 3600) });
+	}
+	if (isPost && p === '/admin/2fa/start') {
+		if (users.byId(user.id).totp_geheim) return go('/admin/account');
+		if (reauth(form.current) !== true) return go('/admin/account?f=foutwachtwoord');
+		users.beginTwoFactor(user.id);
+		return rotated('/admin/account');
+	}
+	if (isPost && p === '/admin/2fa/restart') { if (!users.byId(user.id).totp_geheim && users.pendingTwoFactor(user.id)) users.beginTwoFactor(user.id); return go('/admin/account'); }
+	if (isPost && p === '/admin/2fa/confirm') {
+		if (users.lockState(ip, `2fa:${user.email}`).locked) return go('/admin/account?f=geblokkeerd');
+		const codes = users.confirmTwoFactor(user.id, form.code);
+		if (!codes) { users.failedAttempt(ip, `2fa:${user.email}`); return account({ ok: false, text: 'Die code klopt niet. Controleer de sleutel en de tijd op je telefoon.' }); }
+		users.clearAttempts(ip, `2fa:${user.email}`);
+		const s = users.rotateSession(session, req, ip);
+		users.destroyOthers(user.id, s.id);
+		res.setHeader('Set-Cookie', users.cookieHeader(s.id, 8 * 3600));
+		return account({ ok: true, text: 'Tweestapsverificatie staat aan.' }, { codes });
+	}
+	if (isPost && p === '/admin/2fa/recovery') {
+		if (reauth(form.current) !== true || !users.verifySecondFactor(user.id, form.code)) return account({ ok: false, text: 'Wachtwoord of code klopt niet.' });
+		return account({ ok: true, text: 'Nieuwe herstelcodes gemaakt. De oude werken niet meer.' }, { codes: users.regenerateRecovery(user.id) });
+	}
+	if (isPost && p === '/admin/2fa/disable') {
+		if (reauth(form.current) !== true || !users.verifySecondFactor(user.id, form.code)) return account({ ok: false, text: 'Wachtwoord of code klopt niet.' });
+		users.disableTwoFactor(user.id, user);
+		const s = users.rotateSession(session, req, ip);
+		users.destroyOthers(user.id, s.id);
+		return go('/admin/account', { 'Set-Cookie': users.cookieHeader(s.id, 8 * 3600) });
+	}
+
+	return false;
+}
+
+/** Defence in depth next to SameSite=Strict and the CSRF token: a cross-site Origin on an admin POST is refused. */
+function sameOrigin(req) {
+	const origin = req.headers.origin;
+	if (!origin || origin === 'null') return !origin;
+	try {
+		const host = new URL(origin).host;
+		return host === String(req.headers.host || '') || (!!cfg.SITE_URL && host === new URL(cfg.SITE_URL).host);
+	} catch (e) {
+		return false;
+	}
+}
+
+module.exports = { handleAdmin, headers };

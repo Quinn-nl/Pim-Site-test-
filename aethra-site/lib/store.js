@@ -1,14 +1,13 @@
 'use strict';
 /**
- * File-based storage: content.json, messages.json, admin.json, secret.key.
- * Writes are atomic (temp file + rename). Private files are mode 0600.
+ * Small shared helpers (data folder, atomic JSON files, the server secret, text cleaning) and the read side of the site's content.
+ * Everything editable lives in the SQLite database (lib/cms/*); this module hands the public templates what they need:
+ * getContent(lang) = texts (defaults + database), photos, privacy text. If the database is down the last good copy keeps serving.
  */
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const cfg = require('./config');
-const { FIELDS, IMAGE_SLOTS, OPTIONAL } = require('./fields');
-const { LANGS, defaultsFor, PRIVACY } = require('./i18n');
 
 const file = (name) => path.join(cfg.DATA_DIR, name);
 const uploadsDir = () => path.join(cfg.DATA_DIR, 'uploads');
@@ -34,7 +33,7 @@ function writeJson(name, data) {
 	fs.renameSync(tmp, target);
 }
 
-/* Secret used to sign form tokens; generated once. */
+/* Secret used to sign form tokens and to encrypt authenticator secrets; generated once. */
 function getSecret() {
 	ensureDirs();
 	try {
@@ -47,7 +46,7 @@ function getSecret() {
 	}
 }
 
-/* Content */
+/** One text value cleaned by its field type (300 / 2000 characters, links must be http(s)). null = invalid link. */
 function cleanValue(field, raw) {
 	let v = String(raw == null ? '' : raw).replace(/\r/g, '');
 	if (field.type === 'textarea') {
@@ -67,178 +66,34 @@ function cleanValue(field, raw) {
 	return v;
 }
 
-/* Saved content is per language: { values: { en: {...}, nl: {...} }, privacy: { en: '...' }, images }.
-   Older single-language files (flat values, string privacy) are read as English. */
-function normalise(saved) {
-	const values = saved.values || {};
-	const flat = Object.keys(values).some((k) => FIELDS[k]);
-	return {
-		values: flat ? { en: values } : values,
-		privacy: typeof saved.privacy === 'string' ? { en: saved.privacy } : (saved.privacy || {}),
-		images: saved.images || {},
-	};
+/* ---- the read side ---- */
+let imagesCache = {};
+let wired = false;
+function wire() {
+	if (wired) return;
+	wired = true;
+	require('./cms/content').onChange(() => { imagesCache = {}; });
 }
-
-/* Optional external source (the Payload CMS): texts per language, refreshed in the background by lib/payload-content.js. */
-let remote = {};
-let remoteActive = false;
-let remoteImages = {};
-const setRemoteImages = (map) => { remoteImages = map || {}; };
-const setRemote = (map) => { remote = map || {}; remoteActive = true; };
-const remoteState = () => ({ active: remoteActive, languages: Object.keys(remote) });
-
-/** Keeps only known fields; empty values fall back to the local text unless the field may be empty. */
-function remoteValues(row) {
-	const out = {};
-	for (const [key, raw] of Object.entries(row || {})) {
-		const field = FIELDS[key];
-		if (!field || raw == null) continue;
-		const v = cleanValue(field, raw);
-		if (v === null) continue;
-		if (v === '' && !OPTIONAL.test(key)) continue;
-		out[key] = v;
+function images(lang) {
+	wire();
+	if (imagesCache[lang]) return imagesCache[lang];
+	try {
+		return (imagesCache[lang] = require('./cms/media').slotImages(lang));
+	} catch (e) {
+		return imagesCache[lang] || {};
 	}
-	return out;
 }
-
-/* Pages created in the CMS (collection "pages"). Only published pages with a valid, unreserved slug are served. */
-const RESERVED_SLUGS = new Set(['problem', 'how-it-works', 'applications', 'contact', 'privacy', 'for', 'eco-mode-today', 'admin', 'admin2', 'css', 'js', 'img', 'fonts', 'uploads', 'deck', 'healthz', 'robots', 'sitemap', 'llms', 'favicon']);
-let remotePagesRaw = [];
-const setRemotePages = (rows) => { remotePagesRaw = Array.isArray(rows) ? rows : []; };
-const oneLine = (s, max) => String(s == null ? '' : s).replace(/\s+/g, ' ').trim().slice(0, max);
-
-function publishedPages() {
-	const seen = new Set();
-	const out = [];
-	for (const r of [...remotePagesRaw].sort((a, b) => (Number(a.id) || 0) - (Number(b.id) || 0))) {
-		const lang = r.language;
-		const slug = String(r.slug || '').trim().toLowerCase();
-		if (r.status !== 'published' || !LANGS.includes(lang) || !/^[a-z0-9]+(-[a-z0-9]+)*$/.test(slug) || RESERVED_SLUGS.has(slug) || !oneLine(r.title, 200)) continue;
-		if (seen.has(`${lang}/${slug}`)) continue; // first one wins
-		seen.add(`${lang}/${slug}`);
-		out.push({
-			id: r.id, language: lang, slug, title: oneLine(r.title, 200), lead: oneLine(r.lead, 600),
-			body: r.body && typeof r.body === 'object' ? r.body : String(r.body || '').replace(/\r/g, '').slice(0, 20000),
-			seo_title: oneLine(r.seo_title, 120), seo_description: oneLine(r.seo_description, 300),
-			group: String(r.translation_group || '').trim().toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 60),
-			footer: r.show_in_footer === true, updated: String(r.date_updated || r.date_created || '').slice(0, 10),
-		});
-	}
-	return out;
-}
-const findPage = (lang, slug) => publishedPages().find((p) => p.language === lang && p.slug === slug) || null;
-/** The same page in every language it exists in (linked by translation_group), including itself. */
-function pageVersions(page) {
-	const all = publishedPages();
-	if (!page.group) return { [page.language]: page.slug };
-	const out = {};
-	for (const p of all) if (p.group === page.group && !out[p.language]) out[p.language] = p.slug;
-	out[page.language] = page.slug;
-	return out;
-}
-const footerPages = (lang) => publishedPages().filter((p) => p.footer && p.language === lang);
 
 function getContent(lang = 'en') {
-	const saved = normalise(readJson('content.json', {}));
-	const r = remote[lang] || null;
-	return {
-		lang,
-		values: { ...defaultsFor(lang), ...(saved.values[lang] || {}), ...(r ? remoteValues(r) : {}) },
-		images: { ...saved.images, ...remoteImages },
-		privacy: (r && typeof r.privacy === 'string' && r.privacy.trim()) || saved.privacy[lang] || PRIVACY[lang] || PRIVACY.en,
-	};
+	const content = require('./cms/content');
+	wire();
+	return { lang, values: content.textValues(lang), images: images(lang), privacy: content.privacyText(lang) };
 }
 
-function saveContent(patch) {
-	const lang = patch.lang || 'en';
-	if (!LANGS.includes(lang)) return { ok: false, errors: ['Unknown language'] };
-	const saved = normalise(readJson('content.json', {}));
-	if (patch.values) {
-		const values = { ...(saved.values[lang] || {}) };
-		const errors = [];
-		for (const [key, raw] of Object.entries(patch.values)) {
-			const field = FIELDS[key];
-			if (!field) continue;
-			const v = cleanValue(field, raw);
-			if (v === null) errors.push(`${field.label}: enter a valid http(s) link`);
-			else values[key] = v;
-		}
-		if (errors.length) return { ok: false, errors };
-		saved.values[lang] = values;
-	}
-	if (typeof patch.privacy === 'string') saved.privacy[lang] = patch.privacy.replace(/\r/g, '').slice(0, 20000);
-	if (patch.images) saved.images = patch.images;
-	writeJson('content.json', saved);
-	return { ok: true };
-}
+const pages = () => require('./cms/pages');
+const publishedPages = () => pages().publishedPages();
+const findPage = (lang, slug) => pages().findPage(lang, slug);
+const pageVersions = (page) => pages().pageVersions(page);
+const footerPages = (lang) => pages().footerPages(lang);
 
-/** Photos uploaded in our own panel (the CMS photos are shown on the site but are not edited here). */
-const getLocalImages = () => ({ ...normalise(readJson('content.json', {})).images });
-
-function setImage(slot, entry) {
-	if (!IMAGE_SLOTS.some((s) => s.slot === slot)) throw new Error('unknown slot');
-	const images = getLocalImages();
-	const old = images[slot];
-	if (entry) images[slot] = entry;
-	else delete images[slot];
-	saveContent({ images });
-	if (old && (!entry || old.file !== entry.file)) {
-		try {
-			fs.unlinkSync(path.join(uploadsDir(), path.basename(old.file)));
-		} catch (e) { /* already gone */ }
-	}
-}
-
-/* Messages */
-function listMessages() {
-	const cutoff = Date.now() - cfg.RETENTION_DAYS * 86400000;
-	const all = readJson('messages.json', []);
-	const kept = all.filter((m) => Date.parse(m.at) >= cutoff);
-	if (kept.length !== all.length) writeJson('messages.json', kept);
-	return kept.sort((a, b) => (a.at < b.at ? 1 : -1));
-}
-
-function addMessage(msg) {
-	const all = listMessages();
-	if (all.length >= 1000) return null;
-	const entry = { id: crypto.randomBytes(8).toString('hex'), at: new Date().toISOString(), read: false, ...msg };
-	all.push(entry);
-	writeJson('messages.json', all);
-	return entry;
-}
-
-const unreadCount = () => readJson('messages.json', []).filter((m) => m.read === false).length;
-
-function markAllRead() {
-	const all = readJson('messages.json', []);
-	if (all.some((m) => m.read === false)) writeJson('messages.json', all.map((m) => ({ ...m, read: true })));
-}
-
-function markRead(ids) {
-	const set = new Set(ids);
-	const all = readJson('messages.json', []);
-	if (all.some((m) => set.has(m.id) && m.read === false)) writeJson('messages.json', all.map((m) => (set.has(m.id) ? { ...m, read: true } : m)));
-}
-
-function patchMessage(id, patch) {
-	const all = readJson('messages.json', []);
-	writeJson('messages.json', all.map((m) => (m.id === id ? { ...m, ...patch } : m)));
-}
-
-/** CSV for the admin export. Cells that start like a formula are neutralised (CSV injection). */
-function messagesCsv() {
-	const cell = (v) => {
-		let t = String(v == null ? '' : v).replace(/\r?\n/g, ' ');
-		if (/^[=+\-@\t]/.test(t)) t = `'${t}`;
-		return `"${t.replace(/"/g, '""')}"`;
-	};
-	const rows = listMessages().map((m) => [m.at, m.lang, m.role, m.source, m.campaign, m.name, m.email, m.org, m.message].map(cell).join(','));
-	return '\ufeff' + ['Received,Language,Role,Source,Campaign,Name,Email,Organisation,Message', ...rows].join('\r\n') + '\r\n';
-}
-
-function deleteMessage(id) {
-	const all = readJson('messages.json', []);
-	writeJson('messages.json', all.filter((m) => m.id !== id));
-}
-
-module.exports = { setRemoteImages, getLocalImages, setRemotePages, publishedPages, findPage, pageVersions, footerPages, setRemote, remoteState, markRead, unreadCount, markAllRead, patchMessage, messagesCsv, file, uploadsDir, ensureDirs, readJson, writeJson, getSecret, getContent, saveContent, setImage, listMessages, addMessage, deleteMessage, cleanValue };
+module.exports = { file, uploadsDir, ensureDirs, readJson, writeJson, getSecret, cleanValue, getContent, publishedPages, findPage, pageVersions, footerPages };

@@ -1,3 +1,5 @@
+> **Bijgewerkt op 5 oktober 2026:** Payload CMS en `/admin2` zijn vervangen door een eigen CMS op `/admin` (zie [cms.md](cms.md)). Delen van dit document die nog over Payload gaan, zijn achterhaald; de eisen in deel B zijn grotendeels gebouwd.
+
 # Aethra website: hoe alles in elkaar zit, en de eisen voor een eigen CMS
 
 Stand: 5 oktober 2026. Dit document bestaat uit twee delen:
@@ -38,7 +40,7 @@ aethra-site/
     mail.js               e-mail (SMTP)
     stats.js              anonieme statistieken
     admin-views.js        pagina's van het eigen beheerpaneel
-    cms-proxy.js, payload-content.js, cms-messages.js   koppeling met Payload CMS (/admin2)
+    cms/                  het CMS: db, users, content, pages, templates, media, messages, admin, ws, jobs ...
     worst-case.js         testmodus met extreme data
   public/
     css/design-tokens.css kleuren, afstanden, lettergroottes
@@ -47,7 +49,7 @@ aethra-site/
     js/init.js, site.js   klein beetje gedrag (menu, onthullen bij scrollen, formulier)
     fonts/, img/, deck/   lettertypes (Exo 2, IBM Plex Sans), logo's, banners, pitchdeck
   data/                   alleen op de server: content.json, messages.json, stats.json, uploads/, secret.key
-  payload/                het Payload CMS (aparte app)
+  database/migrations/    SQL-migraties van het CMS
   scripts/                back-up, SEO-controle, IndexNow, wachtwoord, 2FA-reset, CMS-setup, decks
   test/                   40 geautomatiseerde tests
 ```
@@ -64,7 +66,7 @@ aethra-site/
    4. Een vaste pagina (Home, Problem, How it works, Applications, Privacy, eco-mode-today).
    5. Anders de 404-pagina (in de taal van de bezoeker, met noindex).
 5. **Formulier:** `POST /<taal>/contact` voor het contactformulier.
-6. **Beheer:** `/admin` (eigen paneel) en `/admin2` (Payload CMS, doorgestuurd via een proxy).
+6. **Beheer:** `/admin` (het eigen CMS), met een WebSocket op `/admin/ws` voor bewerkingsloten en een SSE-stroom op `/admin/events` voor meldingen.
 7. **Uploads en assets:** `/uploads/...` (foto's), `/css`, `/js`, `/img`, `/fonts`, `/deck`. Bestanden met versie in het adres worden een jaar gecached.
 8. **Antwoord:** HTML wordt gecomprimeerd verstuurd, met strikte beveiligingsheaders en ETags.
 
@@ -144,7 +146,7 @@ Vier vakken: hero, probleem, status en deelafbeelding (1200 x 630). De bestandst
 Titel, adres, intro, tekst, SEO-titel, SEO-beschrijving, per taal, status (concept of gepubliceerd), "toon in footer". Een pagina bestaat alleen in de talen waarin hij is ingevuld. De sitemap en hreflang volgen die talen.
 
 ### Berichten
-Elk bericht bevat: tijdstip, taal, naam, e-mail, organisatie, rol (Investor, Municipality, Fleet operator, Vehicle manufacturer, Mobility platform, Other), tekst, bron en campagne (UTM), gelezen-markering. Opslag in `data/messages.json`, daarna een kopie in de CMS-inbox. Er is een CSV-export in het eigen paneel. Berichten worden na de bewaartermijn (standaard 365 dagen) automatisch verwijderd.
+Elk bericht bevat: tijdstip, taal, naam, e-mail, organisatie, rol (Investor, Municipality, Fleet operator, Vehicle manufacturer, Mobility platform, Other), tekst, bron en campagne (UTM), gelezen-markering. Opslag in de tabel `berichten`, mailen via de tabel `uitgaande_wachtrij`. Er is een CSV-export in het CMS. Berichten worden na de bewaartermijn (standaard 365 dagen) automatisch verwijderd.
 
 ## A7. Meertaligheid
 
@@ -175,8 +177,7 @@ Scrypt-wachtwoord, limiet op inlogpogingen, sessies van 8 uur (HttpOnly, SameSit
 
 ## A13. Beheer nu
 
-- **`/admin`** (eigen paneel): teksten per taal, foto's, privacytekst, berichten (lezen, verwijderen, CSV), statistieken, account (wachtwoord, 2FA).
-- **`/admin2`** (Payload CMS): teksten per pagina gegroepeerd, extra pagina's met concepten en versies, foto's, berichtenbox, rollen. De site haalt inhoud op uit de CMS en toont bij een storing de laatst bekende versie.
+- **Alles in één CMS op `/admin`**: zie [cms.md](../../docs/cms.md). Pagina's en teksten naast elkaar in vier talen, live voorbeeld, sjablonen, media met rechten, berichten met mailwachtrij, versies, gebruikers en auditlog.
 
 ## A14. Hoe je het draait
 

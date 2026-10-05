@@ -34,12 +34,17 @@ function sendPage(req, res, html, { cache = true } = {}) {
 	return send(res, 200, html, { ETag: etag, 'Cache-Control': 'no-cache' });
 }
 
-const wantsGzip = (req) => /\bgzip\b/.test(String((req && req.headers['accept-encoding']) || ''));
+const accepts = (req, coding) => new RegExp(`\\b${coding}\\b`).test(String((req && req.headers['accept-encoding']) || ''));
+const wantsGzip = (req) => accepts(req, 'gzip');
+const wantsBrotli = (req) => accepts(req, 'br');
 
 function send(res, status, body, headers = {}) {
 	if (res.devToggle && typeof body === 'string' && body.includes('</body>')) body = body.replace('</body>', `${res.devToggle}</body>`);
 	const h = baseHeaders({ 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', Vary: 'Accept-Encoding', ...headers });
-	if (typeof body === 'string' && body.length > 1024 && wantsGzip(res.req)) {
+	if (typeof body === 'string' && body.length > 1024 && wantsBrotli(res.req)) {
+		body = zlib.brotliCompressSync(body, { params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 4 } }); // quality 4: fast enough to do per request
+		h['Content-Encoding'] = 'br';
+	} else if (typeof body === 'string' && body.length > 1024 && wantsGzip(res.req)) {
 		body = zlib.gzipSync(body);
 		h['Content-Encoding'] = 'gzip';
 	}
@@ -117,12 +122,13 @@ function serveFile(res, root, relPath, cache) {
 		res.end();
 		return true;
 	}
-	const compressible = /^(text\/|image\/svg)/.test(type) && stat.size > 1024 && wantsGzip(req);
-	if (compressible) headers['Content-Encoding'] = 'gzip';
+	const br = /^(text\/|image\/svg)/.test(type) && stat.size > 1024 && wantsBrotli(req);
+	const compressible = br || (/^(text\/|image\/svg)/.test(type) && stat.size > 1024 && wantsGzip(req));
+	if (compressible) headers['Content-Encoding'] = br ? 'br' : 'gzip';
 	else headers['Content-Length'] = stat.size;
 	res.writeHead(200, baseHeaders(headers));
 	const stream = fs.createReadStream(full);
-	(compressible ? stream.pipe(zlib.createGzip()) : stream).pipe(res);
+	(compressible ? stream.pipe(br ? zlib.createBrotliCompress({ params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 5 } }) : zlib.createGzip()) : stream).pipe(res);
 	return true;
 }
 

@@ -365,3 +365,11 @@ h3 { letter-spacing: 0; }
 .person h3 { margin: 0 0 .25rem; }
 .person-role { margin: 0 0 var(--s-1); color: var(--ink-soft); font-weight: 600; }
 .company-details { margin-top: var(--s-3); color: var(--ink-soft); max-width: 64ch; overflow-wrap: anywhere; }
+
+/* Sections of pages made in the CMS */
+.quote { margin: 0; padding: var(--s-3) var(--s-4); border-left: 4px solid var(--accent); background: var(--surface); border-radius: var(--radius); font-size: 1.15rem; }
+.quote p { margin: 0 0 var(--s-1); }
+.quote footer { color: var(--ink-soft); font-size: .95rem; }
+.disclaimer { margin: 0; padding: var(--s-3); border: 1px solid var(--line); border-left: 4px solid var(--accent); background: var(--surface); border-radius: var(--radius); font-weight: 600; }
+.figure { margin: 0; }
+.figure figcaption { color: var(--ink-soft); font-size: .95rem; margin-top: var(--s-1); }

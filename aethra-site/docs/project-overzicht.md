@@ -1,3 +1,5 @@
+> **Bijgewerkt op 5 oktober 2026:** Payload CMS en `/admin2` zijn vervangen door een eigen CMS op `/admin` (zie [cms.md](cms.md)). Delen van dit document die nog over Payload gaan, zijn achterhaald; de eisen in deel B zijn grotendeels gebouwd.
+
 # Aethra: volledig projectoverzicht
 
 Stand: 5 oktober 2026. Branch: `ccr-fe5b0832-fpo81k`. Taal van dit document: Nederlands (de site zelf is EN/NL/DE/FR).
