@@ -1,0 +1,5 @@
+'use strict';
+/** HTML of the admin (server-rendered, Dutch). Interactivity is in public/js/admin.js. Every value is escaped. Split per area; this file keeps the old export list. */
+const all = Object.assign({}, require('./common'), require('./pages'), require('./auth'), require('./dashboard'), require('./media'), require('./messages'), require('./system'), require('./people'), require('./workflow'));
+const NAMES = ["helpPage","privacyOverviewPage","repliesPage","seoPage","linksPage","rulesPage","trashPage","translationsPage","planningPage","shareLinksPage","forgotPage","resetPage","reviewsPage","reviewPage","settingsPage","systemPage","securityPage","menuPage","PLACE","ORDER","loginPage","codePage","dashboardPage","pagesPage","newPagePage","textEditorPage","privacyEditorPage","pageEditorPage","sectionCard","historyPage","diffPage","mediaPage","messagesPage","messagePage","privacyRequestPage","queuePage","redirectsPage","usersPage","auditPage","accountPage","statsPage","errorPage","CONTACT_ROLES"];
+module.exports = Object.fromEntries(NAMES.map((n) => [n, all[n]]));
