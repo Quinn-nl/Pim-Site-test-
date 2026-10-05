@@ -77,7 +77,9 @@ Alles wat je kunt bewerken staat in `data/aethra.db` (SQLite) en `data/uploads` 
 
 ## 6. Tests
 - `npm test`: 90+ tests (publieke site, CMS, beveiliging, wachtrijen, planning, back-up, reviewflow, enz.). Met `cwebp`/`avifenc` op het systeem draait ook de test met de échte beeldtools.
-- `npm run test:e2e`: echte Chromium; test o.a. 2FA met een gescande QR-code (decodering met OpenCV), de vergrendeling met twee browsers, publiceren, Ctrl+K, thema, menu-editor. Werkt met `PLAYWRIGHT_PATH` en `CHROMIUM_PATH`.
+- `npm run test:e2e`: echte Chromium; test o.a. 2FA met een gescande QR-code (decodering met OpenCV), de vergrendeling met twee browsers, publiceren, Ctrl+K, thema, menu-editor, een uitnodiging, de reviewflow (redacteur → beheerder), een herstellink, een passkey met een virtuele authenticator van Chromium en een toegankelijkheidscontrole met axe-core (WCAG A/AA, licht en donker) op de belangrijkste schermen. Werkt met `PLAYWRIGHT_PATH`, `CHROMIUM_PATH` en `AXE_PATH`.
+- `.github/workflows/test.yml` draait beide sets op GitHub (Node 22). Die workflow is hier niet uitgevoerd, alleen als YAML gecontroleerd.
+- De code van het beheer staat in `lib/cms/views/` (per onderdeel een bestand; `common.js` bevat de gedeelde schil en hulpfuncties, `index.js` houdt de oude exports).
 - Nog altijd handmatig: een échte authenticator-app op een telefoon, en een échte mailserver.
 
 ## 7. Bekende grenzen

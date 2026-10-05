@@ -1,0 +1,44 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: aethra-site
+
+jobs:
+  unit:
+    name: Unit- en integratietests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # cwebp/avifenc zorgen dat ook de test met de echte beeldtools draait
+      - run: sudo apt-get update && sudo apt-get install -y webp libavif-bin
+      - run: npm test
+
+  e2e:
+    name: Browsertests (Chromium)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: sudo apt-get update && sudo apt-get install -y webp libavif-bin python3-opencv
+      # Dev-afhankelijkheden buiten package.json houden: de site zelf heeft er geen
+      - run: npm install --no-save playwright axe-core
+      - run: npx playwright install --with-deps chromium
+      - name: E2E
+        run: npm run test:e2e
+        env:
+          PLAYWRIGHT_PATH: ${{ github.workspace }}/aethra-site/node_modules/playwright
+          AXE_PATH: ${{ github.workspace }}/aethra-site/node_modules/axe-core/axe.min.js

@@ -30,7 +30,7 @@ const hasCv2 = () => spawnSync('python3', ['-c', 'import cv2'], { stdio: 'ignore
 	const port = await freePort();
 	const env = { ...process.env, DATA_DIR: data, PORT: String(port), HOST: '127.0.0.1' };
 	const mk = (email, naam, rol) => execFileSync(process.execPath, ['scripts/user.js', 'create', `--email=${email}`, `--naam=${naam}`, `--rol=${rol}`], { cwd: ROOT, env: { ...env, ADMIN_PASSWORD: PW }, stdio: 'pipe' });
-	mk('pim@example.org', 'Pim Test', 'beheerder'); mk('els@example.org', 'Els Test', 'editor');
+	mk('pim@example.org', 'Pim Test', 'beheerder'); mk('els@example.org', 'Els Test', 'editor'); mk('rik@example.org', 'Rik Redacteur', 'redacteur');
 	const server = spawn(process.execPath, ['server.js'], { cwd: ROOT, env, stdio: 'pipe' });
 	let log = ''; server.stdout.on('data', (d) => { log += d; }); server.stderr.on('data', (d) => { log += d; });
 	const base = `http://127.0.0.1:${port}`;
@@ -132,6 +132,104 @@ const hasCv2 = () => spawnSync('python3', ['-c', 'import cv2'], { stdio: 'ignore
 		await a.goto(`${base}/admin/berichten`);
 		assert.equal(await a.locator('.msglist').count(), 0, 'no messages yet: empty state');
 		ok('the empty state of the inbox');
+
+		/* ---- 4. invitation: an administrator makes a link, the new person chooses a password and gets in ---- */
+		await a.goto(`${base}/admin/gebruikers`);
+		await a.click('details.adduser summary');
+		await a.fill('#ue', 'nieuw@example.org'); await a.fill('#un', 'Nieuw Persoon');
+		await a.selectOption('#ur', 'lezer');
+		await a.fill('#uh', PW);
+		await a.click('details.adduser button[type=submit]');
+		const inviteLink = await a.inputValue('input[aria-label="Link"]');
+		assert.match(inviteLink, /\/admin\/herstel\?token=[0-9a-f]{64}/);
+		const n = await (await browser.newContext()).newPage(); watch(n, 'N');
+		await n.goto(inviteLink.replace(/^https?:\/\/[^/]+/, base));
+		await n.fill('#rp', 'Welkom123'); await n.fill('#rp2', 'Welkom123'); await n.click('form[action="/admin/herstel"] button[type=submit]');
+		assert.match(await n.textContent('body'), /veelgebruikt|wachtwoord/i, 'an easy password is refused with a reason');
+		await n.fill('#rp', 'vlinders-paardenbloem-kachel'); await n.fill('#rp2', 'vlinders-paardenbloem-kachel');
+		await n.click('form[action="/admin/herstel"] button[type=submit]');
+		await n.goto(`${base}/admin`);
+		await n.fill('#em', 'nieuw@example.org'); await n.fill('#pw', 'vlinders-paardenbloem-kachel'); await n.click('button[type=submit]');
+		await n.waitForURL(`${base}/admin`);
+		assert.equal(await n.locator('a[href="/admin/gebruikers"]').count(), 0, 'a reader sees no user management');
+		ok('an invitation link lets a new person choose a password (an easy one is refused) and sign in');
+
+		/* ---- 5. review flow: an editor-in-training proposes, the administrator approves and the site changes ---- */
+		const r = await (await browser.newContext({ viewport: { width: 1300, height: 900 } })).newPage(); watch(r, 'R');
+		await login(r, 'rik@example.org');
+		await r.goto(`${base}/admin/tekst/hero`);
+		await r.waitForSelector('#editor');
+		await r.click('[data-lang-tab="en"]');
+		await r.locator('input[data-lang="en"][data-key="hero_title"]').fill('Calmer roads, one trip at a time');
+		await r.click('#btn-save');
+		await r.waitForSelector('#savestate[data-state="saved"], #savestate[data-state="review"]', { timeout: 8000 }).catch(() => {});
+		assert.doesNotMatch(await (await fetch(`${base}/en/`)).text(), /Calmer roads, one trip at a time/, 'a proposal is not live');
+		await a.goto(`${base}/admin/reviews`);
+		const pending = await a.locator('.msglist a.msg-main').count();
+		assert.ok(pending >= 1, 'the proposal waits for judgement');
+		await a.click('.msglist a.msg-main');
+		await a.click('form[action$="/goedkeuren"] button[type=submit]');
+		await a.waitForURL(/reviews\?f=goedgekeurd/);
+		assert.match(await (await fetch(`${base}/en/`)).text(), /Calmer roads, one trip at a time/);
+		ok('a proposal from a redacteur stays hidden until it is approved, then goes live');
+
+		/* ---- 6. password reset by an administrator's link ---- */
+		await a.goto(`${base}/admin/gebruikers`);
+		const card = a.locator('article.ucard', { hasText: 'els@example.org' });
+		await card.locator('summary').click();
+		await card.locator('form[action$="/herstellink"] input[name=huidig]').fill(PW);
+		await card.locator('form[action$="/herstellink"] button').click();
+		const resetLink = await a.inputValue('input[aria-label="Link"]');
+		const e1 = await (await browser.newContext()).newPage(); watch(e1, 'E1');
+		await e1.goto(resetLink.replace(/^https?:\/\/[^/]+/, base));
+		await e1.fill('#rp', PW); await e1.fill('#rp2', PW);
+		await e1.click('form[action="/admin/herstel"] button[type=submit]');
+		assert.equal((await fetch(resetLink.replace(/^https?:\/\/[^/]+/, base))).status >= 200, true);
+		await e1.goto(resetLink.replace(/^https?:\/\/[^/]+/, base));
+		assert.match(await e1.textContent('body'), /werkt niet meer/, 'a reset link works once');
+		ok('a reset link chooses a new password and works only once');
+
+		/* ---- 7. passkey with a virtual authenticator (Chrome DevTools): add, sign out, sign in ---- */
+		const local = `http://localhost:${port}`;
+		const pkCtx = await browser.newContext({ viewport: { width: 1300, height: 900 } });
+		const pk = await pkCtx.newPage(); watch(pk, 'PK');
+		const cdp = await pkCtx.newCDPSession(pk);
+		await cdp.send('WebAuthn.enable');
+		await cdp.send('WebAuthn.addVirtualAuthenticator', { options: { protocol: 'ctap2', transport: 'internal', hasResidentKey: true, hasUserVerification: true, isUserVerified: true, automaticPresenceSimulation: true } });
+		await pk.goto(`${local}/admin`);
+		await pk.fill('#em', 'els@example.org'); await pk.fill('#pw', PW); await pk.click('button[type=submit]');
+		await pk.waitForURL(`${local}/admin`);
+		await pk.goto(`${local}/admin/account`);
+		await pk.fill('[data-passkey-add] [name=huidig]', PW); await pk.fill('[data-passkey-add] [name=naam]', 'Virtuele sleutel');
+		await pk.click('[data-passkey-add] button');
+		await pk.waitForFunction(() => /Virtuele sleutel/.test(document.body.textContent), null, { timeout: 8000 });
+		await pk.goto(`${local}/admin`);
+		await pk.click('form[action="/admin/logout"] button');
+		await pk.fill('#em', 'els@example.org'); await pk.fill('#pw', PW); await pk.click('button[type=submit]');
+		await pk.waitForSelector('#pk-go');
+		await pk.click('#pk-go');
+		await pk.waitForURL(`${local}/admin`, { timeout: 8000 });
+		ok('a passkey can be added and used as the second step (Chromium virtual authenticator)');
+
+		/* ---- 8. accessibility (axe-core) on the main admin screens ---- */
+		const axeFile = [process.env.AXE_PATH, path.join(ROOT, 'node_modules/axe-core/axe.min.js'), '/tmp/axetest/node_modules/axe-core/axe.min.js'].filter(Boolean).find((f) => fs.existsSync(f));
+		if (axeFile) {
+			const axeSrc = fs.readFileSync(axeFile, 'utf8');
+			const bad = [];
+			for (const url of ['/admin', '/admin/paginas', '/admin/tekst/hero', '/admin/media', '/admin/berichten', '/admin/gebruikers', '/admin/account', '/admin/instellingen', '/admin/systeem', '/admin/beveiligingsrapport', '/admin/menu', '/admin/seo', '/admin/audit']) {
+				await a.goto(`${base}${url}`);
+				await a.evaluate(axeSrc);
+				for (const theme of ['dark', 'light']) {                  // contrast has to hold in both themes
+					await a.evaluate((t) => { document.documentElement.dataset.theme = t; }, theme);
+					await a.waitForTimeout(400);                               // let the colour transitions finish
+					const res = await a.evaluate(() => axe.run(document, { runOnly: ['wcag2a', 'wcag2aa', 'wcag21aa'] }));
+					assert.ok(res.passes.length > 15, 'axe really ran');
+					for (const v of res.violations) bad.push(`${url} (${theme}): ${v.id} (${v.impact}) ${v.nodes.slice(0, 2).map((x) => x.target.join(' ')).join(' | ')}`);
+				}
+			}
+			assert.deepEqual(bad, [], 'accessibility violations:\n' + bad.join('\n'));
+			ok('axe-core finds no WCAG A/AA violations on the main admin screens');
+		} else console.log('SKIP - axe-core not found (set AXE_PATH or npm i --no-save axe-core)');
 	} catch (e) {
 		failed = true;
 		console.log(`not ok - ${e.message}`);
