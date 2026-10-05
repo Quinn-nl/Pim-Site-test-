@@ -81,9 +81,9 @@ function shell(ctx, { title, active = '', body, wide = false, script = true }) {
 		return `${head}
 <body>${sprite}<div class="auth"><div><div class="brand"><span class="logo">${icon('orbit')}</span><span>AETHRA<small>Beheer van de website</small></span></div>${flash}${body}</div></div></body></html>`;
 	}
-	const item = (key, href, label, ic, badge) => `<a href="${href}"${active === key ? ' aria-current="page"' : ''}>${icon(ic)}<span>${label}</span>${key === 'berichten' ? `<span class="badge" data-badge="berichten"${badge ? '' : ' hidden'}>${badge || ''}</span>` : ''}</a>`;
+	const item = (key, href, label, ic, badge) => `<a href="${href}"${active === key ? ' aria-current="page"' : ''}>${icon(ic)}<span>${label}</span>${key === 'berichten' || key === 'reviews' ? `<span class="badge" data-badge="${key}"${badge ? '' : ' hidden'}>${badge || ''}</span>` : ''}</a>`;
 	const groups = [
-		['Inhoud', [['dash', '/admin', 'Dashboard', 'dash'], ['paginas', '/admin/paginas', 'Pagina’s en teksten', 'pages'], ['media', '/admin/media', 'Media', 'media']]],
+		['Inhoud', [['dash', '/admin', 'Dashboard', 'dash'], ['paginas', '/admin/paginas', 'Pagina’s en teksten', 'pages'], ['media', '/admin/media', 'Media', 'media'], ['reviews', '/admin/reviews', session.user.rol === 'redacteur' ? 'Mijn voorstellen' : 'Te beoordelen', 'check', badges.reviews]]],
 		['Inbox', [['berichten', '/admin/berichten', 'Berichten', 'mail', badges.berichten], ['wachtrij', '/admin/wachtrij', 'Mailwachtrij', 'send']]],
 		['Site', [['menu', '/admin/menu', 'Menu', 'menu'], ['redirects', '/admin/redirects', 'Redirects', 'redirect'], ['stats', '/admin/stats', 'Statistieken', 'stats']]],
 		...(session.user.rol === 'beheerder' ? [['Beheer', [['gebruikers', '/admin/gebruikers', 'Gebruikers', 'users'], ['instellingen', '/admin/instellingen', 'Instellingen', 'cog'], ['systeem', '/admin/systeem', 'Systeem', 'server'], ['audit', '/admin/audit', 'Auditlog', 'shield']]]] : []),
@@ -115,7 +115,17 @@ ${script ? `<script src="${asset('/js/admin.js')}" nonce="${esc(nonce)}" defer><
 function loginPage(ctx, { flash, setup } = {}) {
 	return shell({ ...ctx, session: null, flash }, { title: 'Inloggen', body: `<section class="card narrow"><h1>Inloggen</h1>
 ${setup ? '<p class="err-text">Er is nog geen account. Maak het eerste account op de server met <code>npm run user:create -- --email=jij@voorbeeld.nl --naam="Jouw naam"</code>.</p>' : ''}
-<form method="post" action="/admin/login"><div class="row"><label for="em">E-mailadres</label><input id="em" name="email" type="email" autocomplete="username" required autofocus></div><div class="row"><label for="pw">Wachtwoord</label><input id="pw" name="password" type="password" autocomplete="current-password" required></div><button type="submit">Inloggen</button></form></section>`, script: false });
+<form method="post" action="/admin/login"><div class="row"><label for="em">E-mailadres</label><input id="em" name="email" type="email" autocomplete="username" required autofocus></div><div class="row"><label for="pw">Wachtwoord</label><input id="pw" name="password" type="password" autocomplete="current-password" required></div><button type="submit">Inloggen</button></form><p class="hint"><a href="/admin/vergeten">Wachtwoord vergeten?</a></p></section>`, script: false });
+}
+function forgotPage(ctx, { flash, done } = {}) {
+	return shell({ ...ctx, session: null, flash }, { title: 'Wachtwoord vergeten', body: `<section class="card narrow"><h1>Wachtwoord vergeten</h1>${done ? '<p>Als dit e-mailadres bij een account hoort, is er een mail met een link gestuurd. De link is een uur geldig. Geen mail binnen een paar minuten? Vraag een beheerder om een herstellink.</p><p><a href="/admin">Terug naar inloggen</a></p>' : `<p class="hint">Vul je e-mailadres in. Je krijgt een link om een nieuw wachtwoord te kiezen.</p><form method="post" action="/admin/vergeten"><div class="row"><label for="fe">E-mailadres</label><input id="fe" name="email" type="email" autocomplete="username" required autofocus></div><button type="submit">Stuur een link</button></form><p class="hint"><a href="/admin">Terug naar inloggen</a></p>`}</section>`, script: false });
+}
+function resetPage(ctx, { token, user, invalid, flash } = {}) {
+	if (invalid) return shell({ ...ctx, session: null, flash }, { title: 'Link verlopen', body: '<section class="card narrow"><h1>Deze link werkt niet meer</h1><p>De link is al gebruikt of verlopen. Vraag een nieuwe aan via “Wachtwoord vergeten” of bij een beheerder.</p><p><a href="/admin/vergeten">Nieuwe link aanvragen</a></p></section>', script: false });
+	const invite = user.token_soort === 'uitnodiging';
+	return shell({ ...ctx, session: null, flash }, { title: invite ? 'Welkom' : 'Nieuw wachtwoord', body: `<section class="card narrow"><h1>${invite ? `Welkom, ${esc(user.naam)}` : 'Nieuw wachtwoord'}</h1><p class="hint">${invite ? 'Kies een wachtwoord om te beginnen.' : `Kies een nieuw wachtwoord voor ${esc(user.email)}.`} Minstens 12 tekens; een zin van een paar woorden werkt het best.</p>
+<form method="post" action="/admin/herstel"><input type="hidden" name="token" value="${esc(token)}"><div class="row"><label for="rp">Nieuw wachtwoord</label><input id="rp" name="password" type="password" autocomplete="new-password" minlength="12" required autofocus></div><div class="row"><label for="rp2">Nog een keer</label><input id="rp2" name="password2" type="password" autocomplete="new-password" minlength="12" required></div>
+${user.totp_geheim && !invite ? '<div class="row"><label for="rc">Code uit je authenticator-app (of een herstelcode)</label><input id="rc" name="code" autocomplete="one-time-code" required></div>' : ''}<button type="submit">Wachtwoord instellen</button></form></section>`, script: false });
 }
 function codePage(ctx, ticket, flash) {
 	return shell({ ...ctx, session: null, flash }, { title: 'Verificatie', body: `<section class="card narrow"><h1>Tweestapsverificatie</h1>
@@ -242,7 +252,7 @@ function textEditorPage(ctx, groupId, { values, statuses, versie, draft }) {
 	const canWrite = ctx.session.user.rol !== 'lezer';
 	const object = content.textObject(groupId);
 	const blocks = textBlocks(group).map(([heading, fields]) => `<section class="card fgroup">${heading ? `<h2>${esc(heading)}</h2>` : ''}${fields.map((fl) => { const { label, hint } = labelOf(fl); return fieldRow({ key: fl.key, label, hint, type: fl.type, req: !OPTIONAL_RE.test(fl.key) }, values); }).join('')}</section>`).join('');
-	return shell(ctx, { title: place.label, active: 'paginas', wide: true, body: `<p class="crumb"><a href="/admin/paginas">${icon('chev', 'back')} Pagina’s en teksten</a></p>${editorHead(ctx, { titel: place.label, uitleg: place.uitleg, object, canWrite, extraButtons: '<button type="button" id="btn-save">Publiceren</button>' })}
+	return shell(ctx, { title: place.label, active: 'paginas', wide: true, body: `<p class="crumb"><a href="/admin/paginas">${icon('chev', 'back')} Pagina’s en teksten</a></p>${editorHead(ctx, { titel: place.label, uitleg: place.uitleg, object, canWrite, extraButtons: `<button type="button" id="btn-save">${ctx.session.user.rol === 'redacteur' ? 'Ter beoordeling indienen' : 'Publiceren'}</button>` })}
 ${langTabs(statuses, canWrite)}
 <div class="ed-grid"><form id="editor" class="ed" data-all="0" data-kind="tekst" data-id="${esc(groupId)}" data-object="${esc(object)}" data-version="${versie}" data-readonly="${canWrite ? '0' : '1'}" data-draft="${json(draft || null)}" onsubmit="return false">${blocks}</form>${previewPane(place.path, 'tekst')}</div>` });
 }
@@ -250,7 +260,7 @@ function privacyEditorPage(ctx, { values, versie, draft, statuses }) {
 	const canWrite = ctx.session.user.rol !== 'lezer';
 	const f = { key: 'text', label: 'Privacyverklaring', hint: 'Een regel die begint met # is een kop. Een lege regel begint een nieuwe alinea. Laat de tekst controleren door een jurist en vervang alles tussen [haken].', type: 'privacy' };
 	const row = `<div class="field"><div class="flabel">${esc(f.label)}</div><p class="fhint">${esc(f.hint)}</p><div class="fcols">${LANGS.map((l) => `<div class="fcol" data-col="${l}"><span class="lang-tag">${esc(LANG_NAMES[l])}</span><textarea data-lang="${l}" data-key="text" data-req="1" lang="${l}" rows="24" maxlength="20000" aria-label="Privacyverklaring (${esc(LANG_NAMES[l])})">${esc(values[l] || '')}</textarea></div>`).join('')}</div><p class="ref" data-ref hidden></p></div>`;
-	return shell(ctx, { title: 'Privacyverklaring', active: 'paginas', wide: true, body: `<p class="crumb"><a href="/admin/paginas">${icon('chev', 'back')} Pagina’s en teksten</a></p>${editorHead(ctx, { titel: 'Privacyverklaring', uitleg: '', object: 'privacy', canWrite, extraButtons: '<button type="button" id="btn-save">Publiceren</button>' })}
+	return shell(ctx, { title: 'Privacyverklaring', active: 'paginas', wide: true, body: `<p class="crumb"><a href="/admin/paginas">${icon('chev', 'back')} Pagina’s en teksten</a></p>${editorHead(ctx, { titel: 'Privacyverklaring', uitleg: '', object: 'privacy', canWrite, extraButtons: `<button type="button" id="btn-save">${ctx.session.user.rol === 'redacteur' ? 'Ter beoordeling indienen' : 'Publiceren'}</button>` })}
 ${langTabs(statuses || {}, canWrite)}
 <div class="ed-grid"><form id="editor" class="ed" data-all="0" data-kind="privacy" data-object="privacy" data-version="${versie}" data-readonly="${canWrite ? '0' : '1'}" data-draft="${json(draft || null)}" onsubmit="return false"><section class="card fgroup">${row}</section></form>${previewPane('/privacy', 'privacy')}</div>` });
 }
@@ -279,9 +289,12 @@ function pageEditorPage(ctx, id, p) {
 	const templates = tpl.toegestaan.map((t) => `<template id="tpl-${esc(t)}">${sectionCard({ id: '__ID__', type: t }, {})}</template>`).join('');
 	const live = p.meta.status === 'gepubliceerd';
 	const title = (p.velden.nl && p.velden.nl.titel) || (p.velden.en && p.velden.en.titel) || 'Nieuwe pagina';
-	const buttons = live
-		? '<button type="button" id="btn-save">Wijzigingen opslaan</button><button type="button" class="secondary" id="btn-unpublish">Offline halen</button>'
-		: '<button type="button" class="secondary" id="btn-save">Opslaan als concept</button><button type="button" id="btn-publish">Publiceren</button>';
+	const proposer = ctx.session.user.rol === 'redacteur';
+	const buttons = proposer
+		? (live ? '<button type="button" id="btn-save">Wijzigingen ter beoordeling indienen</button>' : '<button type="button" class="secondary" id="btn-save">Opslaan als concept</button><button type="button" id="btn-publish">Ter beoordeling indienen</button>')
+		: live
+			? '<button type="button" id="btn-save">Wijzigingen opslaan</button><button type="button" class="secondary" id="btn-unpublish">Offline halen</button>'
+			: '<button type="button" class="secondary" id="btn-save">Opslaan als concept</button><button type="button" id="btn-publish">Publiceren</button>';
 	const isNew = p.versie === 0;
 	return shell(ctx, { title, active: 'paginas', wide: true, body: `<p class="crumb"><a href="/admin/paginas">${icon('chev', 'back')} Pagina’s en teksten</a></p>${editorHead(ctx, { titel: title, uitleg: `${tpl.label}. ${tpl.uitleg}`, object, canWrite, extraButtons: buttons, status: `<span class="pill ${live ? 'ok' : ''}">${live ? 'live' : 'concept'}</span>` })}
 ${langTabs(p.status, canWrite)}
@@ -293,7 +306,7 @@ ${langTabs(p.status, canWrite)}
 <div id="sections">${sections}</div>
 ${canWrite ? `<div class="addbar"><label for="addtype">Bouwsteen toevoegen</label><select id="addtype">${addOptions}</select><button type="button" class="secondary" id="addsec">${icon('plus')} Toevoegen</button></div>` : ''}
 </form>${previewPane(`/${(p.velden.nl && p.velden.nl.slug) || (p.velden.en && p.velden.en.slug) || 'voorbeeld'}`, 'pagina')}</div>${templates}
-${canWrite ? `<form method="post" action="/admin/paginas/${id}/verwijderen" class="card danger-zone" data-confirm="Deze pagina definitief verwijderen?"><input type="hidden" name="csrf" value="${esc(ctx.session.csrf)}"><button class="danger" type="submit">Pagina verwijderen</button></form>` : ''}` });
+${canWrite && ['beheerder', 'editor'].includes(ctx.session.user.rol) ? `<form method="post" action="/admin/paginas/${id}/verwijderen" class="card danger-zone" data-confirm="Deze pagina definitief verwijderen?"><input type="hidden" name="csrf" value="${esc(ctx.session.csrf)}"><button class="danger" type="submit">Pagina verwijderen</button></form>` : ''}` });
 }
 
 /* ---- history ---- */
@@ -305,13 +318,14 @@ function diffPage(ctx, { entry, diff, object, huidigeVersie, kind, pageId }) {
 	const canWrite = ctx.session.user.rol !== 'lezer';
 	const blocks = diff.length ? diff.map((d) => `<section class="card"><h2>${esc(d.taal.toUpperCase())}: <code>${esc(d.veld)}</code></h2><pre class="diff">${d.regels.map((r) => `<span class="d${r.t === '+' ? 'add' : r.t === '-' ? 'del' : 'eq'}">${r.t === '=' ? '  ' : r.t + ' '}${esc(r.tekst)}</span>`).join('\n')}</pre></section>`).join('') : '<p class="hint">Deze versie is gelijk aan de huidige.</p>';
 	return shell(ctx, { title: 'Vergelijken', active: 'paginas', body: `<h1>Versie ${entry.versie_nummer} tegenover nu</h1><p class="hint"><code>${esc(object)}</code>, vastgelegd ${esc(when(entry.tijdstip))}. <span class="dadd">+ regels</span> staan er nu, <span class="ddel">- regels</span> stonden er toen.</p>
-${canWrite ? `<form method="post" action="/admin/historie/${entry.id}/terugzetten" data-confirm="Deze versie terugzetten? De huidige staat blijft in de geschiedenis."><input type="hidden" name="csrf" value="${esc(ctx.session.csrf)}"><input type="hidden" name="basis" value="${huidigeVersie}"><button type="submit">Eén klik: terugzetten naar versie ${entry.versie_nummer}</button></form>` : ''}${blocks}
+${canWrite && ['beheerder', 'editor'].includes(ctx.session.user.rol) ? `<form method="post" action="/admin/historie/${entry.id}/terugzetten" data-confirm="Deze versie terugzetten? De huidige staat blijft in de geschiedenis."><input type="hidden" name="csrf" value="${esc(ctx.session.csrf)}"><input type="hidden" name="basis" value="${huidigeVersie}"><button type="submit">Eén klik: terugzetten naar versie ${entry.versie_nummer}</button></form>` : ''}${blocks}
 <p><a href="/admin/historie?object=${encodeURIComponent(object)}">← terug naar de geschiedenis</a></p>` });
 }
 
 /* ---- media ---- */
 function mediaPage(ctx, { items, slots, enc, usage = {} }) {
 	const canWrite = ctx.session.user.rol !== 'lezer';
+	const canPublish = ['beheerder', 'editor'].includes(ctx.session.user.rol);
 	const csrf = `<input type="hidden" name="csrf" value="${esc(ctx.session.csrf)}">`;
 	const rightsLabel = { eigen: 'Eigen foto', gelicentieerd: 'Gelicentieerd', ai_sfeer: 'AI-sfeerbeeld' };
 	const rightsLong = { eigen: 'Eigen foto', gelicentieerd: 'Gelicentieerd', ai_sfeer: 'AI-sfeerbeeld (alleen als illustratie)' };
@@ -328,8 +342,8 @@ function mediaPage(ctx, { items, slots, enc, usage = {} }) {
 		const cur = byId[slots[s.slot]];
 		return `<form method="post" action="/admin/media/plek" class="card slot">${csrf}<input type="hidden" name="plek" value="${esc(s.slot)}">
 <div class="slot-img">${thumb(cur)}</div><div class="slot-body"><strong>${esc(SLOTS[s.slot] || s.label)}</strong>
-<select name="media" aria-label="Foto voor ${esc(SLOTS[s.slot] || s.label)}" data-autosubmit${canWrite ? '' : ' disabled'}><option value="">(geen foto)</option>${items.map((m) => `<option value="${m.id}"${slots[s.slot] === m.id ? ' selected' : ''}>#${m.id} ${esc((m.alt.en || m.bestand).slice(0, 40))}</option>`).join('')}</select>
-${canWrite ? '<noscript><button type="submit" class="small">Opslaan</button></noscript>' : ''}</div></form>`;
+<select name="media" aria-label="Foto voor ${esc(SLOTS[s.slot] || s.label)}" data-autosubmit${canPublish ? '' : ' disabled'}><option value="">(geen foto)</option>${items.map((m) => `<option value="${m.id}"${slots[s.slot] === m.id ? ' selected' : ''}>#${m.id} ${esc((m.alt.en || m.bestand).slice(0, 40))}</option>`).join('')}</select>
+${canPublish ? '<noscript><button type="submit" class="small">Opslaan</button></noscript>' : ''}</div></form>`;
 	}).join('');
 	const upload = canWrite ? `<section class="card" id="upload"><h2>Foto toevoegen</h2>
 <form method="post" action="/admin/media/upload" enctype="multipart/form-data" class="upl">${csrf}
@@ -352,7 +366,7 @@ ${canWrite ? '<noscript><button type="submit" class="small">Opslaan</button></no
 		const used = usage[m.id] || [];
 		return `<dialog id="m${m.id}" class="dlg" aria-label="Foto ${m.id}"><div class="dlg-head"><h2>Foto #${m.id}</h2><button type="button" class="secondary small" data-close aria-label="Sluiten">Sluiten</button></div>
 <div class="dlg-body"><div class="dlg-img">${thumb(m)}<p class="meta">${esc(m.bestand)} · ${m.breedte}×${m.hoogte} · ${fmtSize(m.grootte)}</p>${used.length ? `<p class="meta">In gebruik als: ${esc(used.map((u) => (u.soort === 'plek' ? SLOTS[u.naam] || u.naam : 'Pagina')).join(', '))}</p>` : '<p class="meta">Wordt nergens gebruikt.</p>'}</div>
-${canWrite ? `<div><form method="post" action="/admin/media/${m.id}">${csrf}${altFields(m.alt, `e${m.id}-`)}<div class="row"><label for="e${m.id}-r">Rechten</label>${rightsSel(m.rechten, `e${m.id}-r`)}</div><div class="row"><label for="e${m.id}-b">Bron of licentie</label><input id="e${m.id}-b" name="bron" maxlength="200" value="${esc(m.bron)}"></div><button type="submit">Opslaan</button></form>
+${canPublish ? `<div><form method="post" action="/admin/media/${m.id}">${csrf}${altFields(m.alt, `e${m.id}-`)}<div class="row"><label for="e${m.id}-r">Rechten</label>${rightsSel(m.rechten, `e${m.id}-r`)}</div><div class="row"><label for="e${m.id}-b">Bron of licentie</label><input id="e${m.id}-b" name="bron" maxlength="200" value="${esc(m.bron)}"></div><button type="submit">Opslaan</button></form>
 <form method="post" action="/admin/media/${m.id}/verwijderen" data-confirm="Deze foto definitief verwijderen?" class="dz">${csrf}<button type="submit" class="danger small"${used.length ? ' disabled title="Haal de foto eerst weg waar hij gebruikt wordt"' : ''}>Verwijderen</button>${used.length ? '<span class="meta"> Eerst vervangen waar hij gebruikt wordt.</span>' : ''}</form></div>` : ''}</div></dialog>`;
 	};
 	const library = items.length ? `<div class="toolbar"><div class="searchbar">${icon('search')}<input type="search" id="mq" placeholder="Zoek in omschrijving of bron" aria-label="Zoek foto’s"></div>
@@ -454,13 +468,13 @@ ${smtp ? '' : '<p class="flash err" role="alert">' + icon('alert') + '<span>Er i
 /* ---- redirects, users, audit, account, stats ---- */
 function redirectsPage(ctx, list) {
 	const csrf = `<input type="hidden" name="csrf" value="${esc(ctx.session.csrf)}">`;
-	const canWrite = ctx.session.user.rol !== 'lezer';
+	const canWrite = ['beheerder', 'editor'].includes(ctx.session.user.rol);
 	const table = list.length ? `<div class="scroll"><table><thead><tr><th>Van</th><th>Naar</th><th>Gebruikt</th><th></th></tr></thead><tbody>${list.map((r) => `<tr><td><code>${esc(r.van)}</code></td><td><code>${esc(r.naar)}</code></td><td>${r.hits}</td><td>${canWrite ? `<form method="post" action="/admin/redirects/verwijderen">${csrf}<input type="hidden" name="van" value="${esc(r.van)}"><button class="danger small" type="submit">Verwijderen</button></form>` : ''}</td></tr>`).join('')}</tbody></table></div>` : '<p class="hint">Nog geen redirects. Ze ontstaan vanzelf als je het adres van een gepubliceerde pagina wijzigt.</p>';
 	return shell(ctx, { title: 'Redirects', active: 'redirects', body: `<h1>Redirects</h1><p class="hint">Een oud adres stuurt bezoekers permanent (301) naar het nieuwe adres. Dat gebeurt automatisch als een adres van een gepubliceerde pagina verandert.</p><section class="card">${table}</section>
 ${canWrite ? `<section class="card"><h2>Redirect toevoegen</h2><form method="post" action="/admin/redirects">${csrf}<div class="row"><label for="rv">Van (bijvoorbeeld /nl/oude-pagina)</label><input id="rv" name="van" required></div><div class="row"><label for="rn">Naar (bijvoorbeeld /nl/nieuwe-pagina)</label><input id="rn" name="naar" required></div><button type="submit">Toevoegen</button></form></section>` : ''}` });
 }
-const ROLE_INFO = { beheerder: ['Beheerder', 'Alles, ook gebruikers en auditlog.'], editor: ['Editor', 'Teksten, pagina’s, media en berichten.'], lezer: ['Lezer', 'Alleen kijken, niets wijzigen.'] };
-function usersPage(ctx, { list, sessions = {}, flash }) {
+const ROLE_INFO = { beheerder: ['Beheerder', 'Alles, ook gebruikers, instellingen en auditlog.'], editor: ['Editor', 'Teksten, pagina’s, media en berichten; mag publiceren en voorstellen beoordelen.'], redacteur: ['Redacteur', 'Schrijft en bewaart concepten; dient wijzigingen in ter beoordeling, publiceert niet zelf.'], lezer: ['Lezer', 'Alleen kijken, niets wijzigen.'] };
+function usersPage(ctx, { list, sessions = {}, flash, link = null }) {
 	const me = ctx.session.user;
 	const csrf = `<input type="hidden" name="csrf" value="${esc(ctx.session.csrf)}">`;
 	const roleSel = (value, id, disabled) => `<select id="${id}" name="rol"${disabled ? ' disabled' : ''}>${Object.keys(ROLE_INFO).map((r) => `<option value="${r}"${value === r ? ' selected' : ''}>${esc(ROLE_INFO[r][0])}</option>`).join('')}</select>`;
@@ -477,13 +491,14 @@ function usersPage(ctx, { list, sessions = {}, flash }) {
 ${self ? '<input type="hidden" name="actief" value="1">' : `<label class="chk"><input type="checkbox" name="actief" value="1"${u.actief ? ' checked' : ''}> Account actief</label>`}<button class="small" type="submit">Opslaan</button></form>
 <form method="post" action="/admin/gebruikers/${u.id}/wachtwoord" class="mbox">${csrf}<h3>Wachtwoord</h3><div class="row"><label for="w${u.id}">Nieuw wachtwoord</label><input id="w${u.id}" name="nieuw" type="password" minlength="12" autocomplete="new-password" required><p class="fhint">Minstens 12 tekens. Alle sessies van deze gebruiker worden uitgelogd.</p></div><div class="row"><label for="h${u.id}">Jouw wachtwoord ter bevestiging</label><input id="h${u.id}" name="huidig" type="password" autocomplete="current-password" required></div><button class="small" type="submit">Wachtwoord instellen</button></form>
 <div class="mbox"><h3>Beveiliging</h3>${u.tweestaps ? `<form method="post" action="/admin/gebruikers/${u.id}/2fa-uit" data-confirm="Tweestapsverificatie voor deze gebruiker uitzetten?">${csrf}<div class="row"><label for="t${u.id}">Jouw wachtwoord ter bevestiging</label><input id="t${u.id}" name="huidig" type="password" autocomplete="current-password" required></div><button class="small danger" type="submit">2FA uitzetten</button></form>` : '<p class="hint">Deze gebruiker heeft geen tweestapsverificatie. Dat kan alleen de gebruiker zelf aanzetten onder Mijn account.</p>'}
+${u.actief ? `<form method="post" action="/admin/gebruikers/${u.id}/herstellink" class="mt">${csrf}<div class="row"><label for="hl${u.id}">Jouw wachtwoord ter bevestiging</label><input id="hl${u.id}" name="huidig" type="password" autocomplete="current-password" required></div><button class="small secondary" type="submit">Herstellink maken</button><p class="fhint">Stuurt een mail met een link om een nieuw wachtwoord te kiezen, of toont de link als er geen mailserver is.</p></form>` : ''}
 ${n && !self ? `<form method="post" action="/admin/gebruikers/${u.id}/uitloggen" data-confirm="Alle sessies van ${esc(u.naam)} beëindigen?">${csrf}<button class="small secondary" type="submit">Overal uitloggen (${n})</button></form>` : ''}</div></div></details></article>`;
 	};
 	const open = flash && !flash.ok;
 	return shell({ ...ctx, flash }, { title: 'Gebruikers', active: 'gebruikers', body: `<div class="page-head"><div><h1>Gebruikers</h1><p class="hint">${list.length} account${list.length === 1 ? '' : 's'}. Wie mag wat staat hieronder.</p></div></div>${legend}
-<div class="ulist">${list.map(card).join('')}</div>
+${link ? `<section class="card"><h2>Link om door te geven</h2><p class="hint">Eenmalig en tijdelijk. Stuur hem alleen aan de persoon zelf, bij voorkeur niet per gewone e-mail of chat die anderen kunnen lezen.</p><p><input type="text" readonly value="${esc(link)}" aria-label="Link" onclick="this.select()"></p></section>` : ''}<div class="ulist">${list.map(card).join('')}</div>
 <details class="card fold adduser"${open ? ' open' : ''}><summary>${icon('plus')} Gebruiker toevoegen</summary><form method="post" action="/admin/gebruikers">${csrf}<div class="two"><div class="row"><label for="ue">E-mailadres</label><input id="ue" name="email" type="email" required></div><div class="row"><label for="un">Naam</label><input id="un" name="naam" required maxlength="80"></div></div>
-<div class="row"><label for="ur">Rol</label>${roleSel('editor', 'ur')}</div><div class="row"><label for="up">Startwachtwoord</label><input id="up" name="wachtwoord" type="password" minlength="12" autocomplete="new-password" required><p class="fhint">Minstens 12 tekens. De gebruiker kiest zelf een nieuw wachtwoord en zet 2FA aan.</p></div><div class="row"><label for="uh">Jouw wachtwoord ter bevestiging</label><input id="uh" name="huidig" type="password" autocomplete="current-password" required></div><button type="submit">Toevoegen</button></form></details>` });
+<div class="row"><label for="ur">Rol</label>${roleSel('editor', 'ur')}</div><div class="row"><label for="up">Startwachtwoord (optioneel)</label><input id="up" name="wachtwoord" type="password" minlength="12" autocomplete="new-password"><p class="fhint">Laat leeg om de persoon per e-mail uit te nodigen: die kiest dan zelf een wachtwoord via een link (drie dagen geldig). Vul je wel iets in (minstens 12 tekens), dan geef je dat wachtwoord zelf door.</p></div><div class="row"><label for="uh">Jouw wachtwoord ter bevestiging</label><input id="uh" name="huidig" type="password" autocomplete="current-password" required></div><button type="submit">Toevoegen</button></form></details>` });
 }
 function auditPage(ctx, { rows, total, page, filter, people }) {
 	const pages = Math.max(1, Math.ceil(total / 100));
@@ -538,11 +553,11 @@ function statsPage(ctx, sum, days) {
 
 const errorPage = (ctx, status, text) => shell({ ...ctx, session: ctx.session || null }, { title: 'Fout', body: `<section class="card narrow"><h1>${esc(String(status))}</h1><p>${esc(text)}</p><p><a href="/admin">Terug naar het begin</a></p></section>`, script: false });
 
-module.exports = { settingsPage, systemPage, menuPage, PLACE, ORDER, loginPage, codePage, dashboardPage, pagesPage, newPagePage, textEditorPage, privacyEditorPage, pageEditorPage, sectionCard, historyPage, diffPage, mediaPage, messagesPage, messagePage, privacyRequestPage, queuePage, redirectsPage, usersPage, auditPage, accountPage, statsPage, errorPage, CONTACT_ROLES };
+module.exports = { forgotPage, resetPage, reviewsPage, reviewPage, settingsPage, systemPage, menuPage, PLACE, ORDER, loginPage, codePage, dashboardPage, pagesPage, newPagePage, textEditorPage, privacyEditorPage, pageEditorPage, sectionCard, historyPage, diffPage, mediaPage, messagesPage, messagePage, privacyRequestPage, queuePage, redirectsPage, usersPage, auditPage, accountPage, statsPage, errorPage, CONTACT_ROLES };
 
 /* ---- menu editor ---- */
 function menuPage(ctx, data) {
-	const canWrite = ctx.session.user.rol !== 'lezer';
+	const canWrite = ['beheerder', 'editor'].includes(ctx.session.user.rol);
 	const csrf = `<input type="hidden" name="csrf" value="${esc(ctx.session.csrf)}">`;
 	const state = { menu: data.menu, fixed: data.fixed, pages: data.pages, langs: data.langs, names: LANG_NAMES, max: { header: 8, footer: 24 }, canWrite };
 	const list = (id, title, hint, extra = '') => `<section class="card mnu" data-list="${id}"><div class="card-title"><h2>${title}</h2><span class="meta" data-count></span></div><p class="hint">${hint}</p>${extra}<ul class="mlist" data-items aria-label="${title}"></ul><p class="hint" data-empty hidden>Nog niets in dit menu.</p>${canWrite ? '<div class="addrow"><label class="sr" for="add-' + id + '">Toevoegen</label><select id="add-' + id + '" data-add-select></select><button type="button" class="secondary small" data-add>' + icon('plus') + ' Toevoegen</button></div>' : ''}</section>`;
@@ -592,4 +607,27 @@ ${d.gezondheid.length ? `<section class="card"><h2>Aandachtspunten</h2><ul class
 <p class="hint">Elke dag automatisch, de laatste ${d.keep} blijven bewaard in de map <code>data/backups</code>. Een back-up bevat alle gegevens, ook de versleutelde inloggegevens: bewaar gedownloade bestanden veilig. Foto’s staan in <code>data/uploads</code>; <code>npm run backup</code> kopieert alles.</p>
 ${d.backups.length ? `<div class="scroll"><table><thead><tr><th>Bestand</th><th>Gemaakt</th><th>Grootte</th><th>Downloaden</th></tr></thead><tbody>${d.backups.map((b) => `<tr><td><code>${esc(b.naam)}</code></td><td>${esc(when(b.tijd))}</td><td>${fmtBytes(b.grootte)}</td><td><form method="post" action="/admin/systeem/backup/${esc(b.naam)}" class="inline">${csrf}<input type="password" name="huidig" placeholder="jouw wachtwoord" autocomplete="current-password" aria-label="Jouw wachtwoord ter bevestiging" required><button class="small secondary" type="submit">Download</button></form></td></tr>`).join('')}</tbody></table></div>` : '<p class="hint">Nog geen back-ups.</p>'}
 <details class="fold-lite"><summary>Hoe zet ik een back-up terug?</summary><ol class="steps-list"><li>Stop de website.</li><li>Voer uit in de projectmap: <code>node scripts/restore.js aethra-20260101-030000.db</code> (de naam uit de lijst, of een pad naar een gedownload bestand).</li><li>Het script controleert het bestand, zet de huidige database opzij als <code>aethra.db.before-restore-…</code> en plaatst de back-up.</li><li>Start de website weer.</li></ol></details></section>` });
+}
+
+/* ---- review flow ---- */
+const REVIEW_PILL = { wacht: ['st-in_behandeling', 'Wacht op beoordeling'], goedgekeurd: ['ok', 'Goedgekeurd'], afgewezen: ['st-warn', 'Afgewezen'], ingetrokken: ['st-standaard', 'Ingetrokken'] };
+const reviewPill = (st) => `<span class="pill ${REVIEW_PILL[st][0]}">${REVIEW_PILL[st][1]}</span>`;
+function reviewsPage(ctx, { pending, recent, mine, canJudge }) {
+	const row = (r) => `<li class="msg-row"><a class="msg-main" href="/admin/reviews/${r.id}"><span class="msg-top"><strong>${esc(r.label)}</strong><span class="meta"> · voorgesteld door ${esc(r.naam_ingediend || 'onbekend')}</span></span><span class="msg-snip">${esc(r.samenvatting)}</span></a><span class="msg-side">${reviewPill(r.status)}<time class="meta" title="${esc(when(r.ingediend_op))}">${esc(relTime(r.ingediend_op))}</time></span></li>`;
+	const list = (items, empty) => (items.length ? `<ul class="msglist">${items.map(row).join('')}</ul>` : `<p class="hint pad">${esc(empty)}</p>`);
+	return shell(ctx, { title: canJudge ? 'Te beoordelen' : 'Mijn voorstellen', active: 'reviews', body: `<div class="page-head"><div><h1>${canJudge ? 'Te beoordelen' : 'Mijn voorstellen'}</h1><p class="hint">${canJudge ? 'Voorstellen van redacteuren. Goedkeuren publiceert direct, met dezelfde controles als anders. Afwijzen kan met een opmerking.' : 'Wat je ter beoordeling hebt ingediend. Een editor of beheerder publiceert het of geeft je een opmerking.'}</p></div></div>
+${canJudge ? `<section class="card flush"><h2 class="pad">Wacht op beoordeling (${pending.length})</h2>${list(pending, 'Niets te beoordelen.')}</section><section class="card flush"><h2 class="pad">Recent behandeld</h2>${list(recent, 'Nog niets behandeld.')}</section>` : `<section class="card flush">${list(mine, 'Je hebt nog niets ingediend. Gebruik “Ter beoordeling indienen” in een editor.')}</section>`}` });
+}
+function reviewPage(ctx, { r, changes, canJudge }) {
+	const csrf = `<input type="hidden" name="csrf" value="${esc(ctx.session.csrf)}">`;
+	const open = r.status === 'wacht';
+	const diff = changes.length ? changes.map((c) => `<section class="card"><h3>${esc(c.taal.toUpperCase())}: <code>${esc(c.veld)}</code></h3><div class="cmp"><div><span class="label-sm">Nu live</span><div class="cmp-box old">${c.oud ? esc(c.oud).replace(/\n/g, '<br>') : '<em>leeg</em>'}</div></div><div><span class="label-sm">Voorstel</span><div class="cmp-box new">${c.nieuw ? esc(c.nieuw).replace(/\n/g, '<br>') : '<em>leeg</em>'}</div></div></div></section>`).join('') : '<section class="card"><p class="hint">Er zijn geen tekstverschillen met wat nu live staat.</p></section>';
+	return shell(ctx, { title: 'Voorstel', active: 'reviews', body: `<p class="crumb"><a href="/admin/reviews">← Alle voorstellen</a></p>
+<div class="page-head"><div><h1>Voorstel voor ${esc(r.label)}</h1><p class="hint">Door ${esc(r.naam_ingediend || 'onbekend')} · ${esc(when(r.ingediend_op))} · ${esc(r.samenvatting)}</p></div>${reviewPill(r.status)}</div>
+${r.opmerking ? `<section class="card"><h2>Opmerking van de beoordelaar</h2><p>${esc(r.opmerking)}</p></section>` : ''}
+${diff}
+${open && canJudge ? `<section class="card"><h2>Beoordelen</h2>
+<form method="post" action="/admin/reviews/${r.id}/goedkeuren">${csrf}<label class="chk"><input type="checkbox" name="force" value="1"> Toch publiceren als er intussen iets anders is gewijzigd (die wijziging wordt vervangen)</label><div class="row"><label for="ov">Reden bij waarschuwingen (alleen nodig als de controle om een reden vraagt)</label><input id="ov" name="override_reden" maxlength="300"></div><button type="submit">Goedkeuren en publiceren</button></form>
+<form method="post" action="/admin/reviews/${r.id}/afwijzen" class="dz">${csrf}<div class="row"><label for="op">Waarom wijs je dit af?</label><textarea id="op" name="opmerking" rows="3" maxlength="1000" required></textarea></div><button type="submit" class="danger small">Afwijzen</button></form></section>` : ''}
+${open && !canJudge ? `<form method="post" action="/admin/reviews/${r.id}/intrekken" data-confirm="Dit voorstel intrekken?">${csrf}<button type="submit" class="secondary small">Voorstel intrekken</button></form>` : ''}` });
 }

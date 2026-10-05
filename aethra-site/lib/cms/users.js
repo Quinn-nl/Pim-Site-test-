@@ -13,7 +13,7 @@ const totp = require('../totp');
 const store = require('../store');
 const audit = require('./audit');
 
-const ROLES = ['beheerder', 'editor', 'lezer'];
+const ROLES = ['beheerder', 'editor', 'redacteur', 'lezer'];
 const COOKIE = 'aethra_sid';
 const IDLE_MS = 60 * 60 * 1000;
 const ABSOLUTE_MS = 8 * 60 * 60 * 1000;
@@ -277,6 +277,50 @@ function setPrefs(id, { meld_nieuw_bericht, weekrapport }) {
 }
 /** Active people who want mail about new messages / the weekly report (never readers: they have no access to messages). */
 const subscribers = (pref) => db.all(`SELECT id, email, naam, rol FROM gebruikers WHERE actief = 1 AND ${pref === 'weekrapport' ? 'weekrapport' : 'meld_nieuw_bericht'} = 1 AND rol != 'lezer'`);
+/* One-time links: invitation (72 hours) and password reset (1 hour). Only the hash of the token is stored; a new link replaces the old one. */
+const TOKEN_TTL = { uitnodiging: 72 * 3600 * 1000, herstel: 3600 * 1000 };
+function createToken(userId, soort, ttl = TOKEN_TTL[soort]) {
+	const token = crypto.randomBytes(32).toString('hex');
+	db.run('UPDATE gebruikers SET token_hash = ?, token_soort = ?, token_tot = ? WHERE id = ?', sha(token), soort, Date.now() + ttl, userId);
+	return token;
+}
+function findByToken(token) {
+	if (!/^[0-9a-f]{64}$/.test(String(token || ''))) return null;
+	const u = db.get('SELECT * FROM gebruikers WHERE token_hash = ?', sha(token));
+	if (!u || !u.actief || !u.token_tot || u.token_tot < Date.now()) return null;
+	return u;
+}
+const clearToken = (userId) => db.run('UPDATE gebruikers SET token_hash = NULL, token_soort = NULL, token_tot = NULL WHERE id = ?', userId);
+/** A password nobody knows, for accounts that are created by invitation. */
+const unusablePassword = () => crypto.randomBytes(24).toString('base64url');
+
+/** First time this browser signs in for this person? Returns true only when other devices were already known (not on the very first login). */
+function noteDevice(userId, ua) {
+	const h = sha(ua || '');
+	const known = db.get('SELECT COUNT(*) AS n FROM bekende_apparaten WHERE gebruiker_id = ?', userId).n;
+	const r = db.run('INSERT OR IGNORE INTO bekende_apparaten (gebruiker_id, ua_hash) VALUES (?, ?)', userId, h);
+	return r.changes > 0 && known > 0;
+}
+/** Short, human description of a browser for the "new device" mail (never stored). */
+function describeDevice(ua) {
+	const s = String(ua || '');
+	const browser = /Edg\//.test(s) ? 'Edge' : /OPR\//.test(s) ? 'Opera' : /Firefox\//.test(s) ? 'Firefox' : /Chrome\//.test(s) ? 'Chrome' : /Safari\//.test(s) ? 'Safari' : 'een browser';
+	const os = /Windows/.test(s) ? 'Windows' : /Android/.test(s) ? 'Android' : /iPhone|iPad/.test(s) ? 'iOS' : /Mac OS X/.test(s) ? 'macOS' : /Linux/.test(s) ? 'Linux' : 'onbekend systeem';
+	return `${browser} op ${os}`;
+}
+/** Tell the administrators once an hour per account that logging in was blocked (only for accounts that exist). */
+function notifyLock(email) {
+	const u = byEmail(email);
+	if (!u) return false;
+	const key = `lockmail.${sha(u.email).slice(0, 16)}`;
+	const last = db.get('SELECT waarde FROM instellingen WHERE sleutel = ?', key);
+	if (last && Date.now() - Number(last.waarde) < 3600 * 1000) return false;
+	db.run('INSERT INTO instellingen (sleutel, waarde) VALUES (?, ?) ON CONFLICT(sleutel) DO UPDATE SET waarde = excluded.waarde', key, String(Date.now()));
+	const outbox = require('./outbox');
+	for (const a of db.all("SELECT email, naam FROM gebruikers WHERE rol = 'beheerder' AND actief = 1")) outbox.send({ aan: a.email, soort: 'beveiliging', onderwerp: 'Inloggen geblokkeerd na meerdere mislukte pogingen', tekst: `Hallo ${a.naam},\n\nHet account ${u.email} is tijdelijk geblokkeerd voor inloggen na meerdere mislukte pogingen. Dat kan een typfout zijn, maar ook iemand die wachtwoorden probeert.\n\nControleer het auditlog in het beheer als je twijfelt.\n` });
+	audit.log({ user: null, actie: 'login.geblokkeerd', entiteit: `gebruiker:${u.id}` });
+	return true;
+}
 function setName(id, naam) {
 	naam = String(naam || '').trim().slice(0, 80);
 	if (!naam) throw Object.assign(new Error('Vul een naam in.'), { status: 400 });
@@ -301,9 +345,10 @@ const safeEqual = (a, b) => { const x = Buffer.from(String(a)); const y = Buffer
 const can = (user, action) => {
 	const rol = user && user.rol;
 	if (action === 'lezen') return !!rol;
-	if (action === 'schrijven') return rol === 'beheerder' || rol === 'editor';
+	if (action === 'schrijven') return rol === 'beheerder' || rol === 'editor' || rol === 'redacteur';
+	if (action === 'publiceren') return rol === 'beheerder' || rol === 'editor';
 	if (action === 'beheer') return rol === 'beheerder';
 	return false;
 };
 
-module.exports = { setPrefs, subscribers, sessionList, setName, sessionCounts, ROLES, COOKIE, hashPassword, verifyPassword, create, setPassword, update, byId, byEmail, list, count, publicUser, beginTwoFactor, pendingTwoFactor, confirmTwoFactor, regenerateRecovery, recoveryLeft, disableTwoFactor, verifySecondFactor, lockState, failedAttempt, clearAttempts, checkLogin, createTicket, useTicket, endTicket, createSession, getSession, destroySession, destroyOthers, rotateSession, cookieHeader, parseCookies, safeEqual, subnetOf, can, seal, unseal };
+module.exports = { createToken, findByToken, clearToken, unusablePassword, noteDevice, describeDevice, notifyLock, TOKEN_TTL, setPrefs, subscribers, sessionList, setName, sessionCounts, ROLES, COOKIE, hashPassword, verifyPassword, create, setPassword, update, byId, byEmail, list, count, publicUser, beginTwoFactor, pendingTwoFactor, confirmTwoFactor, regenerateRecovery, recoveryLeft, disableTwoFactor, verifySecondFactor, lockState, failedAttempt, clearAttempts, checkLogin, createTicket, useTicket, endTicket, createSession, getSession, destroySession, destroyOthers, rotateSession, cookieHeader, parseCookies, safeEqual, subnetOf, can, seal, unseal };

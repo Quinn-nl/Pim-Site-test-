@@ -371,6 +371,7 @@
 			ed.dataset.version = String(version);
 			dirty = false;
 			setState('saved', `Opgeslagen om ${clock()} (versie ${version})`);
+			if (d.review) { say('', 'Ingediend ter beoordeling. Een editor of beheerder publiceert het of laat je weten wat er moet veranderen.', lines(d.notes || [])); toast('Voorstel ingediend'); setState('saved', 'Ingediend ter beoordeling'); return; }
 			if (d.notes && d.notes.length) say('', 'Opgeslagen. Let op:', lines(d.notes)); else { say(); toast(`Opgeslagen (versie ${version})`); }
 			if (kind === 'pagina' && status && status !== ed.dataset.status) { location.reload(); return; }
 			preview();

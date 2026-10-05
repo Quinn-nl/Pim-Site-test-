@@ -8,6 +8,7 @@ const cfg = require('../config');
 const settings = require('./settings');
 const backup = require('./backup');
 const outbox = require('./outbox');
+const report = require('./report');
 const { GROUPS, OPTIONAL } = require('../fields');
 const { LANGS, defaultsFor } = require('../i18n');
 
@@ -72,6 +73,7 @@ function start() {
 	if (timers.length) return;
 	setTimeout(() => { try { healthCheck(); } catch (e) { console.error(`Health check failed: ${e.message}`); } }, 500).unref();
 	timers.push(setInterval(dailyChores, DAY));
+	timers.push(setInterval(() => { try { report.sendWeekly(); } catch (e) { console.error(`Weekly report failed: ${e.message}`); } }, 3600 * 1000));
 	timers.push(setInterval(() => { if (db.degraded()) db.ping(); }, 30000)); // watchdog: leaves read-only survivability as soon as the database answers again
 	for (const t of timers) t.unref();
 	messages.start();

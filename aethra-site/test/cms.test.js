@@ -4,12 +4,12 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const cfg = require('../lib/config');
 const net = require('net');
 const crypto = require('crypto');
 const zlib = require('zlib');
 
 process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'aethra-cms-'));
+const cfg = require('../lib/config'); // after DATA_DIR is set
 const db = require('../lib/cms/db');
 const users = require('../lib/cms/users');
 const content = require('../lib/cms/content');
@@ -902,4 +902,175 @@ test('audit log: filters, CSV export (formula-safe) and the export itself is log
 	assert.equal(audit.count({ gebruiker: 'systeem', actie: 'zzz' }), 0);
 	assert.ok(db.get("SELECT 1 FROM audit_logs WHERE actie = 'audit.export'"));
 	assert.equal((await client('melder@example.org').req('/admin/audit.csv')).status, 303, 'no session: login');
+});
+
+/* ---- block 2: roles, review flow, invitations, password reset, security mails, weekly report ---- */
+
+test('redacteur: writes and proposes, cannot publish; an editor approves or rejects; compliance still applies', async () => {
+	const reviews = require('../lib/cms/reviews');
+	users.create({ email: 'red@example.org', naam: 'Reda', rol: 'redacteur', wachtwoord: PW });
+	const red = client('red@example.org'); await red.login();
+	const ed = client('els@example.org'); await ed.login();
+	assert.equal(users.can({ rol: 'redacteur' }, 'schrijven'), true);
+	assert.equal(users.can({ rol: 'redacteur' }, 'publiceren'), false);
+
+	const body = (title, extra = {}) => ({ kind: 'tekst', id: 'contact', velden: { en: { contact_title: title } }, baseVersie: content.objectVersion('tekst:contact'), ...extra });
+	const before = (await (await fetch(`${base}/en/contact`)).text());
+	let r = await red.json('/admin/publish', body('Reach the team'));
+	assert.equal(r.status, 200);
+	const sent = await r.json();
+	assert.ok(sent.review, 'a proposal, not a publication');
+	assert.ok(!(await (await fetch(`${base}/en/contact`)).text()).includes('Reach the team'), 'nothing went live');
+	assert.equal(before.includes('Reach the team'), false);
+	assert.equal((await red.json('/admin/publish', body('Guaranteed returns'))).status, 422, 'hard compliance errors are caught at submission');
+	assert.equal((await red.json('/admin/publish/override', body('Reach the team', { override_reason: 'because I say so' }))).status, 403, 'no override for a redacteur');
+	assert.equal(reviews.pendingCount(), 1);
+	// a second proposal for the same place replaces the first
+	await red.json('/admin/publish', body('Reach our team'));
+	assert.equal(reviews.pendingCount(), 1);
+	const pending = reviews.list({ status: 'wacht' })[0];
+	assert.deepEqual(reviews.changes(pending).map((c) => [c.taal, c.veld, c.nieuw]), [['en', 'contact_title', 'Reach our team']]);
+
+	// the redacteur sees the list but cannot judge
+	assert.match(await (await red.req('/admin/reviews')).text(), /Mijn voorstellen/);
+	assert.equal((await red.post(`/admin/reviews/${pending.id}/goedkeuren`, {})).status, 403);
+	assert.equal((await red.req('/admin/media/plek', { method: 'POST' })).status, 403);
+	for (const [url, form] of [['/admin/menu/standaard', {}], ['/admin/redirects', { van: '/nl/a', naar: '/nl/b' }], ['/admin/media/plek', { plek: 'hero', media: '' }]]) assert.equal((await red.post(url, form)).status, 403, url);
+
+	// the editor sees it, approves, and it goes live
+	assert.match(await (await ed.req('/admin/reviews')).text(), /Te beoordelen/);
+	assert.match(await (await ed.req(`/admin/reviews/${pending.id}`)).text(), /Reach our team/);
+	r = await ed.post(`/admin/reviews/${pending.id}/goedkeuren`, {});
+	assert.equal(r.status, 303);
+	assert.ok((await (await fetch(`${base}/en/contact`)).text()).includes('Reach our team'));
+	assert.equal(reviews.get(pending.id).status, 'goedgekeurd');
+	assert.equal((await ed.post(`/admin/reviews/${pending.id}/goedkeuren`, {})).status, 409, 'already handled');
+	assert.ok(db.get("SELECT 1 FROM mail_uit WHERE aan = 'red@example.org' AND soort = 'review'"), 'the proposer is told');
+
+	// rejection needs a reason; withdrawing is for the proposer
+	await red.json('/admin/publish', body('Another title'));
+	const second = reviews.list({ status: 'wacht' })[0];
+	r = await ed.post(`/admin/reviews/${second.id}/afwijzen`, { opmerking: 'no' });
+	assert.equal(r.status, 400);
+	assert.equal((await ed.post(`/admin/reviews/${second.id}/afwijzen`, { opmerking: 'Te vaag, noem het pilotprogramma.' })).status, 303);
+	assert.equal(reviews.get(second.id).opmerking, 'Te vaag, noem het pilotprogramma.');
+	await red.json('/admin/publish', body('Third try'));
+	const third = reviews.list({ status: 'wacht' })[0];
+	assert.equal((await ed.post(`/admin/reviews/${third.id}/intrekken`, {})).status, 404, 'only the proposer can withdraw');
+	assert.equal((await red.post(`/admin/reviews/${third.id}/intrekken`, {})).status, 303);
+	assert.equal(reviews.pendingCount(), 0);
+});
+
+test('redacteur and pages: drafts are saved directly, going live or offline needs an editor', async () => {
+	const reviews = require('../lib/cms/reviews');
+	const red = client('red@example.org'); await red.login();
+	const ed = client('els@example.org'); await ed.login();
+	const id = pages.create({ sjabloon: 'standaard', user: { id: adminId } });
+	const save = (c, status, base) => c.json('/admin/publish', { kind: 'pagina', id, velden: { en: { titel: 'Red page', slug: 'red-page', 's.s1.body': '<p>Hello</p>' } }, meta: { status }, baseVersie: base });
+	let r = await save(red, 'concept', content.objectVersion(pages.object(id)));
+	assert.equal(r.status, 200);
+	assert.equal((await r.json()).review, undefined, 'a draft is saved straight away');
+	assert.equal(pages.get(id).meta.status, 'concept');
+	r = await save(red, 'gepubliceerd', content.objectVersion(pages.object(id)));
+	assert.ok((await r.json()).review, 'going live is a proposal');
+	assert.equal(pages.get(id).meta.status, 'concept');
+	const rv = reviews.list({ status: 'wacht' })[0];
+	const warned = await ed.post(`/admin/reviews/${rv.id}/goedkeuren`, {});
+	assert.equal(warned.status, 409, 'warnings of the compliance check need a reason, also when approving');
+	assert.match(await warned.text(), /Geen omschrijving voor zoekresultaten/);
+	assert.equal((await ed.post(`/admin/reviews/${rv.id}/goedkeuren`, { override_reden: 'Beschrijving volgt later' })).status, 303);
+	assert.equal(pages.get(id).meta.status, 'gepubliceerd');
+	r = await save(red, 'concept', content.objectVersion(pages.object(id)));
+	assert.equal(r.status, 403, 'a redacteur cannot take a live page offline');
+	assert.equal((await red.post(`/admin/paginas/${id}/verwijderen`, {})).status, 403);
+});
+
+test('invitations and password reset: one-time links, hashed, 2FA code required for reset, nothing leaks', async () => {
+	const c = client(); await c.login();
+	const post = (path, form) => fetch(base + path, { method: 'POST', redirect: 'manual', headers: { 'content-type': 'application/x-www-form-urlencoded', 'user-agent': UA }, body: new URLSearchParams(form) });
+	// an administrator invites someone without a password
+	let r = await c.post('/admin/gebruikers', { email: 'nieuw@example.org', naam: 'Nieuw', rol: 'editor', wachtwoord: '', huidig: PW });
+	assert.equal(r.status, 200);
+	const html = await r.text();
+	c.cookie = r.headers.get('set-cookie').split(';')[0]; // the session was rotated
+	c.csrf = /name="csrf" value="([0-9a-f]+)"/.exec(html)[1];
+	const link = /value="([^"]*\/admin\/herstel\?token=[0-9a-f]{64})"/.exec(html);
+	assert.ok(link, 'without a mail server the link is handed over on screen');
+	const token = /token=([0-9a-f]{64})/.exec(link[1])[1];
+	const row = db.get("SELECT token_hash, token_soort FROM gebruikers WHERE email = 'nieuw@example.org'");
+	assert.equal(row.token_soort, 'uitnodiging');
+	assert.notEqual(row.token_hash, token, 'only a hash is stored');
+	assert.equal((await post('/admin/login', { email: 'nieuw@example.org', password: 'whatever it is' })).status, 401, 'the unusable password does not work');
+	// accept it
+	assert.equal((await fetch(`${base}/admin/herstel?token=${token}`)).status, 200);
+	assert.equal((await fetch(`${base}/admin/herstel?token=${'0'.repeat(64)}`)).status, 410);
+	assert.equal((await post('/admin/herstel', { token, password: 'short', password2: 'short' })).status, 400);
+	assert.equal((await post('/admin/herstel', { token, password: 'a long enough password', password2: 'different one entirely' })).status, 400);
+	assert.equal((await post('/admin/herstel', { token, password: 'a long enough password', password2: 'a long enough password' })).status, 200);
+	assert.equal((await post('/admin/herstel', { token, password: 'second use of the link', password2: 'second use of the link' })).status, 410, 'a link works once');
+	const fresh = client('nieuw@example.org', 'a long enough password');
+	assert.equal((await fresh.login()).status, 303);
+
+	// forgot password: same answer for known and unknown, a mail is queued only for a real account
+	const mailsBefore = db.get("SELECT COUNT(*) AS n FROM mail_uit WHERE soort = 'herstel'").n;
+	const known = await (await post('/admin/vergeten', { email: 'nieuw@example.org' })).text();
+	const unknown = await (await post('/admin/vergeten', { email: 'niemand@example.org' })).text();
+	assert.equal(known, unknown, 'no way to learn which accounts exist');
+	assert.equal(db.get("SELECT COUNT(*) AS n FROM mail_uit WHERE soort = 'herstel'").n, mailsBefore, 'no mail server: no mail queued, the administrator can make a link');
+
+	// an administrator makes a reset link; for an account with 2FA the code is required
+	const target = users.byEmail('nieuw@example.org');
+	const secret = users.beginTwoFactor(target.id).secret;
+	users.confirmTwoFactor(target.id, totp.codeAt(secret, Math.floor(Date.now() / 1000 / totp.STEP)));
+	r = await c.post(`/admin/gebruikers/${target.id}/herstellink`, { huidig: PW });
+	const html2 = await r.text();
+	const t2 = /token=([0-9a-f]{64})/.exec(html2)[1];
+	c.cookie = r.headers.get('set-cookie').split(';')[0]; c.csrf = /name="csrf" value="([0-9a-f]+)"/.exec(html2)[1];
+	const bad = await post('/admin/herstel', { token: t2, password: 'brand new password here', password2: 'brand new password here', code: '000000' });
+	assert.equal(bad.status, 401, 'the authenticator code is needed to reset a password with 2FA');
+	assert.equal((await post('/admin/herstel', { token: t2, password: 'brand new password here', password2: 'brand new password here', code: totp.codeAt(secret, Math.floor(Date.now() / 1000 / totp.STEP) + 1) })).status, 200);
+	assert.equal((await client('nieuw@example.org', 'brand new password here').login()).status, 200, 'the new password works; with 2FA the code page follows');
+	assert.equal((await post('/admin/gebruikers', {})).status, 303, 'not logged in: back to login');
+});
+
+test('security mails: a new browser is reported (not the first login); a lockout is reported once an hour', async () => {
+	const u = users.create({ email: 'dev@example.org', naam: 'Dev', rol: 'editor', wachtwoord: PW });
+	const login = (ua) => fetch(`${base}/admin/login`, { method: 'POST', redirect: 'manual', headers: { 'content-type': 'application/x-www-form-urlencoded', 'user-agent': ua }, body: new URLSearchParams({ email: 'dev@example.org', password: PW }) });
+	const count = () => db.get("SELECT COUNT(*) AS n FROM mail_uit WHERE aan = 'dev@example.org' AND soort = 'beveiliging'").n;
+	assert.equal((await login('Mozilla/5.0 (Windows NT 10.0) Chrome/120.0')).status, 303);
+	assert.equal(count(), 0, 'the very first login is not suspicious');
+	assert.equal((await login('Mozilla/5.0 (Windows NT 10.0) Chrome/120.0')).status, 303);
+	assert.equal(count(), 0, 'same browser again');
+	assert.equal((await login('Mozilla/5.0 (Macintosh; Intel Mac OS X) Firefox/121.0')).status, 303);
+	assert.equal(count(), 1, 'a new device is reported');
+	assert.match(db.get("SELECT tekst FROM mail_uit WHERE aan = 'dev@example.org' ORDER BY id DESC").tekst, /Firefox op macOS/);
+	assert.ok(db.get("SELECT 1 FROM audit_logs WHERE actie = 'login.nieuw_apparaat'"));
+	// lockout
+	const bad = () => fetch(`${base}/admin/login`, { method: 'POST', redirect: 'manual', headers: { 'content-type': 'application/x-www-form-urlencoded', 'user-agent': 'lockout-tester' }, body: new URLSearchParams({ email: 'dev@example.org', password: 'wrong password' }) });
+	let last; for (let i = 0; i < 6; i += 1) last = await bad();
+	assert.equal(last.status, 429);
+	const lockMails = db.get("SELECT COUNT(*) AS n FROM mail_uit WHERE aan = 'pim@example.org' AND onderwerp LIKE 'Inloggen geblokkeerd%' AND tekst LIKE '%dev@example.org%'").n;
+	assert.equal(lockMails, 1, 'administrators hear about it once');
+	await bad(); await bad();
+	assert.equal(db.get("SELECT COUNT(*) AS n FROM mail_uit WHERE aan = 'pim@example.org' AND onderwerp LIKE 'Inloggen geblokkeerd%' AND tekst LIKE '%dev@example.org%'").n, 1, 'and not again within the hour');
+	void u;
+});
+
+test('weekly report: only on Monday morning, once a week, only for people who asked for it', () => {
+	const report = require('../lib/cms/report');
+	const id = users.byEmail('els@example.org').id;
+	users.setPrefs(id, { meld_nieuw_bericht: false, weekrapport: true });
+	const mails = () => db.get("SELECT COUNT(*) AS n FROM mail_uit WHERE soort = 'weekrapport'").n;
+	const monday = new Date(2031, 0, 6, 8, 0); // Monday 6 January 2031, 08:00
+	assert.equal(monday.getDay(), 1);
+	assert.equal(report.sendWeekly(new Date(2031, 0, 7, 8, 0)), 0, 'not on a Tuesday');
+	assert.equal(report.sendWeekly(new Date(2031, 0, 6, 6, 0)), 0, 'not before 07:00');
+	assert.equal(report.sendWeekly(monday), 1);
+	assert.equal(report.sendWeekly(new Date(2031, 0, 6, 12, 0)), 0, 'once per week');
+	assert.equal(mails(), 1);
+	const row = db.get("SELECT aan, onderwerp, tekst FROM mail_uit WHERE soort = 'weekrapport'");
+	assert.equal(row.aan, 'els@example.org');
+	assert.match(row.tekst, /Bezoek: \d+ paginaweergaven/);
+	assert.match(row.tekst, /Te beoordelen voorstellen: 0/);
+	assert.equal(report.sendWeekly(new Date(2031, 0, 13, 9, 0)), 1, 'the next week again');
 });

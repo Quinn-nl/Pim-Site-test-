@@ -16,6 +16,7 @@ const menu = require('./menu');
 const settings = require('./settings');
 const backup = require('./backup');
 const outbox = require('./outbox');
+const reviews = require('./reviews');
 const fs = require('fs');
 const path = require('path');
 const mail = require('../mail');
@@ -67,11 +68,40 @@ function systemInfo() {
 	};
 }
 
+/** After a successful sign-in: a mail to the person when this is a browser we have not seen before (not on the very first login). */
+function afterLogin(userId, req, ip) {
+	try {
+		const u = users.byId(userId);
+		if (users.noteDevice(userId, req.headers['user-agent'])) {
+			audit.log({ user: userId, actie: 'login.nieuw_apparaat', entiteit: `gebruiker:${userId}`, nieuw: { apparaat: users.describeDevice(req.headers['user-agent']), netwerk: users.subnetOf(ip) } });
+			outbox.send({ aan: u.email, soort: 'beveiliging', onderwerp: 'Nieuwe inlog bij het Aethra-beheer', tekst: `Hallo ${u.naam},\n\nEr is zojuist ingelogd op je account vanaf een apparaat dat we nog niet kenden: ${users.describeDevice(req.headers['user-agent'])}, netwerk ${users.subnetOf(ip)}, ${new Date().toLocaleString('nl-NL')}.\n\nWas jij dit niet? Verander dan direct je wachtwoord (Mijn account) en laat een beheerder de sessies beëindigen.\n` });
+		}
+	} catch (e) { /* a notification problem never blocks a sign-in */ }
+}
+
+/** The address links in mails point to. Never taken from the Host header of an arbitrary request (that would let anyone poison a reset mail). */
+function linkBase(req) {
+	if (cfg.SITE_URL) return cfg.SITE_URL;
+	const host = String(req.headers.host || '');
+	return /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(host) ? `http://${host}` : null;
+}
+const mailTexts = {
+	herstel: (naam, link) => ({ onderwerp: 'Nieuw wachtwoord voor het Aethra-beheer', tekst: `Hallo ${naam},\n\nEr is een nieuw wachtwoord aangevraagd voor je account. Kies het via deze link (een uur geldig, eenmalig):\n\n${link}\n\nHeb je dit niet aangevraagd? Dan hoef je niets te doen; je wachtwoord blijft zoals het was.\n` }),
+	uitnodiging: (naam, link) => ({ onderwerp: 'Je bent uitgenodigd voor het Aethra-beheer', tekst: `Hallo ${naam},\n\nJe hebt een account gekregen voor het beheer van de Aethra-website. Kies je wachtwoord via deze link (drie dagen geldig, eenmalig):\n\n${link}\n\nZet daarna ook tweestapsverificatie aan onder Mijn account.\n` }),
+};
+/** Sends the link by mail when mail works. Returns the link when it has to be handed over by hand instead. */
+function deliverToken(req, user, soort, token) {
+	const base = linkBase(req);
+	const link = base ? `${base}/admin/herstel?token=${token}` : null;
+	if (link && mail.canSend()) { const t = mailTexts[soort](user.naam, link); outbox.send({ aan: user.email, soort: soort === 'uitnodiging' ? 'uitnodiging' : 'herstel', ...t }); return { mailed: true, link: null }; }
+	return { mailed: false, link: link || `/admin/herstel?token=${token}` };
+}
+
 const FLASH = {
 	opgeslagen: { ok: true, text: 'Opgeslagen.' }, verwijderd: { ok: true, text: 'Verwijderd.' }, wachtwoord: { ok: true, text: 'Wachtwoord gewijzigd. Andere sessies zijn uitgelogd.' },
 	foutwachtwoord: { ok: false, text: 'Het huidige wachtwoord klopt niet.' }, kort: { ok: false, text: 'Gebruik minstens 12 tekens.' }, nofile: { ok: false, text: 'Kies eerst een bestand.' },
 	badimg: { ok: false, text: 'Upload een JPG-, PNG- of WebP-afbeelding van maximaal 5 MB.' }, teruggezet: { ok: true, text: 'Teruggezet. De vorige staat staat in de geschiedenis.' }, gemaakt: { ok: true, text: 'Aangemaakt.' },
-	backup: { ok: true, text: 'Back-up gemaakt.' }, geenselectie: { ok: false, text: 'Vink eerst een of meer berichten aan.' }, naam: { ok: true, text: 'Naam bijgewerkt.' }, sessies: { ok: true, text: 'Alle andere apparaten zijn uitgelogd.' },
+	backup: { ok: true, text: 'Back-up gemaakt.' }, goedgekeurd: { ok: true, text: 'Goedgekeurd en gepubliceerd.' }, geenselectie: { ok: false, text: 'Vink eerst een of meer berichten aan.' }, naam: { ok: true, text: 'Naam bijgewerkt.' }, sessies: { ok: true, text: 'Alle andere apparaten zijn uitgelogd.' },
 	geblokkeerd: { ok: false, text: 'Te veel pogingen. Probeer het later opnieuw.' },
 };
 
@@ -91,8 +121,8 @@ async function handleAdmin(req, res, url) {
 	let session = null;
 	try { session = users.getSession(req, ip); } catch (e) { return fail(503, 'De database is tijdelijk niet bereikbaar.'); }
 	const flash = FLASH[url.searchParams.get('f')] || null;
-	const badges = () => { try { return { berichten: messages.unreadCount() || '' }; } catch (e) { return {}; } };
-	const ctx = { session, nonce, flash, get badges() { return badges(); } };
+	const badges = (u) => { try { return { berichten: messages.unreadCount() || '', reviews: u && users.can(u, 'publiceren') ? reviews.pendingCount() || '' : '' }; } catch (e) { return {}; } };
+	const ctx = { session, nonce, flash, get badges() { return badges(session && session.user); } };
 	const can = (action) => users.can(session && session.user, action);
 
 	/* ---- signing in ---- */
@@ -102,13 +132,46 @@ async function handleAdmin(req, res, url) {
 			const form = await readForm(req, 4096);
 			const email = String(form.email || '').trim().toLowerCase();
 			const r = users.checkLogin(ip, email, form.password || '');
-			if (r.locked) return out(429, views.loginPage(ctx, { flash: { ok: false, text: `Te veel pogingen. Probeer het opnieuw na ${new Date(r.until).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })}.` } }));
+			if (r.locked) { try { users.notifyLock(email); } catch (e) { /* never block the answer */ } return out(429, views.loginPage(ctx, { flash: { ok: false, text: `Te veel pogingen. Probeer het opnieuw na ${new Date(r.until).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })}.` } })); }
 			if (r.error) return out(401, views.loginPage(ctx, { flash: { ok: false, text: 'E-mailadres of wachtwoord klopt niet.' }, setup: users.count() === 0 }));
 			if (r.user.totp_geheim) return out(200, views.codePage(ctx, users.createTicket(r.user.id, ip, email)));
 			users.clearAttempts(ip, email);
 			const s = users.createSession(r.user.id, ip, req.headers['user-agent']);
+			afterLogin(r.user.id, req, ip);
 			audit.log({ user: r.user.id, actie: 'login.gelukt', entiteit: `gebruiker:${r.user.id}` });
 			return go('/admin', { 'Set-Cookie': users.cookieHeader(s.id, 8 * 3600) });
+		}
+		if (req.method === 'GET' && p === '/admin/vergeten') return out(200, views.forgotPage(ctx, {}));
+		if (req.method === 'POST' && p === '/admin/vergeten') {
+			const form = await readForm(req, 4096);
+			const email = String(form.email || '').trim().toLowerCase();
+			const gate = users.lockState(ip, `vergeten:${ip}`);
+			if (gate.locked) return out(429, views.forgotPage(ctx, { flash: { ok: false, text: 'Te veel verzoeken. Probeer het later opnieuw.' } }));
+			users.failedAttempt(ip, `vergeten:${ip}`);   // every request counts: the form is not an oracle for which accounts exist
+			const u = users.byEmail(email);
+			if (u && u.actief) { const d = deliverToken(req, u, 'herstel', users.createToken(u.id, 'herstel')); audit.log({ user: u.id, actie: 'gebruiker.herstel_aangevraagd', entiteit: `gebruiker:${u.id}`, nieuw: { gemaild: d.mailed } }); }
+			return out(200, views.forgotPage(ctx, { done: true }));
+		}
+		if (p === '/admin/herstel') {
+			const token = String(url.searchParams.get('token') || '');
+			if (req.method === 'GET') { const u = users.findByToken(token); return out(u ? 200 : 410, views.resetPage(ctx, u ? { token, user: u } : { invalid: true })); }
+			if (req.method === 'POST') {
+				const form = await readForm(req, 4096);
+				const key = `token:${ip}`;
+				if (users.lockState(ip, key).locked) return out(429, views.resetPage(ctx, { invalid: true, flash: { ok: false, text: 'Te veel pogingen. Probeer het later opnieuw.' } }));
+				const u = users.findByToken(String(form.token || ''));
+				if (!u) { users.failedAttempt(ip, key); return out(410, views.resetPage(ctx, { invalid: true })); }
+				const again = (text, status = 400) => out(status, views.resetPage(ctx, { token: String(form.token), user: u, flash: { ok: false, text } }));
+				if (String(form.password || '').length < 12) return again('Gebruik minstens 12 tekens.');
+				if (form.password !== form.password2) return again('De twee wachtwoorden zijn niet gelijk.');
+				if (u.totp_geheim && u.token_soort === 'herstel' && !users.verifySecondFactor(u.id, form.code)) { users.failedAttempt(ip, key); return again('De code uit je authenticator-app klopt niet.', 401); }
+				users.setPassword(u.id, form.password, u.id);
+				users.clearToken(u.id);
+				users.destroyOthers(u.id, '');
+				users.clearAttempts(ip, key);
+				audit.log({ user: u.id, actie: u.token_soort === 'uitnodiging' ? 'gebruiker.uitnodiging_geaccepteerd' : 'gebruiker.herstel', entiteit: `gebruiker:${u.id}` });
+				return out(200, views.loginPage(ctx, { flash: { ok: true, text: 'Je wachtwoord is ingesteld. Log nu in.' } }));
+			}
 		}
 		if (req.method === 'POST' && p === '/admin/login/code') {
 			const form = await readForm(req, 4096);
@@ -125,6 +188,7 @@ async function handleAdmin(req, res, url) {
 			users.endTicket(String(form.ticket));
 			users.clearAttempts(ip, t.email);
 			const s = users.createSession(t.userId, ip, req.headers['user-agent']);
+			afterLogin(t.userId, req, ip);
 			audit.log({ user: t.userId, actie: 'login.gelukt', entiteit: `gebruiker:${t.userId}`, nieuw: { tweestaps: true } });
 			return go('/admin', { 'Set-Cookie': users.cookieHeader(s.id, 8 * 3600) });
 		}
@@ -149,6 +213,7 @@ async function handleAdmin(req, res, url) {
 		}
 	}
 	const needWrite = () => (can('schrijven') ? true : (fail(403, 'Je hebt alleen leesrechten.', ctx), false));
+	const needPublish = () => (can('publiceren') ? true : (fail(403, 'Alleen een editor of beheerder mag dit. Als redacteur dien je een voorstel in.', ctx), false));
 	const needAdmin = () => (can('beheer') ? true : (fail(403, 'Alleen een beheerder mag dit.', ctx), false));
 	const user = session.user;
 
@@ -210,7 +275,7 @@ async function handleAdmin(req, res, url) {
 		return out(200, views.pageEditorPage(ctx, pg.meta.id, pg));
 	}
 	if (isPost && (m = /^\/admin\/paginas\/(\d+)\/verwijderen$/.exec(p))) {
-		if (!needWrite()) return true;
+		if (!needPublish()) return true;
 		const holder = ws.heldByOther(pages.object(Number(m[1])), user.id);
 		if (holder) return fail(423, `${holder} is deze pagina momenteel aan het bewerken.`, ctx);
 		pages.remove(Number(m[1]), user);
@@ -224,6 +289,11 @@ async function handleAdmin(req, res, url) {
 		if (!body) return jsonOut(400, { ok: false, melding: 'Ongeldige gegevens.' });
 		const object = objectOf(body);
 		if (!object) return jsonOut(400, { ok: false, melding: 'Onbekend onderdeel.' });
+		if (!can('publiceren') && body.kind === 'pagina' && body.meta && body.meta.status === 'concept' && ((pages.get(Number(body.id)) || {}).meta || {}).status === 'gepubliceerd') return jsonOut(403, { ok: false, melding: 'Een redacteur kan een pagina niet offline halen. Vraag het een editor.' });
+		if (!can('publiceren') && reviews.goesLive(body.kind, body)) {      // a redacteur proposes instead of publishing
+			if (p === '/admin/publish/override') return jsonOut(403, { ok: false, melding: 'Een redacteur kan niets zelf publiceren.' });
+			try { const r = reviews.submit(body, user); return jsonOut(200, { ok: true, review: r.id, versie: Number(body.baseVersie) || 0, notes: r.waarschuwingen.map((w) => w.melding) }); } catch (e) { return jsonOut(e.status || 500, { ok: false, melding: e.message, fouten: e.fouten || null, waarschuwingen: e.waarschuwingen || null }); }
+		}
 		const holder = ws.heldByOther(object, user.id);
 		if (holder) return jsonOut(423, { ok: false, melding: `${holder} is deze pagina momenteel aan het bewerken.` });
 		const override = p === '/admin/publish/override';
@@ -300,7 +370,7 @@ async function handleAdmin(req, res, url) {
 		return out(200, views.diffPage(ctx, { entry, object: entry.object, diff: content.diffObjects(entry.snapshot.velden, now), huidigeVersie: content.objectVersion(entry.object) }));
 	}
 	if (isPost && (m = /^\/admin\/historie\/(\d+)\/terugzetten$/.exec(p))) {
-		if (!needWrite()) return true;
+		if (!needPublish()) return true;
 		const entry = content.historyEntry(Number(m[1]));
 		if (!entry) return fail(404, 'Versie niet gevonden.', ctx);
 		const holder = ws.heldByOther(entry.object, user.id);
@@ -333,17 +403,17 @@ async function handleAdmin(req, res, url) {
 		return go('/admin/media?f=opgeslagen');
 	}
 	if (isPost && p === '/admin/media/plek') {
-		if (!needWrite()) return true;
+		if (!needPublish()) return true;
 		try { media.setSlot(String(form.plek), form.media ? Number(form.media) : null, user); } catch (e) { return fail(e.status || 400, e.message, ctx); }
 		return go('/admin/media?f=opgeslagen');
 	}
 	if (isPost && (m = /^\/admin\/media\/(\d+)$/.exec(p))) {
-		if (!needWrite()) return true;
+		if (!needPublish()) return true;
 		try { media.update(Number(m[1]), { alt: Object.fromEntries(LANGS.map((l) => [l, form[`alt_${l}`]])), rechten: form.rechten, bron: form.bron }, user); } catch (e) { return fail(e.status || 400, e.message, ctx); }
 		return go('/admin/media?f=opgeslagen');
 	}
 	if (isPost && (m = /^\/admin\/media\/(\d+)\/verwijderen$/.exec(p))) {
-		if (!needWrite()) return true;
+		if (!needPublish()) return true;
 		try { media.remove(Number(m[1]), user); } catch (e) { return fail(e.status || 400, e.message, ctx); }
 		return go('/admin/media?f=verwijderd');
 	}
@@ -420,7 +490,7 @@ async function handleAdmin(req, res, url) {
 	/* ---- menu (navigation) ---- */
 	if (req.method === 'GET' && p === '/admin/menu') return out(200, views.menuPage(ctx, menu.editorData(pages.list())));
 	if (isPost && p === '/admin/menu') {
-		if (!needWrite()) return true;
+		if (!needPublish()) return true;
 		let raw = null;
 		try { raw = JSON.parse(String(form.menu || '')); menu.save(raw, pages.list(), user); } catch (e) {
 			const data = menu.editorData(pages.list());
@@ -429,12 +499,12 @@ async function handleAdmin(req, res, url) {
 		}
 		return go('/admin/menu?f=opgeslagen');
 	}
-	if (isPost && p === '/admin/menu/standaard') { if (!needWrite()) return true; menu.reset(user); return go('/admin/menu?f=opgeslagen'); }
+	if (isPost && p === '/admin/menu/standaard') { if (!needPublish()) return true; menu.reset(user); return go('/admin/menu?f=opgeslagen'); }
 
 	/* ---- redirects ---- */
 	if (req.method === 'GET' && p === '/admin/redirects') return out(200, views.redirectsPage(ctx, redirects.list()));
-	if (isPost && p === '/admin/redirects') { if (!needWrite()) return true; if (!redirects.add(form.van, form.naar, user)) return fail(400, 'Gebruik adressen als /nl/oude-pagina en /nl/nieuwe-pagina (twee verschillende adressen).', ctx); return go('/admin/redirects?f=opgeslagen'); }
-	if (isPost && p === '/admin/redirects/verwijderen') { if (!needWrite()) return true; redirects.remove(String(form.van), user); return go('/admin/redirects?f=verwijderd'); }
+	if (isPost && p === '/admin/redirects') { if (!needPublish()) return true; if (!redirects.add(form.van, form.naar, user)) return fail(400, 'Gebruik adressen als /nl/oude-pagina en /nl/nieuwe-pagina (twee verschillende adressen).', ctx); return go('/admin/redirects?f=opgeslagen'); }
+	if (isPost && p === '/admin/redirects/verwijderen') { if (!needPublish()) return true; redirects.remove(String(form.van), user); return go('/admin/redirects?f=verwijderd'); }
 
 	/* ---- statistics, audit ---- */
 	if (req.method === 'GET' && p === '/admin/stats') {
@@ -469,6 +539,29 @@ async function handleAdmin(req, res, url) {
 	/** After a critical action the session id changes. */
 	const rotated = (to, extra = {}) => { const s = users.rotateSession(session, req, ip); return go(to, { 'Set-Cookie': users.cookieHeader(s.id, 8 * 3600), ...extra }); };
 
+	/* ---- review flow ---- */
+	if (req.method === 'GET' && p === '/admin/reviews') return out(200, views.reviewsPage(ctx, { pending: reviews.list({ status: 'wacht' }), recent: reviews.list({ limit: 30 }).filter((r) => r.status !== 'wacht'), mine: reviews.list({ mine: user.id, limit: 20 }), canJudge: can('publiceren') }));
+	if (req.method === 'GET' && (m = /^\/admin\/reviews\/(\d+)$/.exec(p))) {
+		const r = reviews.get(Number(m[1]));
+		if (!r || (!can('publiceren') && r.ingediend_door !== user.id)) return fail(404, 'Voorstel niet gevonden.', ctx);
+		return out(200, views.reviewPage(ctx, { r, changes: reviews.changes(r), canJudge: can('publiceren') }));
+	}
+	if (isPost && (m = /^\/admin\/reviews\/(\d+)\/(goedkeuren|afwijzen|intrekken)$/.exec(p))) {
+		const id = Number(m[1]);
+		const back = (flash2, status = 200) => { const r = reviews.get(id); return out(status, views.reviewPage({ ...ctx, flash: flash2 }, { r, changes: reviews.changes(r), canJudge: can('publiceren') })); };
+		try {
+			if (m[2] === 'intrekken') { reviews.withdraw(id, user); return go('/admin/reviews?f=opgeslagen'); }
+			if (!needPublish()) return true;
+			if (m[2] === 'afwijzen') { reviews.reject(id, user, form.opmerking); return go('/admin/reviews?f=opgeslagen'); }
+			reviews.approve(id, user, { overrideReden: String(form.override_reden || '').trim() || null, force: form.force === '1' });
+			return go('/admin/reviews?f=goedgekeurd');
+		} catch (e) {
+			if (e.waarschuwingen) return back({ ok: false, text: `${e.message} ${e.waarschuwingen.map((w) => `${(w.taal || '').toUpperCase()} ${w.melding}`).join(' · ')}` }, 409);
+			if (e.fouten) return back({ ok: false, text: `Niet te publiceren: ${e.fouten.map((w) => w.melding).join(' · ')}` }, 422);
+			return back({ ok: false, text: e.message }, e.status || 400);
+		}
+	}
+
 	/* ---- settings, system, back-ups (administrators) ---- */
 	if (req.method === 'GET' && p === '/admin/instellingen') { if (!needAdmin()) return true; return out(200, views.settingsPage(ctx, { values: settings.all(), mail: { smtp: mail.canSend(), team: mail.configured() } })); }
 	if (isPost && p === '/admin/instellingen') {
@@ -500,7 +593,15 @@ async function handleAdmin(req, res, url) {
 		if (isPost && p === '/admin/gebruikers') {
 			const ok = reauth(form.huidig);
 			if (ok !== true) return go('/admin/gebruikers?f=foutwachtwoord');
-			try { users.create({ email: form.email, naam: form.naam, rol: form.rol, wachtwoord: form.wachtwoord }, user); } catch (e) { return out(e.status || 400, views.usersPage({ ...ctx, flash: { ok: false, text: e.message } }, { list: users.list(), sessions: users.sessionCounts() })); }
+			const invite = !String(form.wachtwoord || '').trim();
+			let newId = null;
+			try { newId = users.create({ email: form.email, naam: form.naam, rol: form.rol, wachtwoord: invite ? users.unusablePassword() : form.wachtwoord }, user); } catch (e) { return out(e.status || 400, views.usersPage({ ...ctx, flash: { ok: false, text: e.message } }, { list: users.list(), sessions: users.sessionCounts() })); }
+			if (invite) {
+				const d = deliverToken(req, users.byId(newId), 'uitnodiging', users.createToken(newId, 'uitnodiging'));
+				audit.log({ user, actie: 'gebruiker.uitgenodigd', entiteit: `gebruiker:${newId}`, nieuw: { gemaild: d.mailed } });
+				const s2 = users.rotateSession(session, req, ip);
+				return out(200, views.usersPage({ ...ctx, session: { ...session, id: s2.id, csrf: s2.csrf }, flash: { ok: true, text: d.mailed ? 'Uitnodiging verstuurd per e-mail.' : 'Uitnodiging klaar. Er is geen mailserver ingesteld: geef de link hieronder zelf door.' } }, { list: users.list(), sessions: users.sessionCounts(), link: d.link }), { 'Set-Cookie': users.cookieHeader(s2.id, 8 * 3600) });
+			}
 			return rotated('/admin/gebruikers?f=gemaakt');
 		}
 		if (isPost && (m = /^\/admin\/gebruikers\/(\d+)$/.exec(p))) {
@@ -511,6 +612,15 @@ async function handleAdmin(req, res, url) {
 			if (reauth(form.huidig) !== true) return go('/admin/gebruikers?f=foutwachtwoord');
 			try { users.setPassword(Number(m[1]), form.nieuw, user); users.destroyOthers(Number(m[1]), ''); } catch (e) { return out(e.status || 400, views.usersPage({ ...ctx, flash: { ok: false, text: e.message } }, { list: users.list(), sessions: users.sessionCounts() })); }
 			return rotated('/admin/gebruikers?f=opgeslagen');
+		}
+		if (isPost && (m = /^\/admin\/gebruikers\/(\d+)\/herstellink$/.exec(p))) {
+			if (reauth(form.huidig) !== true) return go('/admin/gebruikers?f=foutwachtwoord');
+			const target = users.byId(Number(m[1]));
+			if (!target || !target.actief) return fail(404, 'Gebruiker niet gevonden.', ctx);
+			const d = deliverToken(req, target, 'herstel', users.createToken(target.id, 'herstel'));
+			audit.log({ user, actie: 'gebruiker.herstellink', entiteit: `gebruiker:${target.id}`, nieuw: { gemaild: d.mailed } });
+			const s2 = users.rotateSession(session, req, ip);
+			return out(200, views.usersPage({ ...ctx, session: { ...session, id: s2.id, csrf: s2.csrf }, flash: { ok: true, text: d.mailed ? `Herstellink gemaild aan ${target.email}.` : 'Herstellink klaar. Er is geen mailserver ingesteld: geef de link hieronder zelf door (een uur geldig).' } }, { list: users.list(), sessions: users.sessionCounts(), link: d.link }), { 'Set-Cookie': users.cookieHeader(s2.id, 8 * 3600) });
 		}
 		if (isPost && (m = /^\/admin\/gebruikers\/(\d+)\/uitloggen$/.exec(p))) {
 			users.destroyOthers(Number(m[1]), Number(m[1]) === user.id ? session.id : '');
