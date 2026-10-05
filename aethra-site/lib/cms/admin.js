@@ -20,6 +20,10 @@ const reviews = require('./reviews');
 const planning = require('./planning');
 const sharelinks = require('./sharelinks');
 const translations = require('./translations');
+const seo = require('./seo');
+const linkcheck = require('./linkcheck');
+const compliance = require('./compliance');
+const { robotsTxt } = require('../robots');
 const fs = require('fs');
 const path = require('path');
 const mail = require('../mail');
@@ -103,7 +107,7 @@ function deliverToken(req, user, soort, token) {
 const FLASH = {
 	opgeslagen: { ok: true, text: 'Opgeslagen.' }, verwijderd: { ok: true, text: 'Verwijderd.' }, wachtwoord: { ok: true, text: 'Wachtwoord gewijzigd. Andere sessies zijn uitgelogd.' },
 	foutwachtwoord: { ok: false, text: 'Het huidige wachtwoord klopt niet.' }, kort: { ok: false, text: 'Gebruik minstens 12 tekens.' }, nofile: { ok: false, text: 'Kies eerst een bestand.' },
-	badimg: { ok: false, text: 'Upload een JPG-, PNG- of WebP-afbeelding van maximaal 5 MB.' }, teruggezet: { ok: true, text: 'Teruggezet. De vorige staat staat in de geschiedenis.' }, gemaakt: { ok: true, text: 'Aangemaakt.' },
+	badimg: { ok: false, text: 'Upload een JPG-, PNG- of WebP-afbeelding van maximaal 5 MB.' }, vernieuwd: { ok: true, text: 'De sitemap en alle opgeslagen pagina’s worden opnieuw opgebouwd bij het volgende bezoek.' }, gestart: { ok: true, text: 'De linkcontrole is gestart. Dit kan even duren.' }, teruggezet: { ok: true, text: 'Teruggezet. De vorige staat staat in de geschiedenis.' }, gemaakt: { ok: true, text: 'Aangemaakt.' },
 	backup: { ok: true, text: 'Back-up gemaakt.' }, goedgekeurd: { ok: true, text: 'Goedgekeurd en gepubliceerd.' }, teruggezet: { ok: true, text: 'Teruggezet. Een pagina komt terug als concept.' }, geenselectie: { ok: false, text: 'Vink eerst een of meer berichten aan.' }, naam: { ok: true, text: 'Naam bijgewerkt.' }, sessies: { ok: true, text: 'Alle andere apparaten zijn uitgelogd.' },
 	geblokkeerd: { ok: false, text: 'Te veel pogingen. Probeer het later opnieuw.' },
 };
@@ -593,6 +597,41 @@ async function handleAdmin(req, res, url) {
 		if (!needWrite()) return true;
 		sharelinks.revoke(m[1], user);
 		return go('/admin/voorbeeldlinks?f=opgeslagen');
+	}
+
+	/* ---- search engines, links, editorial rules ---- */
+	if (req.method === 'GET' && p === '/admin/seo') {
+		const rows = seo.audit();
+		const siteUrl = cfg.SITE_URL || `${cfg.SECURE ? 'https' : 'http'}://${req.headers.host || 'localhost'}`;
+		const sitemap = require('../views').renderSitemap(siteUrl, content.lastModified(), seo.todayOn() ? ['/eco-mode-today'] : [], require('../store').publishedPages(), require('../store').pageVersions);
+		return out(200, views.seoPage(ctx, { rows, score: seo.score(rows), robots: robotsTxt(siteUrl), sitemapUrls: (sitemap.match(/<loc>/g) || []).length, siteUrl, env: { siteUrl: !!cfg.SITE_URL, training: process.env.AI_TRAINING === 'allow', indexNow: !!process.env.INDEXNOW_KEY } }));
+	}
+	if (isPost && p === '/admin/seo/vernieuwen') { if (!needWrite()) return true; cache.invalidate(); return go('/admin/seo?f=vernieuwd'); }
+	if (req.method === 'GET' && p === '/admin/links') return out(200, views.linksPage(ctx, { results: linkcheck.results(), last: linkcheck.lastRun(), running: linkcheck.isRunning(), canRun: can('schrijven') }));
+	if (isPost && p === '/admin/links/controleren') {
+		if (!needWrite()) return true;
+		if (!linkcheck.isRunning()) { audit.log({ user, actie: 'links.controle_gestart', entiteit: 'links' }); linkcheck.run().catch((e) => console.error(`Link check failed: ${e.message}`)); }
+		return go('/admin/links?f=gestart');
+	}
+	if (req.method === 'GET' && p === '/admin/regels') { if (!needAdmin()) return true; return out(200, views.rulesPage(ctx, { builtin: compliance.BUILTIN, extra: db.all('SELECT * FROM compliance_regels ORDER BY soort, term') })); }
+	if (isPost && p === '/admin/regels') {
+		if (!needAdmin()) return true;
+		const term = String(form.term || '').replace(/\s+/g, ' ').trim();
+		const soort = form.soort === 'verboden' ? 'verboden' : 'waarschuwing';
+		const again = (text, status = 422) => out(status, views.rulesPage({ ...ctx, flash: { ok: false, text } }, { builtin: compliance.BUILTIN, extra: db.all('SELECT * FROM compliance_regels ORDER BY soort, term') }));
+		if (term.length < 2 || term.length > 60) return again('Een term is 2 tot 60 tekens lang.');
+		if (/[<>]/.test(term)) return again('Gebruik gewone woorden, geen tekens als < of >.');
+		if (db.get('SELECT 1 FROM compliance_regels WHERE term = ?', term)) return again('Deze term staat er al.', 409);
+		db.run('INSERT INTO compliance_regels (soort, term, toelichting, aangemaakt_door) VALUES (?, ?, ?, ?)', soort, term, String(form.toelichting || '').slice(0, 200), user.id);
+		compliance.reloadExtra();
+		audit.log({ user, actie: 'regels.toegevoegd', entiteit: 'compliance', nieuw: { soort, term } });
+		return go('/admin/regels?f=opgeslagen');
+	}
+	if (isPost && (m = /^\/admin\/regels\/(\d+)\/verwijderen$/.exec(p))) {
+		if (!needAdmin()) return true;
+		const old = db.get('SELECT * FROM compliance_regels WHERE id = ?', Number(m[1]));
+		if (old) { db.run('DELETE FROM compliance_regels WHERE id = ?', old.id); compliance.reloadExtra(); audit.log({ user, actie: 'regels.verwijderd', entiteit: 'compliance', oud: { soort: old.soort, term: old.term } }); }
+		return go('/admin/regels?f=verwijderd');
 	}
 
 	/* ---- review flow ---- */

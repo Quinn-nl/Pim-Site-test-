@@ -25,6 +25,7 @@ const events = require('./lib/cms/events');
 const jobs = require('./lib/cms/jobs');
 const settings = require('./lib/cms/settings');
 const sharelinks = require('./lib/cms/sharelinks');
+const { robotsTxt } = require('./lib/robots');
 const legacy = require('./lib/cms/legacy');
 
 const contactLimiter = createLimiter(5, 60 * 60 * 1000);
@@ -58,11 +59,7 @@ async function handlePublic(req, res, url) {
 	const siteUrl = siteUrlFor(req);
 	const get = req.method === 'GET';
 
-	if (get && url.pathname === '/robots.txt') {
-		// Search and answer bots stay allowed. Training-only bots are blocked unless AI_TRAINING=allow (a licensing choice, it does not affect search or AI answers).
-		const training = process.env.AI_TRAINING === 'allow' ? '' : `${['GPTBot', 'ClaudeBot', 'Google-Extended', 'CCBot', 'Applebot-Extended'].map((b) => `User-agent: ${b}`).join('\n')}\nDisallow: /\n\n`;
-		return send(res, 200, `${training}User-agent: *\nAllow: /\nDisallow: /admin\nContent-Signal: search=yes, ai-input=yes, ai-train=${process.env.AI_TRAINING === 'allow' ? 'yes' : 'no'}\n\nSitemap: ${siteUrl}/sitemap.xml\n`, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'public, max-age=3600' });
-	}
+	if (get && url.pathname === '/robots.txt') return send(res, 200, robotsTxt(siteUrl), { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'public, max-age=3600' });
 	if (get && url.pathname === '/sitemap.xml') {
 		const modified = cmsContent.lastModified();
 		return send(res, 200, views.renderSitemap(siteUrl, modified, todayOn() ? ['/eco-mode-today'] : [], store.publishedPages(), store.pageVersions), { 'Content-Type': 'application/xml; charset=utf-8', 'Cache-Control': 'public, max-age=3600' });

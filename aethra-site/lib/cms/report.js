@@ -19,7 +19,7 @@ function build(now = new Date()) {
 	const open = db.get("SELECT COUNT(*) AS n FROM berichten WHERE status IN ('nieuw', 'gelezen', 'in_behandeling')").n;
 	const unread = db.get("SELECT COUNT(*) AS n FROM berichten WHERE status = 'nieuw'").n;
 	const planned = db.get("SELECT COUNT(*) AS n FROM planning WHERE status = 'wacht' AND wanneer < ?", now.getTime() + 7 * 86400000).n;
-	const broken = db.get('SELECT COUNT(*) AS n FROM link_resultaten WHERE status IS NULL OR status >= 400').n;
+	const broken = require('./linkcheck').brokenCount();
 	const failedMail = db.get("SELECT COUNT(*) AS n FROM mail_uit WHERE status IN ('mislukt', 'gefaald')").n + db.get("SELECT COUNT(*) AS n FROM uitgaande_wachtrij WHERE status IN ('mislukt', 'gefaald')").n;
 	const last = backup.list()[0];
 	const lines = [

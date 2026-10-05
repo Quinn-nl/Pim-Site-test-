@@ -1276,3 +1276,119 @@ test('focus point: stored per photo and used by the public page; the side-by-sid
 	assert.match(html, /sbs-l[^"]*del[^>]*>[^<]*Version one/);
 	assert.match(html, /sbs-r[^"]*add[^>]*>[^<]*Version two/);
 });
+
+/* ---- block 4: SEO check, link check, accessibility advice, editorial rules ---- */
+
+test('SEO check: finds short titles, missing descriptions and duplicates in what visitors actually get', async () => {
+	const seo = require('../lib/cms/seo');
+	const c = client(); await c.login();
+	const mk = (slug, titel, extra = {}) => { const id = pages.create({ sjabloon: 'standaard', user: { id: adminId } }); const pr = pages.prepare(id, { velden: { en: { titel, slug, 's.s1.body': '<p>Some text.</p>', ...extra } }, meta: { status: 'gepubliceerd' } }); pages.save(id, pr, { user: { id: adminId }, baseVersie: 0 }); return id; };
+	const a = mk('seo-a', 'Hi');
+	const b = mk('seo-b', 'Hi');
+	const rows = seo.audit();
+	const row = (slug) => rows.find((r) => r.lang === 'en' && r.path === `/${slug}`);
+	const codes = (slug) => row(slug).findings.map((f) => f.code);
+	assert.ok(row('seo-a'), 'published pages are included');
+	assert.ok(codes('seo-a').includes('omschrijving_mist'), 'no description');
+	assert.ok(codes('seo-a').includes('titel_dubbel') && codes('seo-b').includes('titel_dubbel'), 'two pages with the same title');
+	assert.ok(!rows.some((r) => r.path === '/seo-draft'), 'drafts are not checked');
+	// the fixed pages are in all four languages
+	assert.equal(rows.filter((r) => r.path === '/problem').length, 4);
+	const html = await (await c.req('/admin/seo')).text();
+	assert.match(html, /Zoekmachines/);
+	assert.match(html, /User-agent: \*/);
+	assert.ok(!/Zo ziet het er in Google/.test(html), 'the Google preview lives in the page editor');
+	for (const id of [a, b]) { pages.remove(id, { id: adminId }); pages.purge(id, { id: adminId }); }
+});
+
+test('link check: internal links against the site, external links safely (no private addresses, no redirect following)', async () => {
+	const linkcheck = require('../lib/cms/linkcheck');
+	const id = pages.create({ sjabloon: 'standaard', user: { id: adminId } });
+	const body = '<p><a href="/en/problem">fine</a> <a href="/en/does-not-exist">broken</a> <a href="https://example.org/ok">ok</a> <a href="https://example.org/gone">gone</a> <a href="http://127.0.0.1:9/secret">local</a> <a href="http://10.0.0.5/x">private</a> <a href="https://example.org/moved">moved</a> <a href="mailto:a@b.nl">mail</a></p>';
+	const pr = pages.prepare(id, { velden: { en: { titel: 'Links page for the checker', slug: 'links-page', seo_description: 'A page with several kinds of links in it for the checker.', 's.s1.body': body } }, meta: { status: 'gepubliceerd' } });
+	pages.save(id, pr, { user: { id: adminId }, baseVersie: 0 });
+	require('../lib/cms/redirects').add('/en/old-address', '/en/problem', { id: adminId });
+	const calls = [];
+	const fetcher = async (url, opts) => {
+		calls.push([url, opts.method, opts.redirect]);
+		if (url.endsWith('/ok')) return { status: 200 };
+		if (url.endsWith('/gone')) return { status: opts.method === 'HEAD' ? 405 : 404 };
+		if (url.endsWith('/moved')) return { status: 301 };
+		return { status: 200 };
+	};
+	const r = await linkcheck.run({ fetcher, timeoutMs: 500 });
+	assert.ok(r.extern >= 4);
+	const all = linkcheck.results();
+	const find = (url) => all.find((x) => x.url === url && x.bron === '/en/links-page');
+	assert.equal(find('/en/problem').status, 200);
+	assert.equal(find('/en/does-not-exist').status, 404);
+	assert.equal(linkcheck.isBroken(find('/en/does-not-exist')), true);
+	assert.equal(find('https://example.org/ok').status, 200);
+	assert.equal(find('https://example.org/gone').status, 404, 'HEAD refused with 405: retried as GET');
+	assert.equal(linkcheck.isBroken(find('https://example.org/gone')), true);
+	assert.equal(find('https://example.org/moved').status, 301);
+	assert.equal(linkcheck.isBroken(find('https://example.org/moved')), false, 'a redirect is not broken');
+	assert.equal(find('http://127.0.0.1:9/secret').status, null);
+	assert.ok(!calls.some(([u]) => /127\.0\.0\.1|10\.0\.0\.5/.test(u)), 'private and local addresses are never requested');
+	assert.ok(calls.every(([, , redirect]) => redirect === 'manual'), 'redirects are never followed');
+	assert.ok(!find('mailto:a@b.nl'), 'mail links are skipped');
+	assert.equal(linkcheck.internalStatus('/en/old-address', new Set()).status, 301);
+	assert.equal(await linkcheck.safeHost('localhost'), false);
+	assert.equal(linkcheck.privateIp('192.168.1.1'), true);
+	assert.equal(linkcheck.privateIp('93.184.216.34'), false);
+	const c = client(); await c.login();
+	const html = await (await c.req('/admin/links')).text();
+	assert.match(html, /Kapotte links \(\d+\)/);
+	assert.match(html, /does-not-exist/);
+	assert.equal(linkcheck.run === undefined, false);
+	pages.remove(id, { id: adminId }); pages.purge(id, { id: adminId });
+});
+
+test('accessibility advice: heading jumps (rule), vague link text and very long sentences are noted, never blocking', async () => {
+	const c = client(); await c.login();
+	const id = pages.create({ sjabloon: 'standaard', user: { id: adminId } });
+	const long = Array.from({ length: 45 }, (_, i) => `word${i}`).join(' ');
+	const body = `<h2>Heading</h2><h3>Sub</h3><p><a href="/en/problem">click here</a> ${long}.</p>`;
+	const payload = { kind: 'pagina', id, velden: { en: { titel: 'Advice page for testing', slug: 'advice-page', seo_description: 'A page that is only here to test the accessibility advice.', 's.s1.body': body } }, meta: { status: 'gepubliceerd' }, baseVersie: 0 };
+	const check = await (await c.json('/admin/api/check', payload)).json();
+	assert.deepEqual(check.adviezen.map((a) => a.regel).sort(), ['lange_zin', 'vage_linktekst'], 'the editor only allows h2 and h3, so a jump cannot be typed there');
+	const raw = require('../lib/cms/compliance').validateAethraCompliance({ object: 'tekst:x', velden: { en: { a: '<h2>One</h2><h4>Jump</h4>' } } });
+	assert.deepEqual(raw.adviezen.map((a) => a.regel), ['kopniveau'], 'the rule itself works on any HTML');
+	assert.equal(check.fouten.length, 0);
+	const r = await c.json('/admin/publish', payload);
+	assert.equal(r.status, 200, 'advice never blocks publishing');
+	assert.deepEqual((await r.json()).notes.map((n) => n.regel).sort(), ['lange_zin', 'vage_linktekst']);
+	pages.remove(id, { id: adminId }); pages.purge(id, { id: adminId });
+});
+
+test('editorial rules: administrators can add terms, the built-in rules stay, only administrators see the page', async () => {
+	const c = client(); await c.login();
+	const ed = client('els@example.org'); await ed.login();
+	assert.equal((await ed.req('/admin/regels')).status, 403);
+	assert.equal((await ed.post('/admin/regels', { term: 'cheap', soort: 'verboden' })).status, 403);
+	const html = await (await c.req('/admin/regels')).text();
+	assert.match(html, /aandelen/);
+	assert.match(html, /Vaste regels/);
+	const params = (t) => ({ kind: 'tekst', id: 'contact', velden: { en: { contact_title: t } }, baseVersie: content.objectVersion('tekst:contact') });
+	assert.equal((await c.json('/admin/publish', params('A cheap way to talk'))).status, 200, 'before the rule exists');
+	assert.equal((await c.post('/admin/regels', { term: 'cheap', soort: 'verboden', toelichting: 'We make no price claims' })).status, 303);
+	assert.equal((await c.post('/admin/regels', { term: 'Cheap', soort: 'verboden' })).status, 409, 'no duplicates (any case)');
+	assert.equal((await c.post('/admin/regels', { term: 'x', soort: 'verboden' })).status, 422);
+	let r = await c.json('/admin/publish', params('A cheap way to talk'));
+	assert.equal(r.status, 422, 'a forbidden extra term blocks');
+	assert.equal((await r.json()).fouten[0].regel, 'verboden_term');
+	assert.equal((await c.json('/admin/publish', params('Cheaper than cheap'))).status, 422);
+	assert.equal((await c.json('/admin/publish', params('We are not cheap, and this is no offer'))).status, 200, 'a negation (the disclaimer) is allowed');
+	assert.equal((await c.json('/admin/publish', params('Expensive hardware, cheaper'))).status, 200, 'only whole words count');
+	await c.post('/admin/regels', { term: 'unbeatable', soort: 'waarschuwing' });
+	r = await c.json('/admin/publish', params('An unbeatable team'));
+	assert.equal(r.status, 409, 'an extra warning needs a reason');
+	assert.equal((await c.json('/admin/publish/override', { ...params('An unbeatable team'), override_reason: 'The claim is about our team spirit' })).status, 200);
+	// built-in rules are untouched and cannot be removed
+	assert.equal((await c.json('/admin/publish', params('Guaranteed returns'))).status, 422);
+	const rule = db.get("SELECT id FROM compliance_regels WHERE term = 'cheap'");
+	assert.equal((await c.post(`/admin/regels/${rule.id}/verwijderen`, {})).status, 303);
+	assert.equal((await c.json('/admin/publish', params('A cheap way to talk'))).status, 200, 'removed: allowed again');
+	assert.ok(db.get("SELECT 1 FROM audit_logs WHERE actie = 'regels.toegevoegd'"));
+	assert.equal((await c.json('/admin/publish', params('Guaranteed returns'))).status, 422, 'still blocked after removing an extra term');
+});

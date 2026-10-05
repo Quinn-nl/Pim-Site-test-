@@ -484,7 +484,7 @@
 		}
 		const chk = await api('/admin/api/check', { kind, id, velden: c.velden, meta: c.meta });
 		if (chk.data && chk.data.ok && !result.querySelector('.flash')) {
-			const all = [...(chk.data.fouten || []), ...(chk.data.waarschuwingen || [])];
+			const all = [...(chk.data.fouten || []), ...(chk.data.waarschuwingen || []), ...(chk.data.adviezen || [])];
 			if (all.length) say('', 'Controle voor het publiceren:', lines(all));
 		}
 	}, 30000);
@@ -833,4 +833,35 @@
 			x.value = String(px); y.value = String(py); place(px, py);
 		});
 	}
+})();
+
+
+/* ---- Google preview (page editor) and the SEO overview filter ---- */
+(function () {
+	'use strict';
+	const $ = (s, r = document) => r.querySelector(s);
+	const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
+	const serp = $('[data-serp]');
+	const ed = $('#editor');
+	if (serp && ed) {
+		const lang = () => localStorage.getItem('aethra_tab') || 'nl';
+		const val = (key) => { const f = $(`[data-lang="${lang()}"][data-key="${key}"]`, ed); return f ? f.value.trim() : ''; };
+		const update = () => {
+			const l = lang();
+			const title = val('seo_title') || val('titel') || '(nog geen titel)';
+			const desc = val('seo_description') || val('lead') || 'Zonder omschrijving kiest Google zelf een stukje tekst van de pagina.';
+			$('.serp-url', serp).textContent = `${location.host}/${l}/${val('slug') || '…'}`;
+			$('.serp-title', serp).textContent = title.length > 60 ? `${title.slice(0, 58)}…` : title;
+			$('.serp-desc', serp).textContent = desc.length > 160 ? `${desc.slice(0, 157)}…` : desc;
+			$('.serp-count', serp).textContent = `Titel ${title.length} tekens (ideaal tot 60) · omschrijving ${desc.length} tekens (ideaal tot 160)`;
+		};
+		ed.addEventListener('input', update);
+		for (const b of $$('[data-lang-tab]')) b.addEventListener('click', () => setTimeout(update, 0));
+		update();
+	}
+	const chips = $$('[data-sev-filter]');
+	for (const c of chips) c.addEventListener('click', () => {
+		for (const o of chips) o.setAttribute('aria-pressed', String(o === c));
+		for (const tr of $$('tr[data-sev]')) tr.classList.toggle('hidden', c.dataset.sevFilter !== 'all' && tr.dataset.sev !== c.dataset.sevFilter);
+	});
 })();

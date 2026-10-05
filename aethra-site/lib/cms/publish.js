@@ -41,14 +41,14 @@ function preparePrivacy(velden) {
 }
 
 function gate(check, overrideReden, user, object, enforce = true) {
-	if (!enforce) return { notes: [...check.fouten, ...check.waarschuwingen] };
+	if (!enforce) return { notes: [...check.fouten, ...check.waarschuwingen, ...(check.adviezen || [])] };
 	if (check.fouten.length) throw fail(422, check.fouten[0].melding, { fouten: check.fouten, waarschuwingen: check.waarschuwingen });
 	if (check.waarschuwingen.length) {
 		const reden = String(overrideReden || '').trim();
 		if (reden.length < 10) throw fail(409, 'Er zijn waarschuwingen. Geef een reden (minstens 10 tekens) om toch te publiceren.', { waarschuwingen: check.waarschuwingen });
 		audit.log({ user, actie: 'publicatie.override', entiteit: object, nieuw: check.waarschuwingen, reden });
 	}
-	return { notes: [] };
+	return { notes: check.adviezen || [] };
 }
 
 /**
@@ -88,7 +88,7 @@ function check(kind, params) {
 		const prepared = pages.prepare(params.id, { velden: params.velden, meta: params.meta });
 		return validateAethraCompliance({ object: pages.object(params.id), velden: prepared.velden, meta: { sjabloon: prepared.row.sjabloon, indeling: prepared.indeling }, publiceren: true });
 	}
-	return { fouten: [], waarschuwingen: [] };
+	return { fouten: [], waarschuwingen: [], adviezen: [] };
 }
 
 module.exports = { publish, check, prepareText };

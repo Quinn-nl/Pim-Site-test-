@@ -61,6 +61,22 @@ function previewPage({ lang, velden, meta, siteUrl }) {
 	return views.renderPage(content, { siteUrl }, page, { [lang]: page.slug });
 }
 
+/**
+ * The published page at a public path in one language, exactly as a visitor gets it (used by the SEO and link checks).
+ * path: '/problem', '/for/fleets', or '/some-slug' of a page made in the CMS. Returns { html, indexable } or null.
+ */
+function renderPublic(lang, path, siteUrl, todayOn) {
+	const content = store.getContent(lang);
+	views.setToday(!!todayOn);
+	views.setFooterPages(store.footerPages(lang));
+	views.setMenu(store.menuFor(lang, !!todayOn));
+	views.setBanner(store.bannerFor(lang));
+	views.setCarry({});
+	const created = path.length > 1 && !FIXED[path] && path !== '/contact' && !path.startsWith('/for/') ? store.findPage(lang, path.slice(1)) : null;
+	const html = created ? views.renderPage(content, { siteUrl }, created, store.pageVersions(created)) : renderFixed(path, content, { siteUrl });
+	return html ? { html, indexable: created ? created.indexeren !== false : true } : null;
+}
+
 /** Any preview from an editor state: { kind, lang, velden, meta, path, siteUrl }. Returns HTML or null. */
 function previewAny({ kind, lang, velden, meta, path, siteUrl }) {
 	try {
@@ -70,4 +86,4 @@ function previewAny({ kind, lang, velden, meta, path, siteUrl }) {
 	} catch (e) { return null; }
 }
 
-module.exports = { previewAny, FIXED, renderFixed, previewText, previewPage, LANGS };
+module.exports = { renderPublic, previewAny, FIXED, renderFixed, previewText, previewPage, LANGS };

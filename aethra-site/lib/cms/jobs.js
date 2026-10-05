@@ -63,6 +63,8 @@ function dailyChores() {
 		require('./pages').purgeOld();
 		require('./media').purgeOld();
 		backup.ensureDaily();
+		const lastLinks = require('./linkcheck').lastRun();
+		if (!lastLinks || Date.now() - Date.parse(lastLinks) > 7 * DAY) require('./linkcheck').run().catch((e) => console.error(`Link check failed: ${e.message}`));
 		db.run('DELETE FROM sessies WHERE laatst_gezien < ?', Date.now() - 2 * 3600 * 1000);
 		db.run('DELETE FROM inlog_pogingen WHERE vergrendeld_tot < ? AND venster_start < ?', Date.now(), Date.now() - DAY);
 		const last = db.get("SELECT waarde FROM instellingen WHERE sleutel = 'audit_rotatie'");
