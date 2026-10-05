@@ -13,6 +13,12 @@ const content = require('./content');
 const pages = require('./pages');
 const media = require('./media');
 const menu = require('./menu');
+const settings = require('./settings');
+const backup = require('./backup');
+const outbox = require('./outbox');
+const fs = require('fs');
+const path = require('path');
+const mail = require('../mail');
 const messages = require('./messages');
 const redirects = require('./redirects');
 const audit = require('./audit');
@@ -48,11 +54,24 @@ function headers(nonce, extra = {}) {
 	return h;
 }
 
+/** Everything the system page shows. */
+function systemInfo() {
+	const dirSize = (dir) => { let n = 0; let files = 0; try { for (const e of fs.readdirSync(dir, { withFileTypes: true })) { const f = path.join(dir, e.name); if (e.isDirectory()) { const r = dirSize(f); n += r.bytes; files += r.files; } else { n += fs.statSync(f).size; files += 1; } } } catch (e) { /* missing folder */ } return { bytes: n, files }; };
+	let disk = null;
+	try { const st = fs.statfsSync(cfg.DATA_DIR); disk = { vrij: st.bavail * st.bsize, totaal: st.blocks * st.bsize }; } catch (e) { /* not supported here */ }
+	const uploads = dirSize(media.uploadsDir());
+	return {
+		versie: VERSION, node: process.version, uptime: Math.round(process.uptime()), dbBytes: (() => { try { return fs.statSync(db.file()).size; } catch (e) { return 0; } })(), dbOk: !db.degraded(), uploads, disk,
+		smtp: mail.canSend(), team: mail.configured(), queue: messages.queueStats(), outbox: outbox.stats(), cache: cache.stats(), backups: backup.list(), keep: backup.KEEP,
+		gezondheid: db.all('SELECT bericht, ernst FROM gezondheid ORDER BY ernst, sleutel'), siteUrl: cfg.SITE_URL, secure: cfg.SECURE, now: Date.now(),
+	};
+}
+
 const FLASH = {
 	opgeslagen: { ok: true, text: 'Opgeslagen.' }, verwijderd: { ok: true, text: 'Verwijderd.' }, wachtwoord: { ok: true, text: 'Wachtwoord gewijzigd. Andere sessies zijn uitgelogd.' },
 	foutwachtwoord: { ok: false, text: 'Het huidige wachtwoord klopt niet.' }, kort: { ok: false, text: 'Gebruik minstens 12 tekens.' }, nofile: { ok: false, text: 'Kies eerst een bestand.' },
 	badimg: { ok: false, text: 'Upload een JPG-, PNG- of WebP-afbeelding van maximaal 5 MB.' }, teruggezet: { ok: true, text: 'Teruggezet. De vorige staat staat in de geschiedenis.' }, gemaakt: { ok: true, text: 'Aangemaakt.' },
-	geenselectie: { ok: false, text: 'Vink eerst een of meer berichten aan.' }, naam: { ok: true, text: 'Naam bijgewerkt.' }, sessies: { ok: true, text: 'Alle andere apparaten zijn uitgelogd.' },
+	backup: { ok: true, text: 'Back-up gemaakt.' }, geenselectie: { ok: false, text: 'Vink eerst een of meer berichten aan.' }, naam: { ok: true, text: 'Naam bijgewerkt.' }, sessies: { ok: true, text: 'Alle andere apparaten zijn uitgelogd.' },
 	geblokkeerd: { ok: false, text: 'Te veel pogingen. Probeer het later opnieuw.' },
 };
 
@@ -115,6 +134,7 @@ async function handleAdmin(req, res, url) {
 
 	/* ---- everything below needs a session ---- */
 	ctx.session = session;
+	try { ctx.maintenance = settings.maintenance(); } catch (e) { ctx.maintenance = false; }
 	const isPost = req.method === 'POST';
 	let form = null;
 	let body = null;
@@ -341,7 +361,7 @@ async function handleAdmin(req, res, url) {
 		const pagesN = Math.max(1, Math.ceil(total / per));
 		const page = Math.min(pagesN, Math.max(1, parseInt(url.searchParams.get('page'), 10) || 1));
 		const raw = Object.fromEntries(['q', 'status', 'rol', 'taal', 'bron', 'van', 'tot', 'toegewezen'].map((k) => [k, String(url.searchParams.get(k) || '').slice(0, 200)]));
-		return out(200, views.messagesPage(ctx, { list: messages.list(filter, { limit: per, offset: (page - 1) * per }), total, page, pages: pagesN, filter: raw, counts: messages.statusCounts(filter), people: users.list(), sources: messages.sources(), roles: messages.roles(), retention: cfg.RETENTION_DAYS, queueProblems: messages.alarmCount() }));
+		return out(200, views.messagesPage(ctx, { list: messages.list(filter, { limit: per, offset: (page - 1) * per }), total, page, pages: pagesN, filter: raw, counts: messages.statusCounts(filter), people: users.list(), sources: messages.sources(), roles: messages.roles(), retention: settings.retentionDays(), queueProblems: messages.alarmCount() }));
 	}
 	if (isPost && p === '/admin/berichten/bulk') {
 		if (!needWrite()) return true;
@@ -394,7 +414,7 @@ async function handleAdmin(req, res, url) {
 		} catch (e) { return fail(e.status || 400, e.message, ctx); }
 		return go(`/admin/berichten/${id}?f=opgeslagen`);
 	}
-	if (req.method === 'GET' && p === '/admin/wachtrij') return out(200, views.queuePage(ctx, { rows: messages.queueList(), stats: messages.queueStats() }));
+	if (req.method === 'GET' && p === '/admin/wachtrij') return out(200, views.queuePage(ctx, { rows: messages.queueList(), stats: messages.queueStats(), outbox: outbox.list(30), outboxStats: outbox.stats(), smtp: mail.canSend() }));
 	if (isPost && (m = /^\/admin\/wachtrij\/(\d+)\/opnieuw$/.exec(p))) { if (!needWrite()) return true; messages.retry(Number(m[1]), user); return go('/admin/wachtrij'); }
 
 	/* ---- menu (navigation) ---- */
@@ -421,11 +441,20 @@ async function handleAdmin(req, res, url) {
 		const days = [7, 30, 90].includes(Number(url.searchParams.get('days'))) ? Number(url.searchParams.get('days')) : 30;
 		return out(200, views.statsPage(ctx, stats.summary(days), days));
 	}
+	const auditFilter = () => Object.fromEntries(['actie', 'gebruiker', 'entiteit', 'van', 'tot'].map((k) => [k, String(url.searchParams.get(k) || '').slice(0, 60)]));
 	if (req.method === 'GET' && p === '/admin/audit') {
 		if (!needAdmin()) return true;
-		const actie = String(url.searchParams.get('actie') || '').slice(0, 60);
+		const filter = auditFilter();
 		const page = Math.max(1, parseInt(url.searchParams.get('page'), 10) || 1);
-		return out(200, views.auditPage(ctx, { rows: audit.list({ limit: 100, offset: (page - 1) * 100, actie }), total: audit.count(actie), page, actie }));
+		return out(200, views.auditPage(ctx, { rows: audit.list({ limit: 100, offset: (page - 1) * 100, ...filter }), total: audit.count(filter), page, filter, people: users.list() }));
+	}
+	if (req.method === 'GET' && p === '/admin/audit.csv') {
+		if (!needAdmin()) return true;
+		const filter = auditFilter();
+		audit.log({ user, actie: 'audit.export', entiteit: 'audit', nieuw: filter });
+		res.writeHead(200, headers(nonce, { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': 'attachment; filename="aethra-auditlog.csv"' }));
+		res.end(audit.csv(filter));
+		return true;
 	}
 
 	/* ---- re-authentication for critical actions ---- */
@@ -439,6 +468,30 @@ async function handleAdmin(req, res, url) {
 	};
 	/** After a critical action the session id changes. */
 	const rotated = (to, extra = {}) => { const s = users.rotateSession(session, req, ip); return go(to, { 'Set-Cookie': users.cookieHeader(s.id, 8 * 3600), ...extra }); };
+
+	/* ---- settings, system, back-ups (administrators) ---- */
+	if (req.method === 'GET' && p === '/admin/instellingen') { if (!needAdmin()) return true; return out(200, views.settingsPage(ctx, { values: settings.all(), mail: { smtp: mail.canSend(), team: mail.configured() } })); }
+	if (isPost && p === '/admin/instellingen') {
+		if (!needAdmin()) return true;
+		const input = { ...form };
+		for (const k of ['banner_aan', 'onderhoud_aan']) input[k] = form[k] === '1';
+		try { settings.save(input, user); } catch (e) { return out(e.status || 400, views.settingsPage({ ...ctx, flash: { ok: false, text: e.message } }, { values: { ...settings.all(), ...input }, mail: { smtp: mail.canSend(), team: mail.configured() } })); }
+		return go('/admin/instellingen?f=opgeslagen');
+	}
+	if (req.method === 'GET' && p === '/admin/systeem') { if (!needAdmin()) return true; return out(200, views.systemPage(ctx, systemInfo())); }
+	if (isPost && p === '/admin/systeem/backup') { if (!needAdmin()) return true; try { backup.run(user); } catch (e) { return fail(500, `De back-up is mislukt: ${e.message}`, ctx); } return go('/admin/systeem?f=backup'); }
+	if (isPost && (m = /^\/admin\/systeem\/backup\/([\w.-]+)$/.exec(p))) {
+		if (!needAdmin()) return true;
+		const ok = reauth(form.huidig);
+		if (ok !== true) return go('/admin/systeem?f=foutwachtwoord');
+		const file = backup.fileFor(m[1]);
+		if (!file) return fail(404, 'Back-up niet gevonden.', ctx);
+		audit.log({ user, actie: 'backup.gedownload', entiteit: 'systeem', nieuw: { bestand: m[1] } });
+		res.writeHead(200, headers(nonce, { 'Content-Type': 'application/octet-stream', 'Content-Length': fs.statSync(file).size, 'Content-Disposition': `attachment; filename="${m[1]}"`, 'Cache-Control': 'no-store' }));
+		fs.createReadStream(file).pipe(res);
+		return true;
+	}
+	if (isPost && (m = /^\/admin\/mail\/(\d+)\/opnieuw$/.exec(p))) { if (!needWrite()) return true; outbox.retry(Number(m[1])); return go('/admin/wachtrij'); }
 
 	/* ---- users (administrators) ---- */
 	if (p.startsWith('/admin/gebruikers')) {
@@ -476,6 +529,7 @@ async function handleAdmin(req, res, url) {
 	const account = (flash2, tf = {}) => out(200, views.accountPage({ ...ctx }, { flash: flash2 || flash, sessions: users.sessionList(user.id, session.id), activity: audit.byUser(user.id, 8), tf: { enabled: !!users.byId(user.id).totp_geheim, left: users.recoveryLeft(user.id), setup: users.pendingTwoFactor(user.id), ...tf } }));
 	if (req.method === 'GET' && p === '/admin/account') return account();
 	if (isPost && p === '/admin/account/naam') { try { users.setName(user.id, form.naam); } catch (e) { return account({ ok: false, text: e.message }); } return go('/admin/account?f=naam'); }
+	if (isPost && p === '/admin/account/meldingen') { users.setPrefs(user.id, { meld_nieuw_bericht: form.meld_nieuw_bericht === '1' && user.rol !== 'lezer', weekrapport: form.weekrapport === '1' && user.rol !== 'lezer' }); return go('/admin/account?f=opgeslagen'); }
 	if (isPost && p === '/admin/account/sessies-uit') { users.destroyOthers(user.id, session.id); audit.log({ user, actie: 'gebruiker.uitgelogd', entiteit: `gebruiker:${user.id}` }); return go('/admin/account?f=sessies'); }
 	if (isPost && p === '/admin/account') {
 		const ok = reauth(form.current);

@@ -55,7 +55,7 @@ function unseal(b64) {
 }
 
 /* Users */
-const publicUser = (u) => (u ? { id: u.id, email: u.email, naam: u.naam, rol: u.rol, actief: !!u.actief, tweestaps: !!u.totp_geheim, laatste_login: u.laatste_login, aangemaakt: u.aangemaakt } : null);
+const publicUser = (u) => (u ? { id: u.id, email: u.email, naam: u.naam, rol: u.rol, actief: !!u.actief, tweestaps: !!u.totp_geheim, laatste_login: u.laatste_login, aangemaakt: u.aangemaakt, meld_nieuw_bericht: !!u.meld_nieuw_bericht, weekrapport: !!u.weekrapport } : null);
 const byId = (id) => db.get('SELECT * FROM gebruikers WHERE id = ?', id);
 const byEmail = (email) => db.get('SELECT * FROM gebruikers WHERE email = ?', String(email || '').trim().toLowerCase());
 const list = () => db.all('SELECT * FROM gebruikers ORDER BY naam').map(publicUser);
@@ -272,6 +272,11 @@ const destroySession = (req) => { const id = parseCookies(req.headers.cookie)[CO
 function sessionList(userId, currentId) {
 	return db.all('SELECT id_hash, aangemaakt, laatst_gezien FROM sessies WHERE gebruiker_id = ? ORDER BY laatst_gezien DESC', userId).map((r) => ({ aangemaakt: r.aangemaakt, laatst_gezien: r.laatst_gezien, huidig: r.id_hash === sha(currentId || '') }));
 }
+function setPrefs(id, { meld_nieuw_bericht, weekrapport }) {
+	db.run('UPDATE gebruikers SET meld_nieuw_bericht = ?, weekrapport = ? WHERE id = ?', meld_nieuw_bericht ? 1 : 0, weekrapport ? 1 : 0, id);
+}
+/** Active people who want mail about new messages / the weekly report (never readers: they have no access to messages). */
+const subscribers = (pref) => db.all(`SELECT id, email, naam, rol FROM gebruikers WHERE actief = 1 AND ${pref === 'weekrapport' ? 'weekrapport' : 'meld_nieuw_bericht'} = 1 AND rol != 'lezer'`);
 function setName(id, naam) {
 	naam = String(naam || '').trim().slice(0, 80);
 	if (!naam) throw Object.assign(new Error('Vul een naam in.'), { status: 400 });
@@ -301,4 +306,4 @@ const can = (user, action) => {
 	return false;
 };
 
-module.exports = { sessionList, setName, sessionCounts, ROLES, COOKIE, hashPassword, verifyPassword, create, setPassword, update, byId, byEmail, list, count, publicUser, beginTwoFactor, pendingTwoFactor, confirmTwoFactor, regenerateRecovery, recoveryLeft, disableTwoFactor, verifySecondFactor, lockState, failedAttempt, clearAttempts, checkLogin, createTicket, useTicket, endTicket, createSession, getSession, destroySession, destroyOthers, rotateSession, cookieHeader, parseCookies, safeEqual, subnetOf, can, seal, unseal };
+module.exports = { setPrefs, subscribers, sessionList, setName, sessionCounts, ROLES, COOKIE, hashPassword, verifyPassword, create, setPassword, update, byId, byEmail, list, count, publicUser, beginTwoFactor, pendingTwoFactor, confirmTwoFactor, regenerateRecovery, recoveryLeft, disableTwoFactor, verifySecondFactor, lockState, failedAttempt, clearAttempts, checkLogin, createTicket, useTicket, endTicket, createSession, getSession, destroySession, destroyOthers, rotateSession, cookieHeader, parseCookies, safeEqual, subnetOf, can, seal, unseal };

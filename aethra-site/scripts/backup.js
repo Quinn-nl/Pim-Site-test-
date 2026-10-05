@@ -10,7 +10,7 @@ if (!fs.existsSync(cfg.DATA_DIR)) { console.error(`No data folder at ${cfg.DATA_
 const stamp = new Date().toISOString().replace(/[:T]/g, '-').slice(0, 16);
 const target = path.join(root, stamp);
 fs.mkdirSync(root, { recursive: true, mode: 0o700 });
-fs.cpSync(cfg.DATA_DIR, target, { recursive: true, filter: (src) => !/aethra\.db(-wal|-shm)?$/.test(src) && !/[\\/]tmp$/.test(src) });
+fs.cpSync(cfg.DATA_DIR, target, { recursive: true, filter: (src) => !/aethra\.db(-wal|-shm)?$/.test(src) && !/[\\/]tmp$/.test(src) && !/[\\/]backups$/.test(src) });
 if (fs.existsSync(path.join(cfg.DATA_DIR, 'aethra.db'))) { db.backupTo(path.join(target, 'aethra.db')); db.close(); }
 const all = fs.readdirSync(root).filter((d) => /^\d{4}-\d\d-\d\d-\d\d-\d\d$/.test(d)).sort();
 for (const old of all.slice(0, Math.max(0, all.length - 14))) fs.rmSync(path.join(root, old), { recursive: true, force: true });

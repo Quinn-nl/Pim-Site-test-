@@ -20,6 +20,8 @@ const cfg = () => ({
 });
 
 const configured = () => { const c = cfg(); return !!(c.host && c.from && c.to.length); };
+/** Can mail go out at all (server and sender set)? Recipients are then given per mail. */
+const canSend = () => { const c = cfg(); return !!(c.host && c.from); };
 const clean = (s) => String(s).replace(/[\r\n]+/g, ' ').trim();
 const encodeWord = (s) => (/^[\x20-\x7e]*$/.test(s) ? s : `=?UTF-8?B?${Buffer.from(s, 'utf8').toString('base64')}?=`);
 const isLocal = (host) => host === 'localhost' || host === '127.0.0.1' || host === '::1';
@@ -42,7 +44,7 @@ function buildMessage({ from, to, subject, text, replyTo }) {
 
 function sendMail({ subject, text, replyTo, to }) {
 	const c = cfg();
-	if (!configured()) return Promise.resolve({ sent: false, reason: 'not configured' });
+	if (to ? !canSend() : !configured()) return Promise.resolve({ sent: false, reason: 'not configured' });
 	if (to) c.to = to;
 	const message = buildMessage({ from: c.from, to: c.to, subject, text, replyTo });
 
@@ -108,4 +110,4 @@ function sendMail({ subject, text, replyTo, to }) {
 	});
 }
 
-module.exports = { sendMail, configured, buildMessage };
+module.exports = { sendMail, configured, canSend, buildMessage };

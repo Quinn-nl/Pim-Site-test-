@@ -373,3 +373,7 @@ h3 { letter-spacing: 0; }
 .disclaimer { margin: 0; padding: var(--s-3); border: 1px solid var(--line); border-left: 4px solid var(--accent); background: var(--surface); border-radius: var(--radius); font-weight: 600; }
 .figure { margin: 0; }
 .figure figcaption { color: var(--ink-soft); font-size: .95rem; margin-top: var(--s-1); }
+
+/* Announcement banner (set under Instellingen in the admin) */
+.site-banner { background: var(--navy-900, #0b1b33); color: #fff; text-align: center; padding: .55rem 1rem; font-size: .95rem; font-weight: 500; }
+.site-banner a { color: inherit; text-decoration: underline; text-underline-offset: 3px; }

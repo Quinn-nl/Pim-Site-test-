@@ -96,6 +96,7 @@ const findPage = (lang, slug) => pages().findPage(lang, slug);
 const pageVersions = (page) => pages().pageVersions(page);
 const footerPages = (lang) => pages().footerPages(lang);
 /** Resolved menu for a language, or null for the built-in one. */
+const bannerFor = (lang) => require('./cms/settings').banner(lang);
 const menuFor = (lang, todayOn) => require('./cms/menu').resolve(lang, { todayOn, published: publishedPages() });
 
-module.exports = { file, uploadsDir, ensureDirs, readJson, writeJson, getSecret, cleanValue, getContent, publishedPages, findPage, pageVersions, footerPages, menuFor };
+module.exports = { file, uploadsDir, ensureDirs, readJson, writeJson, getSecret, cleanValue, getContent, publishedPages, findPage, pageVersions, footerPages, menuFor, bannerFor };

@@ -695,3 +695,71 @@
 	window.addEventListener('beforeunload', (e) => { if (dirty) { e.preventDefault(); e.returnValue = ''; } });
 	render();
 })();
+
+/* ---- sortable tables, browser notifications ---- */
+(function () {
+	'use strict';
+	const $ = (s, r = document) => r.querySelector(s);
+	const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
+
+	// <table data-sortable>: click a column header to sort (text, numbers and dates in the Dutch notation)
+	const value = (cell) => {
+		const t = (cell.dataset.sort || cell.textContent).trim();
+		const nl = /^(\d{1,2})-(\d{1,2})-(\d{4})(?:,? (\d{1,2}):(\d{2}))?$/.exec(t);
+		if (nl) return Date.UTC(+nl[3], +nl[2] - 1, +nl[1], +(nl[4] || 0), +(nl[5] || 0));
+		const n = Number(t.replace(/\./g, '').replace(',', '.'));
+		return t !== '' && !Number.isNaN(n) ? n : t.toLowerCase();
+	};
+	for (const table of $$('table[data-sortable]')) {
+		const head = $$('thead th', table);
+		head.forEach((th, i) => {
+			if (!th.textContent.trim()) return;
+			th.tabIndex = 0;
+			th.setAttribute('role', 'columnheader');
+			th.setAttribute('aria-sort', 'none');
+			th.classList.add('sortable');
+			const sort = () => {
+				const dir = th.getAttribute('aria-sort') === 'ascending' ? 'descending' : 'ascending';
+				for (const o of head) o.setAttribute('aria-sort', 'none');
+				th.setAttribute('aria-sort', dir);
+				const body = $('tbody', table);
+				const rows = $$('tr', body).map((r, idx) => ({ r, idx, v: value(r.children[i] || r) }));
+				rows.sort((a, b) => (a.v < b.v ? -1 : a.v > b.v ? 1 : a.idx - b.idx) * (dir === 'ascending' ? 1 : -1));
+				for (const x of rows) body.append(x.r);
+			};
+			th.addEventListener('click', sort);
+			th.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); sort(); } });
+		});
+	}
+
+	// browser notifications for new messages (the page must be open; nothing is sent to any server)
+	const KEY = 'aethra_notify';
+	let want = false;
+	try { want = localStorage.getItem(KEY) === '1'; } catch (e) { /* storage blocked */ }
+	const btn = $('#notifybtn');
+	const supported = 'Notification' in window;
+	const label = () => { if (btn) btn.textContent = want && Notification.permission === 'granted' ? 'Meldingen in de browser uitzetten' : 'Meldingen in de browser aanzetten'; };
+	if (btn && supported) {
+		btn.hidden = false; label();
+		btn.addEventListener('click', async () => {
+			if (want && Notification.permission === 'granted') want = false;
+			else { const p = Notification.permission === 'granted' ? 'granted' : await Notification.requestPermission(); want = p === 'granted'; }
+			try { localStorage.setItem(KEY, want ? '1' : '0'); } catch (e) { /* ignore */ }
+			label();
+		});
+	}
+	if (supported && window.EventSource) {
+		let last = null;
+		const es = new EventSource('/admin/events');
+		es.addEventListener('berichten', (ev) => {
+			try {
+				const n = JSON.parse(ev.data).nieuw;
+				if (last !== null && n > last && want && Notification.permission === 'granted' && document.visibilityState !== 'visible') {
+					const note = new Notification('Aethra: nieuw bericht', { body: `${n} ongelezen bericht${n === 1 ? '' : 'en'}`, tag: 'aethra-bericht' });
+					note.onclick = () => { window.focus(); location.href = '/admin/berichten?status=nieuw'; };
+				}
+				last = n;
+			} catch (e) { /* ignore */ }
+		});
+	}
+})();

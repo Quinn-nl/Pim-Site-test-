@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const cfg = require('../lib/config');
 const net = require('net');
 const crypto = require('crypto');
 const zlib = require('zlib');
@@ -61,9 +62,9 @@ function client(user = 'pim@example.org', password = PW) {
 
 /* ---- schema, audit ---- */
 test('migrations run once from database/migrations and are recorded', () => {
-	assert.deepEqual(db.all('SELECT versie, naam FROM schema_versies').map((r) => r.naam), ['001_init.sql', '002_bericht_status.sql']);
+	assert.deepEqual(db.all('SELECT versie, naam FROM schema_versies').map((r) => r.naam), ['001_init.sql', '002_bericht_status.sql', '003_beheer_uitbreidingen.sql']);
 	db.open();
-	assert.equal(db.all('SELECT versie FROM schema_versies').length, 2, 'opening again does not repeat a migration');
+	assert.equal(db.all('SELECT versie FROM schema_versies').length, 3, 'opening again does not repeat a migration');
 	const unique = db.all("PRAGMA index_list('vertalingen')").filter((i) => i.unique).map((i) => db.all(`PRAGMA index_info('${i.name}')`).map((c) => c.name).join(','));
 	assert.ok(unique.includes('object,veld,taal'), 'unique index on (object, veld, taal)');
 });
@@ -780,4 +781,125 @@ test('menu: default is the original, edits show on the public site, bad input is
 	assert.equal(menu.isCustom(), false);
 	html = await (await fetch(`${base}/nl/`)).text();
 	assert.match(header(html), /Het probleem[\s\S]*Hoe het werkt[\s\S]*Toepassingen/);
+});
+
+/* ---- block 1: outbox, settings, banner, maintenance, back-ups, audit ---- */
+
+test('outbox: queued first, backoff 10/20/40/80 minutes, given up after 5, retry; invalid addresses refused', async () => {
+	const outbox = require('../lib/cms/outbox');
+	assert.equal(outbox.send({ aan: 'not-an-address', onderwerp: 'x', tekst: 'y' }), null);
+	const id = outbox.send({ aan: 'ops@example.org', onderwerp: 'Hello', tekst: 'Body', soort: 'test' });
+	assert.ok(id);
+	let now = Date.now() + 1000;
+	const waits = [];
+	for (let i = 0; i < 6; i += 1) {
+		await outbox.tick(now, async () => ({ sent: false, reason: 'connect ECONNREFUSED' }));
+		const row = db.get('SELECT status, pogingen, volgende_poging FROM mail_uit WHERE id = ?', id);
+		waits.push([row.status, row.pogingen, row.status === 'mislukt' ? Math.round((row.volgende_poging - now) / 60000) : 0]);
+		now = row.status === 'mislukt' ? row.volgende_poging + 1000 : now + 1000;
+	}
+	assert.deepEqual(waits, [['mislukt', 1, 10], ['mislukt', 2, 20], ['mislukt', 3, 40], ['mislukt', 4, 80], ['gefaald', 5, 0], ['gefaald', 5, 0]]);
+	outbox.retry(id);
+	assert.equal(await outbox.tick(Date.now() + 5000, async (m) => { assert.deepEqual(m.to, ['ops@example.org']); return { sent: true }; }), 1);
+	assert.equal(db.get('SELECT status FROM mail_uit WHERE id = ?', id).status, 'verzonden');
+});
+
+test('new messages mail the people who asked for it (without the message text)', async () => {
+	const outbox = require('../lib/cms/outbox');
+	users.create({ email: 'melder@example.org', naam: 'Melder', rol: 'editor', wachtwoord: PW });
+	const mid = users.byEmail('melder@example.org').id;
+	users.setPrefs(mid, { meld_nieuw_bericht: true, weekrapport: false });
+	const reader = users.create({ email: 'lezer2@example.org', naam: 'Lezer', rol: 'lezer', wachtwoord: PW });
+	db.run('UPDATE gebruikers SET meld_nieuw_bericht = 1 WHERE id = ?', reader); // a reader must never be mailed
+	const before = db.get('SELECT COUNT(*) AS n FROM mail_uit').n;
+	messages.add({ lang: 'en', name: 'Visitor X', email: 'x@example.org', role: 'Other', message: 'My secret question about pilots' });
+	const rows = db.all('SELECT aan, onderwerp, tekst FROM mail_uit ORDER BY id DESC LIMIT ?', db.get('SELECT COUNT(*) AS n FROM mail_uit').n - before);
+	assert.deepEqual(rows.map((r) => r.aan), ['melder@example.org']);
+	assert.match(rows[0].tekst, /Visitor X/);
+	assert.ok(!rows[0].tekst.includes('secret question'), 'the text of the message stays behind the login');
+	void outbox;
+});
+
+test('settings: validation, retention, banner (editorial rules, end date, fallback to English), audit', () => {
+	const settings = require('../lib/cms/settings');
+	assert.equal(settings.retentionDays(), 365);
+	assert.throws(() => settings.save({ bewaartermijn_dagen: 5 }, { id: adminId }), (e) => e.status === 422);
+	assert.throws(() => settings.save({ banner_link: 'javascript:alert(1)' }, { id: adminId }), (e) => e.status === 422);
+	assert.throws(() => settings.save({ banner_tekst_en: 'Guaranteed returns for early supporters' }, { id: adminId }), (e) => e.status === 422, 'banner text follows the editorial rules');
+	settings.save({ bewaartermijn_dagen: 200, banner_aan: true, banner_tekst_en: 'See us at the fair', banner_tekst_nl: 'Kom langs op de beurs', banner_tot: '2099-12-31' }, { id: adminId });
+	assert.equal(settings.retentionDays(), 200);
+	assert.deepEqual(settings.banner('nl'), { text: 'Kom langs op de beurs', link: '' });
+	assert.equal(settings.banner('de').text, 'See us at the fair', 'a language without text uses English');
+	assert.equal(settings.banner('nl', new Date('2100-01-02')), null, 'after the end date the banner is gone');
+	assert.ok(db.get("SELECT 1 FROM audit_logs WHERE actie = 'instellingen.gewijzigd'"));
+	settings.save({ banner_aan: false, bewaartermijn_dagen: 365 }, { id: adminId });
+	assert.equal(settings.banner('nl'), null);
+});
+
+test('settings page: banner shows on the public site, maintenance mode answers 503 but the admin keeps working', async () => {
+	const c = client(); await c.login();
+	const post = (extra) => c.post('/admin/instellingen', { bewaartermijn_dagen: '365', banner_tekst_nl: '', banner_tekst_en: '', ...extra });
+	assert.equal((await post({ banner_aan: '1', banner_tekst_nl: 'Beursbezoek 12 november', banner_link: '/nl/contact' })).status, 303);
+	let html = await (await fetch(`${base}/nl/`)).text();
+	assert.match(html, /class="site-banner"[^>]*><a href="\/nl\/contact">Beursbezoek 12 november<\/a>/);
+	assert.ok(!(await (await fetch(`${base}/en/`)).text()).includes('site-banner'), 'English has no text, so no banner there');
+	assert.equal((await post({ banner_aan: '1', banner_tekst_nl: 'Gegarandeerd rendement' })).status, 422);
+
+	assert.equal((await post({ onderhoud_aan: '1', onderhoud_tekst_nl: 'Even bijwerken.' })).status, 303);
+	const down = await fetch(`${base}/nl/`);
+	assert.equal(down.status, 503);
+	assert.equal(down.headers.get('retry-after'), '3600');
+	assert.match(await down.text(), /Even bijwerken\./);
+	assert.equal((await fetch(`${base}/healthz`)).status, 200);
+	assert.equal((await fetch(`${base}/css/site.css`)).status, 200);
+	const dash = await (await c.req('/admin/instellingen')).text();
+	assert.match(dash, /onderhoudsmodus staat aan/i);
+	assert.equal((await post({})).status, 303); // checkbox absent = off
+	assert.equal((await fetch(`${base}/nl/`)).status, 200);
+
+	const editor = client('melder@example.org'); await editor.login();
+	assert.equal((await editor.req('/admin/instellingen')).status, 403, 'only administrators');
+	assert.equal((await editor.req('/admin/systeem')).status, 403);
+});
+
+test('back-ups: daily, pruned to 14, download needs the password, restore script validates', async () => {
+	const backup = require('../lib/cms/backup');
+	const fs = require('fs');
+	const name = backup.run({ id: adminId });
+	assert.match(name, /^aethra-\d{8}-\d{6}\.db$/);
+	assert.ok(backup.fileFor(name));
+	assert.equal(backup.fileFor('../../etc/passwd'), null);
+	assert.equal(backup.ensureDaily(), null, 'one in the last 23 hours: no new one');
+	for (let i = 0; i < 16; i += 1) fs.copyFileSync(backup.fileFor(name), path.join(cfg.DATA_DIR, 'backups', `aethra-2020010${(i % 9) + 1}-0000${String(i).padStart(2, '0')}.db`));
+	backup.prune();
+	assert.ok(backup.list().length <= backup.KEEP);
+
+	const c = client(); await c.login();
+	const noPw = await c.post(`/admin/systeem/backup/${name}`, { huidig: 'wrong' });
+	assert.equal(noPw.status, 303);
+	assert.match(noPw.headers.get('location'), /foutwachtwoord/);
+	const ok = await c.post(`/admin/systeem/backup/${name}`, { huidig: PW });
+	assert.equal(ok.status, 200);
+	assert.equal(ok.headers.get('content-type'), 'application/octet-stream');
+	assert.equal(Buffer.from(await ok.arrayBuffer()).subarray(0, 15).toString(), 'SQLite format 3');
+	assert.match(await (await c.req('/admin/systeem')).text(), /Back-ups van de database/);
+	assert.equal((await c.post('/admin/systeem/backup/..%2F..%2Fsecret', { huidig: PW })).status, 404);
+
+	const { execFileSync } = require('child_process');
+	const junk = path.join(cfg.DATA_DIR, 'junk.db'); fs.writeFileSync(junk, 'nope');
+	assert.throws(() => execFileSync(process.execPath, ['scripts/restore.js', junk], { env: { ...process.env, DATA_DIR: cfg.DATA_DIR }, stdio: 'pipe' }));
+});
+
+test('audit log: filters, CSV export (formula-safe) and the export itself is logged', async () => {
+	audit.log({ user: { id: adminId }, actie: 'test.csv', entiteit: 'x:=cmd', nieuw: { a: '=HYPERLINK("http://evil")' } });
+	const c = client(); await c.login();
+	const html = await (await c.req(`/admin/audit?actie=test.csv&gebruiker=${adminId}`)).text();
+	assert.match(html, /test\.csv/);
+	const csv = await (await c.req('/admin/audit.csv?actie=test.csv')).text();
+	assert.ok(csv.startsWith('tijd,gebruiker,actie,onderdeel,oud,nieuw,reden'));
+	assert.ok(csv.includes('"\'x:=cmd"') || csv.includes('x:=cmd'));
+	assert.ok(!/(^|,)"=HYPERLINK/m.test(csv), 'a cell never starts with =');
+	assert.equal(audit.count({ gebruiker: 'systeem', actie: 'zzz' }), 0);
+	assert.ok(db.get("SELECT 1 FROM audit_logs WHERE actie = 'audit.export'"));
+	assert.equal((await client('melder@example.org').req('/admin/audit.csv')).status, 303, 'no session: login');
 });

@@ -5,6 +5,9 @@ const audit = require('./audit');
 const messages = require('./messages');
 const events = require('./events');
 const cfg = require('../config');
+const settings = require('./settings');
+const backup = require('./backup');
+const outbox = require('./outbox');
 const { GROUPS, OPTIONAL } = require('../fields');
 const { LANGS, defaultsFor } = require('../i18n');
 
@@ -51,7 +54,9 @@ function healthCheck() {
 
 function dailyChores() {
 	try {
-		messages.purge(cfg.RETENTION_DAYS);
+		messages.purge(settings.retentionDays());
+		outbox.purge();
+		backup.ensureDaily();
 		db.run('DELETE FROM sessies WHERE laatst_gezien < ?', Date.now() - 2 * 3600 * 1000);
 		db.run('DELETE FROM inlog_pogingen WHERE vergrendeld_tot < ? AND venster_start < ?', Date.now(), Date.now() - DAY);
 		const last = db.get("SELECT waarde FROM instellingen WHERE sleutel = 'audit_rotatie'");
@@ -70,7 +75,8 @@ function start() {
 	timers.push(setInterval(() => { if (db.degraded()) db.ping(); }, 30000)); // watchdog: leaves read-only survivability as soon as the database answers again
 	for (const t of timers) t.unref();
 	messages.start();
+	outbox.start();
 }
-function stop() { for (const t of timers) clearInterval(t); timers.length = 0; messages.stop(); }
+function stop() { for (const t of timers) clearInterval(t); timers.length = 0; messages.stop(); outbox.stop(); }
 
 module.exports = { start, stop, healthCheck, dailyChores };

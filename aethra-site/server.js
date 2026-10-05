@@ -23,6 +23,7 @@ const render = require('./lib/cms/render');
 const ws = require('./lib/cms/ws');
 const events = require('./lib/cms/events');
 const jobs = require('./lib/cms/jobs');
+const settings = require('./lib/cms/settings');
 const legacy = require('./lib/cms/legacy');
 
 const contactLimiter = createLimiter(5, 60 * 60 * 1000);
@@ -111,6 +112,7 @@ async function handlePublic(req, res, url) {
 	views.setToday(todayOn());
 	views.setFooterPages(store.footerPages(lang));
 	views.setMenu(store.menuFor(lang, todayOn()));
+	views.setBanner(store.bannerFor(lang));
 	if (page === '/eco-mode-today' && !todayOn()) return false;
 	const attribution = stats.sourceOf(url, req.headers.referer, req.headers.host);
 	const utm = { source: stats.tag(url.searchParams.get('utm_source')), campaign: stats.tag(url.searchParams.get('utm_campaign')) };
@@ -173,6 +175,22 @@ async function handlePublic(req, res, url) {
 	return false;
 }
 
+/** Maintenance mode (Instellingen): visitors get a 503 page; the admin, health check and static files keep working. */
+const MAINT_OPEN = /^\/(admin(\/|$)|healthz$|css\/|js\/|img\/|fonts\/|uploads\/|robots\.txt$)/;
+function maintenanceBlocks(req, url) {
+	try { return !db.degraded() && settings.maintenance() && !MAINT_OPEN.test(url.pathname); } catch (e) { return false; }
+}
+function maintenancePage(req, res) {
+	const url = new URL(req.url, 'http://localhost');
+	const seg = /^\/([a-z]{2})(\/|$)/.exec(url.pathname);
+	const lang = seg && isLang(seg[1]) ? seg[1] : visitorLang(req);
+	const title = { en: 'Back soon', nl: 'We zijn zo terug', de: 'Gleich wieder da', fr: 'De retour bientôt' }[lang];
+	const fallback = { en: 'We are doing some maintenance. Please try again in a little while.', nl: 'We voeren onderhoud uit. Probeer het straks opnieuw.', de: 'Wir führen Wartungsarbeiten durch. Bitte versuchen Sie es gleich noch einmal.', fr: 'Nous effectuons une maintenance. Merci de réessayer dans un instant.' }[lang];
+	const text = settings.maintenanceText(lang) || fallback;
+	const esc = views.esc;
+	send(res, 503, `<!doctype html><html lang="${lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex"><title>${esc(title)}</title><link rel="stylesheet" href="/css/design-tokens.css"><style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#f7f9fc;color:#0b1b33;font:18px/1.6 "IBM Plex Sans",system-ui,sans-serif;text-align:center;padding:1.5rem}main{max-width:32rem}h1{font-family:"Exo 2",system-ui,sans-serif;margin:0 0 .5rem}</style></head><body><main><h1>${esc(title)}</h1><p>${esc(text)}</p></main></body></html>`, { 'Content-Type': 'text/html; charset=utf-8', 'Retry-After': '3600', 'Cache-Control': 'no-store' });
+}
+
 function createServer() {
 	store.ensureDirs();
 	db.open();
@@ -182,6 +200,7 @@ function createServer() {
 			if (req.method === 'HEAD') req.method = 'GET'; // Node drops the body of a HEAD response itself
 			const url = new URL(req.url, 'http://localhost');
 			let handled = false;
+			if (maintenanceBlocks(req, url)) return maintenancePage(req, res);
 			if (url.pathname === '/admin' || url.pathname.startsWith('/admin/')) handled = await cmsAdmin.handleAdmin(req, res, url);
 			else if (req.method === 'GET' && url.pathname.startsWith('/uploads/')) handled = serveFile(res, store.uploadsDir(), url.pathname.slice('/uploads/'.length), 'public, max-age=31536000, immutable');
 			else if (req.method === 'GET' && (url.pathname.startsWith('/css/') || url.pathname.startsWith('/js/') || url.pathname.startsWith('/img/') || url.pathname.startsWith('/fonts/') || url.pathname.startsWith('/deck/'))) handled = serveFile(res, cfg.PUBLIC_DIR, url.pathname.slice(1), url.pathname.startsWith('/fonts/') ? 'public, max-age=604800' : (url.searchParams.has('v') ? 'public, max-age=31536000, immutable' : 'public, max-age=3600'));

@@ -24,8 +24,16 @@ function add(msg) {
 	const r = db.run('INSERT INTO berichten (tijd, taal, naam, email, organisatie, rol, tekst, bron, campagne) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', db.iso(), msg.lang, msg.name, msg.email, msg.org || '', msg.role, msg.message, msg.source || 'direct', msg.campaign || '');
 	const saved = get(r.id);
 	if (mail.configured()) enqueue(saved.id, 'team');
+	try { notifyNew(saved); } catch (e) { /* a notification problem never loses the message */ }
 	events.broadcast('berichten', { nieuw: unreadCount() });
 	return saved;
+}
+/** Mail to everyone who asked for it. No message text in the mail: the details stay behind the login. */
+function notifyNew(m) {
+	const outbox = require('./outbox');
+	const users = require('./users');
+	const link = cfg.SITE_URL ? `${cfg.SITE_URL}/admin/berichten/${m.id}` : `/admin/berichten/${m.id}`;
+	for (const u of users.subscribers('bericht')) outbox.send({ aan: u.email, soort: 'melding', onderwerp: `Nieuw bericht via de website (${m.rol})`, tekst: `Hallo ${u.naam},\n\nEr is een nieuw bericht binnengekomen via het contactformulier van ${m.naam}${m.organisatie ? ' (' + m.organisatie + ')' : ''}, rol: ${m.rol}.\n\nLezen en opvolgen: ${link}\n\nJe ontvangt dit bericht omdat je meldingen hebt aangezet onder Mijn account.\n` });
 }
 function enqueue(berichtId, soort) {
 	db.run('INSERT INTO uitgaande_wachtrij (bericht_id, soort, status, aantal_pogingen, volgende_poging, aangemaakt) VALUES (?, ?, ?, 0, 0, ?)', berichtId, soort, 'wacht', Date.now());

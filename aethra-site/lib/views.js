@@ -16,6 +16,8 @@ const asset = (p) => {
 
 let todayOn = false;
 const setToday = (on) => { todayOn = !!on; };
+let bannerCfg = null;
+const setBanner = (b) => { bannerCfg = b || null; };
 let menuCfg = null;
 const setMenu = (m) => { menuCfg = m || null; };
 let footerPages = [];
@@ -117,6 +119,7 @@ ${graph ? `<script type="application/ld+json">${jsonLd(graph)}</script>` : ''}
 </head>
 <body>
 <a class="skip-link" href="#main">${esc(t.skip)}</a>
+${bannerCfg ? `<div class="site-banner" role="region" aria-label="${esc(t.announcement)}">${bannerCfg.link ? `<a href="${esc(bannerCfg.link)}">${esc(bannerCfg.text)}</a>` : esc(bannerCfg.text)}</div>` : ''}
 <header class="site-header">
 	<div class="wrap header-inner">
 		<a class="brand" href="${link(lang)}" aria-label="${esc(name)}">${LOGO}<span class="brand-name">${esc(name.toUpperCase())}</span></a>
@@ -689,4 +692,4 @@ function renderSitemap(siteUrl, lastmod, extra = [], pages = [], versionsOf = ()
 	return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">\n${entries.join('\n')}\n</urlset>\n`;
 }
 
-module.exports = { renderPage, SECTION_RENDER, setFooterPages, setMenu, asset, renderToday, setToday, esc, url, setCarry, renderAudience, PAGES, renderHome, renderProblem, renderHow, renderApplications, renderContact, renderPrivacy, renderNotFound, renderSitemap };
+module.exports = { renderPage, SECTION_RENDER, setFooterPages, setMenu, setBanner, asset, renderToday, setToday, esc, url, setCarry, renderAudience, PAGES, renderHome, renderProblem, renderHow, renderApplications, renderContact, renderPrivacy, renderNotFound, renderSitemap };

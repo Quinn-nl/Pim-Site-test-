@@ -42,14 +42,21 @@ function migrate() {
 	for (const name of files) {
 		const version = parseInt(name, 10);
 		if (done.has(version)) continue;
+		const sql = fs.readFileSync(path.join(MIGRATIONS_DIR, name), 'utf8');
+		// A migration that rebuilds a table other tables point to must run with foreign keys off (SQLite's documented procedure).
+		const rebuild = /^-- migrate: foreign-keys-off/m.test(sql);
+		if (rebuild) db.exec('PRAGMA foreign_keys = OFF');
 		db.exec('BEGIN IMMEDIATE');
 		try {
-			db.exec(fs.readFileSync(path.join(MIGRATIONS_DIR, name), 'utf8'));
+			db.exec(sql);
+			if (rebuild) { const broken = db.prepare('PRAGMA foreign_key_check').all(); if (broken.length) throw new Error(`foreign key check failed (${broken.length} rows)`); }
 			db.prepare('INSERT INTO schema_versies (versie, naam, toegepast) VALUES (?, ?, ?)').run(version, name, new Date().toISOString());
 			db.exec('COMMIT');
 		} catch (e) {
 			try { db.exec('ROLLBACK'); } catch (err) { /* already rolled back */ }
 			throw new Error(`Migration ${name} failed: ${e.message}`);
+		} finally {
+			if (rebuild) db.exec('PRAGMA foreign_keys = ON');
 		}
 	}
 }

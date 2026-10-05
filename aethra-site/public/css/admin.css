@@ -554,3 +554,17 @@ button.chip { min-height: 34px; }
 .mgrid2 { grid-template-columns: minmax(0, 1fr); max-width: 52rem; }
 .mgrid2 > div > .card:first-child { margin-bottom: 1rem; }
 #menuform { padding-bottom: 1rem; }
+
+/* ---- settings, system, tables ---- */
+.fl { display: grid; gap: .2rem; font-size: .82rem; color: var(--a-muted); }
+.fl input, .fl select { min-width: 9rem; width: auto; min-height: 38px; }
+.settings .card { margin-bottom: 1rem; }
+.settings .two + .row, .settings .chk + .row { margin-top: .5rem; }
+.rolecards.sys { grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); }
+.card.mini.bad { border-color: var(--a-danger); background: var(--a-danger-bg); }
+.card.mini strong { font: 600 1.15rem var(--font-head); }
+th.sortable { cursor: pointer; user-select: none; }
+th.sortable::after { content: " ↕"; opacity: .35; }
+th.sortable[aria-sort="ascending"]::after { content: " ↑"; opacity: 1; }
+th.sortable[aria-sort="descending"]::after { content: " ↓"; opacity: 1; }
+th.sortable:hover { color: var(--a-ink); }

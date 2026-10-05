@@ -34,6 +34,7 @@ function previewText({ lang, path, velden, privacy, siteUrl }) {
 	views.setToday(todayOn);
 	views.setFooterPages(store.footerPages(lang));
 	views.setMenu(store.menuFor(lang, todayOn));
+	views.setBanner(store.bannerFor(lang));
 	views.setCarry({});
 	return renderFixed(path, merged, { siteUrl });
 }
@@ -55,6 +56,7 @@ function previewPage({ lang, velden, meta, siteUrl }) {
 	views.setToday(false);
 	views.setFooterPages(store.footerPages(lang));
 	views.setMenu(store.menuFor(lang, false));
+	views.setBanner(store.bannerFor(lang));
 	views.setCarry({});
 	return views.renderPage(content, { siteUrl }, page, { [lang]: page.slug });
 }
