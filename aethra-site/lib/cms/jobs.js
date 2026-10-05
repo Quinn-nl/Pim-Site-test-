@@ -47,6 +47,8 @@ function healthCheck() {
 		if (missing.length) warnings.set(`ontbreekt.${taal}`, { bericht: `${taal.toUpperCase()}: ${missing.length} verplichte tekst${missing.length > 1 ? 'en' : ''} ontbreek${missing.length > 1 ? 'en' : 't'} (${missing.slice(0, 4).join(', ')}${missing.length > 4 ? ', …' : ''}).`, ernst: 'waarschuwing' });
 		if (taal !== 'en' && unreviewed) warnings.set(`nakijken.${taal}`, { bericht: `${taal.toUpperCase()}: ${unreviewed} van de ${total} teksten zijn nog niet nagekeken door een moedertaalspreker.`, ernst: 'info' });
 	}
+	const lastBackup = backup.list()[0];
+	if (lastBackup && Date.now() - Date.parse(lastBackup.tijd) > 36 * 3600 * 1000) warnings.set('backup', { bericht: `De laatste back-up is van ${lastBackup.tijd.slice(0, 16).replace('T', ' ')} (UTC): ouder dan 36 uur.`, ernst: 'waarschuwing' });
 	db.tx(() => {
 		db.run('DELETE FROM gezondheid');
 		for (const [sleutel, w] of warnings) db.run('INSERT INTO gezondheid (sleutel, bericht, ernst, tijdstip) VALUES (?, ?, ?, ?)', sleutel, w.bericht, w.ernst, db.iso());
@@ -62,7 +64,7 @@ function dailyChores() {
 		sharelinks.purgeExpired();
 		require('./pages').purgeOld();
 		require('./media').purgeOld();
-		backup.ensureDaily();
+		backup.ensureDailySafe();
 		const lastLinks = require('./linkcheck').lastRun();
 		if (!lastLinks || Date.now() - Date.parse(lastLinks) > 7 * DAY) require('./linkcheck').run().catch((e) => console.error(`Link check failed: ${e.message}`));
 		db.run('DELETE FROM sessies WHERE laatst_gezien < ?', Date.now() - 2 * 3600 * 1000);

@@ -657,3 +657,4 @@ details.help p { margin: .5rem 0 0; color: var(--a-ink-soft); max-width: 70ch; }
 .mitem .pick { position: absolute; top: .4rem; left: .4rem; z-index: 2; background: rgba(255, 255, 255, .92); border-radius: 6px; width: 30px; min-height: 30px; }
 .nav .navbtn { background: transparent; border: 0; font-weight: 400; }
 .rl-sel { display: flex; align-items: stretch; } .rl-sel .rowlink { flex: 1; min-width: 0; } .rl-sel .selbox { padding: 0 .6rem; align-self: center; }
+.sess li { align-items: center; } .sess-main { display: grid; flex: 1; min-width: 0; } .sess form { margin: 0; }

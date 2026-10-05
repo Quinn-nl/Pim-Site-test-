@@ -20,9 +20,13 @@ function set(key, value) {
 }
 const del = (key) => store.delete(key);
 /** Removes every key that starts with the prefix (no prefix: everything). */
+const listeners = [];
+/** For things that are derived from the public pages (the SEO overview): they forget their copy when anything is published. */
+const onInvalidate = (fn) => { listeners.push(fn); };
 function invalidate(prefix = '') {
 	for (const k of [...store.keys()]) if (k.startsWith(prefix)) store.delete(k);
+	for (const fn of listeners) { try { fn(); } catch (e) { /* a listener never breaks publishing */ } }
 }
 const stats = () => ({ size: store.size, hits, misses });
 
-module.exports = { get, getStale, set, delete: del, invalidate, stats };
+module.exports = { onInvalidate, get, getStale, set, delete: del, invalidate, stats };

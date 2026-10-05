@@ -38,4 +38,22 @@ function ensureDaily(now = Date.now()) {
 	if (last && now - Date.parse(last.tijd) < 23 * 3600 * 1000) return null;
 	return run(null);
 }
-module.exports = { run, list, fileFor, prune, ensureDaily, KEEP };
+/**
+ * The daily job's way in: a failing back-up is never silent. It is logged, the administrators get one mail per day, and the health check
+ * (and so "Mijn taken") keeps warning while the newest back-up is too old.
+ */
+function ensureDailySafe(now = Date.now(), attempt = () => ensureDaily(now)) {
+	try { return { ok: true, name: attempt() }; } catch (e) {
+		const reason = String(e.message || e).replace(/[\r\n]+/g, ' ').slice(0, 200);
+		audit.log({ user: null, actie: 'backup.mislukt', entiteit: 'systeem', nieuw: { reden: reason } });
+		const key = 'backupmail';
+		const last = db.get('SELECT waarde FROM instellingen WHERE sleutel = ?', key);
+		if (!last || now - Number(last.waarde) > 20 * 3600 * 1000) {
+			db.run('INSERT INTO instellingen (sleutel, waarde) VALUES (?, ?) ON CONFLICT(sleutel) DO UPDATE SET waarde = excluded.waarde', key, String(now));
+			const outbox = require('./outbox');
+			for (const a of db.all("SELECT email, naam FROM gebruikers WHERE rol = 'beheerder' AND actief = 1")) outbox.send({ aan: a.email, soort: 'beveiliging', onderwerp: 'De back-up van de website is mislukt', tekst: `Hallo ${a.naam},\n\nDe automatische back-up van de database is niet gelukt (${reason}).\n\nControleer de schijfruimte en maak daarna handmatig een back-up onder Systeem: ${require('../config').SITE_URL ? require('../config').SITE_URL + '/admin/systeem' : '/admin/systeem'}\n` });
+		}
+		return { ok: false, error: reason };
+	}
+}
+module.exports = { ensureDailySafe, run, list, fileFor, prune, ensureDaily, KEEP };

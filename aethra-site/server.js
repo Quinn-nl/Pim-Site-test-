@@ -92,6 +92,7 @@ async function handlePublic(req, res, url) {
 	const indexNowKey = String(process.env.INDEXNOW_KEY || '');
 	if (get && /^[A-Za-z0-9-]{8,128}$/.test(indexNowKey) && url.pathname === `/${indexNowKey}.txt`) return send(res, 200, indexNowKey, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'public, max-age=86400' });
 	if (get && url.pathname === '/healthz') return send(res, 200, 'ok', { 'Content-Type': 'text/plain' });
+	if (get && url.pathname === '/healthz/status') { const h = require('./lib/cms/health').render(url.searchParams.get('token'), req.headers['x-health-token']); return send(res, h.code, JSON.stringify(h.body), { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); }
 
 	if (DEV_TOGGLE && get && url.pathname === '/__data') {
 		const mode = ['demo', 'worst', 'empty'].includes(url.searchParams.get('mode')) ? url.searchParams.get('mode') : 'demo';
@@ -185,7 +186,7 @@ async function handlePublic(req, res, url) {
 }
 
 /** Maintenance mode (Instellingen): visitors get a 503 page; the admin, health check and static files keep working. */
-const MAINT_OPEN = /^\/(admin(\/|$)|healthz$|css\/|js\/|img\/|fonts\/|uploads\/|robots\.txt$)/;
+const MAINT_OPEN = /^\/(admin(\/|$)|healthz(\/status)?$|css\/|js\/|img\/|fonts\/|uploads\/|robots\.txt$)/;
 function maintenanceBlocks(req, url) {
 	try { return !db.degraded() && settings.maintenance() && !MAINT_OPEN.test(url.pathname); } catch (e) { return false; }
 }

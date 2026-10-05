@@ -1679,3 +1679,107 @@ test('notification preferences: assignment mails and working days only', () => {
 		void n;
 	});
 });
+
+/* ---- round 2, block B ---- */
+
+test('SEO overview is kept until something is published; "nu opnieuw" recalculates', async () => {
+	const seo = require('../lib/cms/seo');
+	const cache = require('../lib/cms/cache');
+	const first = seo.audit({ fresh: true });
+	assert.equal(seo.audit(), first, 'the same result without recalculating');
+	const t = seo.age();
+	assert.equal(seo.audit({ now: t + 5 * 60 * 1000 }), first, 'still kept after five minutes');
+	assert.notEqual(seo.audit({ now: t + 11 * 60 * 1000 }), first, 'recalculated after ten minutes');
+	const again = seo.audit();
+	cache.invalidate();
+	assert.notEqual(seo.audit(), again, 'publishing (any cache flush) makes it forget');
+	const c = client(); await c.login();
+	assert.match(await (await c.req('/admin/seo')).text(), /Gecontroleerd om \d\d:\d\d/);
+	assert.equal((await c.req('/admin/seo?vernieuw=1')).status, 200);
+});
+
+test('long lists are paged: redirects and checked links', async () => {
+	const redirects = require('../lib/cms/redirects');
+	const c = client(); await c.login();
+	for (let i = 0; i < 130; i += 1) redirects.add(`/nl/pag-${i}`, `/nl/doel-${i}`, null);
+	const p1 = await (await c.req('/admin/redirects')).text();
+	const p2 = await (await c.req('/admin/redirects?pagina=2')).text();
+	assert.ok(p1.includes('/nl/pag-129') && !p1.includes('/nl/pag-0<'), 'page 1 has the newest 100');
+	assert.ok(p2.includes('pag-0'), 'page 2 has the rest');
+	assert.match(p1, /aria-label="Paginering"/);
+	assert.match(p1, /Redirects <span class="count">\(\d+\)/);
+	redirects.removeMany(Array.from({ length: 130 }, (_, i) => `/nl/pag-${i}`));
+	const rows = Array.from({ length: 250 }, (_, i) => ['/en/x', `https://example.org/${i}`, 'extern', 200, null, new Date().toISOString(), 0, null]);
+	db.tx(() => { db.run('DELETE FROM link_resultaten'); for (const r of rows) db.run('INSERT INTO link_resultaten (bron, url, soort, status, fout, gecontroleerd, reeks, eerste_fout) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', ...r); });
+	const l3 = await (await c.req('/admin/links?pagina=3')).text();
+	assert.match(l3, /Alle gecontroleerde links \(250\)/);
+	assert.match(l3, /<details class="card fold" open>/);
+	db.run('DELETE FROM link_resultaten');
+});
+
+test('a failing back-up is never silent: audit, one mail a day, health warning', () => {
+	const backup = require('../lib/cms/backup');
+	const mails = () => db.get("SELECT COUNT(*) AS n FROM mail_uit WHERE onderwerp = 'De back-up van de website is mislukt'").n;
+	const before = mails();
+	const bad = () => { throw new Error('ENOSPC: no space left on device'); };
+	const r = backup.ensureDailySafe(Date.now(), bad);
+	assert.deepEqual([r.ok, r.error], [false, 'ENOSPC: no space left on device']);
+	assert.ok(db.get("SELECT 1 FROM audit_logs WHERE actie = 'backup.mislukt'"));
+	assert.ok(mails() > before, 'administrators are mailed');
+	const after = mails();
+	backup.ensureDailySafe(Date.now() + 3600 * 1000, bad);
+	assert.equal(mails(), after, 'not again within the same day');
+	backup.ensureDailySafe(Date.now() + 25 * 3600 * 1000, bad);
+	assert.ok(mails() > after, 'a day later: again');
+	assert.equal(backup.ensureDailySafe(Date.now(), () => 'x.db').ok, true);
+	// the health check warns about an old back-up
+	const jobs = require('../lib/cms/jobs');
+	backup.run(null);
+	const fs2 = require('fs');
+	const file = backup.list()[0];
+	fs2.utimesSync(path.join(cfg.DATA_DIR, 'backups', file.naam), new Date(Date.now() - 40 * 3600 * 1000), new Date(Date.now() - 40 * 3600 * 1000));
+	jobs.healthCheck();
+	assert.ok(db.get("SELECT 1 FROM gezondheid WHERE sleutel = 'backup'"), 'older than 36 hours: a warning on the dashboard');
+	fs2.utimesSync(path.join(cfg.DATA_DIR, 'backups', file.naam), new Date(), new Date());
+	jobs.healthCheck();
+	assert.ok(!db.get("SELECT 1 FROM gezondheid WHERE sleutel = 'backup'"));
+});
+
+test('/healthz/status: a status word for everyone, the reasons only with the token', async () => {
+	const health = require('../lib/cms/health');
+	const res = await fetch(`${base}/healthz/status`);
+	assert.ok([200, 503].includes(res.status));
+	const body = await res.json();
+	assert.deepEqual(Object.keys(body), ['status'], 'nothing but the status without a token');
+	assert.equal(health.check().status, 'ok');
+	assert.ok(health.check(Date.now() + 49 * 3600 * 1000).problems.includes('back-up'), 'a back-up older than 48 hours is a problem');
+	process.env.HEALTH_TOKEN = 'a-long-enough-secret-token';
+	try {
+		const d = await (await fetch(`${base}/healthz/status?token=a-long-enough-secret-token`)).json();
+		assert.ok('problemen' in d && 'database' in d);
+		assert.deepEqual(Object.keys(await (await fetch(`${base}/healthz/status?token=wrong-wrong-wrong-wrong`)).json()), ['status']);
+		const viaHeader = await (await fetch(`${base}/healthz/status`, { headers: { 'x-health-token': 'a-long-enough-secret-token' } })).json();
+		assert.ok('problemen' in viaHeader);
+	} finally { delete process.env.HEALTH_TOKEN; }
+	assert.equal((await fetch(`${base}/healthz`)).status, 200, 'the old check is unchanged');
+});
+
+test('sessions: readable device, end a single other session, never someone else\'s', async () => {
+	const a = client(); await a.login();
+	const b = client(); await b.login();
+	const other = client('els@example.org'); await other.login();
+	const html = await (await a.req('/admin/account')).text();
+	assert.match(html, /Ingelogd op/);
+	assert.match(html, /\(dit apparaat\)/);
+	const hashes = [...html.matchAll(/action="\/admin\/account\/sessies\/([0-9a-f]{64})\/beeindigen"/g)].map((m) => m[1]);
+	assert.ok(hashes.length >= 1, 'other sessions can be ended one by one');
+	const mine = users.sessionList(adminId, 'x').map((s) => s.hash);
+	assert.ok(hashes.every((h) => mine.includes(h)));
+	const theirs = users.sessionList(editorId, 'x')[0].hash;
+	assert.equal((await a.post(`/admin/account/sessies/${theirs}/beeindigen`, {})).status, 303);
+	assert.ok(users.sessionList(editorId, 'x').some((s) => s.hash === theirs), 'a session of another person stays');
+	assert.equal((await a.post(`/admin/account/sessies/${hashes[0]}/beeindigen`, {})).status, 303);
+	assert.ok(!users.sessionList(adminId, 'x').some((s) => s.hash === hashes[0]));
+	assert.equal((await a.req('/admin')).status, 200, 'the session in use is untouched');
+	assert.ok(users.sessionList(adminId, 'x').every((s) => /\w/.test(s.apparaat)));
+});

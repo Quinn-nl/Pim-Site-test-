@@ -4,6 +4,7 @@ const render = require('./render');
 const store = require('../store');
 const views = require('../views');
 const cfg = require('../config');
+const cache = require('./cache');
 const { LANGS } = require('../i18n');
 
 const todayOn = () => String(store.getContent('en').values.today_enabled || '').trim().toLowerCase() === 'yes';
@@ -57,8 +58,19 @@ function judge(info) {
 	return out;
 }
 
+/** The audit renders every page in every language, so the result is kept until something is published (or for ten minutes). */
+let memo = null;
+cache.onInvalidate(() => { memo = null; });
+function audit({ fresh = false, now = Date.now() } = {}) {
+	if (!fresh && memo && now - memo.at < 10 * 60 * 1000) return memo.rows;
+	const rows = compute();
+	memo = { at: now, rows };
+	return rows;
+}
+const age = () => (memo ? memo.at : null);
+
 /** All pages with their findings. Duplicate titles and descriptions inside one language are added as well. */
-function audit() {
+function compute() {
 	const on = todayOn();
 	const rows = [];
 	for (const t of targets()) {
@@ -79,4 +91,4 @@ function audit() {
 }
 const score = (rows) => { const all = rows.length; const bad = rows.filter((r) => r.findings.some((f) => f.ernst !== 'info')).length; return { pages: all, ok: all - bad, bad }; };
 
-module.exports = { targets, inspect, judge, audit, score, siteUrl, todayOn };
+module.exports = { age, targets, inspect, judge, audit, score, siteUrl, todayOn };

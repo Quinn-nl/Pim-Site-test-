@@ -246,7 +246,7 @@ function createSession(userId, ip, ua) {
 	const now = Date.now();
 	db.tx(() => {
 		db.run('DELETE FROM sessies WHERE laatst_gezien < ? OR aangemaakt < ?', now - IDLE_MS, now - ABSOLUTE_MS);
-		db.run('INSERT INTO sessies (id_hash, gebruiker_id, csrf, ua_hash, ip_subnet, aangemaakt, laatst_gezien) VALUES (?, ?, ?, ?, ?, ?, ?)', sha(id), userId, csrf, sha(ua || ''), subnetOf(ip), now, now);
+		db.run('INSERT INTO sessies (id_hash, gebruiker_id, csrf, ua_hash, ip_subnet, aangemaakt, laatst_gezien, apparaat) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', sha(id), userId, csrf, sha(ua || ''), subnetOf(ip), now, now, describeDevice(ua));
 		db.run('UPDATE gebruikers SET laatste_login = ? WHERE id = ?', db.iso(), userId);
 	});
 	return { id, csrf };
@@ -270,7 +270,12 @@ function getSession(req, ip) {
 const destroySession = (req) => { const id = parseCookies(req.headers.cookie)[COOKIE]; if (id) db.run('DELETE FROM sessies WHERE id_hash = ?', sha(id)); };
 /** Active sessions of one user (the cookie itself is never stored, only its hash). */
 function sessionList(userId, currentId) {
-	return db.all('SELECT id_hash, aangemaakt, laatst_gezien FROM sessies WHERE gebruiker_id = ? ORDER BY laatst_gezien DESC', userId).map((r) => ({ aangemaakt: r.aangemaakt, laatst_gezien: r.laatst_gezien, huidig: r.id_hash === sha(currentId || '') }));
+	return db.all('SELECT id_hash, aangemaakt, laatst_gezien, apparaat, ip_subnet FROM sessies WHERE gebruiker_id = ? ORDER BY laatst_gezien DESC', userId).map((r) => ({ hash: r.id_hash, apparaat: r.apparaat || 'onbekend apparaat', netwerk: r.ip_subnet, aangemaakt: r.aangemaakt, laatst_gezien: r.laatst_gezien, huidig: r.id_hash === sha(currentId || '') }));
+}
+/** Ends one other session of this person (never the one in use: that is what signing out is for). */
+function endSession(userId, hash, currentId) {
+	if (!/^[0-9a-f]{64}$/.test(String(hash)) || hash === sha(currentId || '')) return false;
+	return db.run('DELETE FROM sessies WHERE gebruiker_id = ? AND id_hash = ?', userId, hash).changes > 0;
 }
 function setPrefs(id, { meld_nieuw_bericht, weekrapport, meld_toewijzing = false, meld_werkdagen = false }) {
 	db.run('UPDATE gebruikers SET meld_nieuw_bericht = ?, weekrapport = ?, meld_toewijzing = ?, meld_werkdagen = ? WHERE id = ?', meld_nieuw_bericht ? 1 : 0, weekrapport ? 1 : 0, meld_toewijzing ? 1 : 0, meld_werkdagen ? 1 : 0, id);
@@ -351,4 +356,4 @@ const can = (user, action) => {
 	return false;
 };
 
-module.exports = { createToken, findByToken, clearToken, unusablePassword, noteDevice, describeDevice, notifyLock, TOKEN_TTL, setPrefs, subscribers, sessionList, setName, sessionCounts, ROLES, COOKIE, hashPassword, verifyPassword, create, setPassword, update, byId, byEmail, list, count, publicUser, beginTwoFactor, pendingTwoFactor, confirmTwoFactor, regenerateRecovery, recoveryLeft, disableTwoFactor, verifySecondFactor, lockState, failedAttempt, clearAttempts, checkLogin, createTicket, useTicket, endTicket, createSession, getSession, destroySession, destroyOthers, rotateSession, cookieHeader, parseCookies, safeEqual, subnetOf, can, seal, unseal };
+module.exports = { endSession, createToken, findByToken, clearToken, unusablePassword, noteDevice, describeDevice, notifyLock, TOKEN_TTL, setPrefs, subscribers, sessionList, setName, sessionCounts, ROLES, COOKIE, hashPassword, verifyPassword, create, setPassword, update, byId, byEmail, list, count, publicUser, beginTwoFactor, pendingTwoFactor, confirmTwoFactor, regenerateRecovery, recoveryLeft, disableTwoFactor, verifySecondFactor, lockState, failedAttempt, clearAttempts, checkLogin, createTicket, useTicket, endTicket, createSession, getSession, destroySession, destroyOthers, rotateSession, cookieHeader, parseCookies, safeEqual, subnetOf, can, seal, unseal };

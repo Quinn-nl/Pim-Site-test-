@@ -112,7 +112,7 @@ const FLASH = {
 	opgeslagen: { ok: true, text: 'Opgeslagen.' }, verwijderd: { ok: true, text: 'Verwijderd.' }, ingekort: { ok: true, text: 'De ketens zijn ingekort: elke oude link gaat nu in één keer naar de laatste pagina.' }, wachtwoord: { ok: true, text: 'Wachtwoord gewijzigd. Andere sessies zijn uitgelogd.' },
 	foutwachtwoord: { ok: false, text: 'Het huidige wachtwoord klopt niet.' }, kort: { ok: false, text: 'Gebruik minstens 12 tekens.' }, nofile: { ok: false, text: 'Kies eerst een bestand.' },
 	badimg: { ok: false, text: 'Upload een JPG-, PNG- of WebP-afbeelding van maximaal 5 MB.' }, vernieuwd: { ok: true, text: 'De sitemap en alle opgeslagen pagina’s worden opnieuw opgebouwd bij het volgende bezoek.' }, gestart: { ok: true, text: 'De linkcontrole is gestart. Dit kan even duren.' }, teruggezet: { ok: true, text: 'Teruggezet. De vorige staat staat in de geschiedenis.' }, gemaakt: { ok: true, text: 'Aangemaakt.' },
-	backup: { ok: true, text: 'Back-up gemaakt.' }, goedgekeurd: { ok: true, text: 'Goedgekeurd en gepubliceerd.' }, teruggezet: { ok: true, text: 'Teruggezet. Een pagina komt terug als concept.' }, geenselectie: { ok: false, text: 'Vink eerst een of meer berichten aan.' }, naam: { ok: true, text: 'Naam bijgewerkt.' }, sessies: { ok: true, text: 'Alle andere apparaten zijn uitgelogd.' },
+	backup: { ok: true, text: 'Back-up gemaakt.' }, goedgekeurd: { ok: true, text: 'Goedgekeurd en gepubliceerd.' }, teruggezet: { ok: true, text: 'Teruggezet. Een pagina komt terug als concept.' }, geenselectie: { ok: false, text: 'Vink eerst een of meer berichten aan.' }, naam: { ok: true, text: 'Naam bijgewerkt.' }, sessies: { ok: true, text: 'Alle andere apparaten zijn uitgelogd.' }, sessies1: { ok: true, text: 'Dat apparaat is uitgelogd.' },
 	geblokkeerd: { ok: false, text: 'Te veel pogingen. Probeer het later opnieuw.' },
 };
 
@@ -510,7 +510,8 @@ async function handleAdmin(req, res, url) {
 	if (isPost && p === '/admin/menu/standaard') { if (!needPublish()) return true; menu.reset(user); return go('/admin/menu?f=opgeslagen'); }
 
 	/* ---- redirects ---- */
-	if (req.method === 'GET' && p === '/admin/redirects') return out(200, views.redirectsPage(ctx, redirects.list(), { chains: redirects.chains() }));
+	const redirectsView = (c2) => { const all = redirects.list(); const pagesN = Math.max(1, Math.ceil(all.length / 100)); const page = Math.min(pagesN, Math.max(1, parseInt(url.searchParams.get('pagina'), 10) || 1)); return views.redirectsPage(c2, all.slice((page - 1) * 100, page * 100), { chains: redirects.chains(), page, pages: pagesN, total: all.length }); };
+	if (req.method === 'GET' && p === '/admin/redirects') return out(200, redirectsView(ctx));
 	if (req.method === 'GET' && p === '/admin/redirects.csv') {
 		res.writeHead(200, headers(nonce, { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': 'attachment; filename="aethra-redirects.csv"' }));
 		res.end(redirects.exportCsv());
@@ -519,7 +520,7 @@ async function handleAdmin(req, res, url) {
 	if (isPost && p === '/admin/redirects/importeren') {
 		if (!needPublish()) return true;
 		const r = redirects.importCsv(form.csv, user);
-		return out(200, views.redirectsPage({ ...ctx, flash: { ok: r.fouten.length === 0, text: `${r.toegevoegd} toegevoegd${r.overgeslagen ? `, ${r.overgeslagen} overgeslagen` : ''}.${r.fouten.length ? ' ' + r.fouten.slice(0, 3).map((f) => `Regel ${f.regel}: ${f.tekst}`).join(' ') : ''}` } }, redirects.list(), { chains: redirects.chains() }));
+		return out(200, redirectsView({ ...ctx, flash: { ok: r.fouten.length === 0, text: `${r.toegevoegd} toegevoegd${r.overgeslagen ? `, ${r.overgeslagen} overgeslagen` : ''}.${r.fouten.length ? ' ' + r.fouten.slice(0, 3).map((f) => `Regel ${f.regel}: ${f.tekst}`).join(' ') : ''}` } }));
 	}
 	if (isPost && p === '/admin/redirects/inkorten') { if (!needPublish()) return true; const n = redirects.flatten(user); return go(`/admin/redirects?f=${n ? 'ingekort' : 'opgeslagen'}`); }
 	if (isPost && p === '/admin/redirects/bulk') {
@@ -670,13 +671,17 @@ async function handleAdmin(req, res, url) {
 
 	/* ---- search engines, links, editorial rules ---- */
 	if (req.method === 'GET' && p === '/admin/seo') {
-		const rows = seo.audit();
+		const rows = seo.audit({ fresh: url.searchParams.get('vernieuw') === '1' });
 		const siteUrl = cfg.SITE_URL || `${cfg.SECURE ? 'https' : 'http'}://${req.headers.host || 'localhost'}`;
 		const sitemap = require('../views').renderSitemap(siteUrl, content.lastModified(), seo.todayOn() ? ['/eco-mode-today'] : [], require('../store').publishedPages(), require('../store').pageVersions);
-		return out(200, views.seoPage(ctx, { rows, score: seo.score(rows), robots: robotsTxt(siteUrl), sitemapUrls: (sitemap.match(/<loc>/g) || []).length, siteUrl, env: { siteUrl: !!cfg.SITE_URL, training: process.env.AI_TRAINING === 'allow', indexNow: !!process.env.INDEXNOW_KEY } }));
+		return out(200, views.seoPage(ctx, { rows, score: seo.score(rows), checkedAt: seo.age(), robots: robotsTxt(siteUrl), sitemapUrls: (sitemap.match(/<loc>/g) || []).length, siteUrl, env: { siteUrl: !!cfg.SITE_URL, training: process.env.AI_TRAINING === 'allow', indexNow: !!process.env.INDEXNOW_KEY } }));
 	}
 	if (isPost && p === '/admin/seo/vernieuwen') { if (!needWrite()) return true; cache.invalidate(); return go('/admin/seo?f=vernieuwd'); }
-	if (req.method === 'GET' && p === '/admin/links') return out(200, views.linksPage(ctx, { results: linkcheck.results(), last: linkcheck.lastRun(), running: linkcheck.isRunning(), canRun: can('schrijven') }));
+	if (req.method === 'GET' && p === '/admin/links') {
+		const all = linkcheck.results();
+		const pagesN = Math.max(1, Math.ceil(all.length / 100));
+		return out(200, views.linksPage(ctx, { results: all, last: linkcheck.lastRun(), running: linkcheck.isRunning(), canRun: can('schrijven'), page: Math.min(pagesN, Math.max(1, parseInt(url.searchParams.get('pagina'), 10) || 1)), pages: pagesN }));
+	}
 	if (isPost && p === '/admin/links/controleren') {
 		if (!needWrite()) return true;
 		if (!linkcheck.isRunning()) { audit.log({ user, actie: 'links.controle_gestart', entiteit: 'links' }); linkcheck.run().catch((e) => console.error(`Link check failed: ${e.message}`)); }
@@ -804,6 +809,7 @@ async function handleAdmin(req, res, url) {
 	if (req.method === 'GET' && p === '/admin/account') return account();
 	if (isPost && p === '/admin/account/naam') { try { users.setName(user.id, form.naam); } catch (e) { return account({ ok: false, text: e.message }); } return go('/admin/account?f=naam'); }
 	if (isPost && p === '/admin/account/meldingen') { const w = user.rol !== 'lezer'; users.setPrefs(user.id, { meld_nieuw_bericht: form.meld_nieuw_bericht === '1' && w, weekrapport: form.weekrapport === '1' && w, meld_toewijzing: form.meld_toewijzing === '1' && w, meld_werkdagen: form.meld_werkdagen === '1' && w }); return go('/admin/account?f=opgeslagen'); }
+	if (isPost && (m = /^\/admin\/account\/sessies\/([0-9a-f]{64})\/beeindigen$/.exec(p))) { users.endSession(user.id, m[1], session.id); audit.log({ user, actie: 'gebruiker.sessie_beeindigd', entiteit: `gebruiker:${user.id}` }); return go('/admin/account?f=sessies1'); }
 	if (isPost && p === '/admin/account/sessies-uit') { users.destroyOthers(user.id, session.id); audit.log({ user, actie: 'gebruiker.uitgelogd', entiteit: `gebruiker:${user.id}` }); return go('/admin/account?f=sessies'); }
 	if (isPost && p === '/admin/account') {
 		const ok = reauth(form.current);
