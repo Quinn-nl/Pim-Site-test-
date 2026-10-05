@@ -55,13 +55,20 @@ function unseal(b64) {
 }
 
 /* Users */
-const publicUser = (u) => (u ? { id: u.id, email: u.email, naam: u.naam, rol: u.rol, actief: !!u.actief, tweestaps: !!u.totp_geheim, laatste_login: u.laatste_login, aangemaakt: u.aangemaakt, meld_nieuw_bericht: !!u.meld_nieuw_bericht, weekrapport: !!u.weekrapport, meld_toewijzing: !!u.meld_toewijzing, meld_werkdagen: !!u.meld_werkdagen } : null);
+const publicUser = (u) => (u ? { id: u.id, email: u.email, naam: u.naam, rol: u.rol, actief: !!u.actief, tweestaps: !!u.totp_geheim || passkeyCount(u.id) > 0, totp: !!u.totp_geheim, laatste_login: u.laatste_login, aangemaakt: u.aangemaakt, meld_nieuw_bericht: !!u.meld_nieuw_bericht, weekrapport: !!u.weekrapport, meld_toewijzing: !!u.meld_toewijzing, meld_werkdagen: !!u.meld_werkdagen } : null);
 const byId = (id) => db.get('SELECT * FROM gebruikers WHERE id = ?', id);
 const byEmail = (email) => db.get('SELECT * FROM gebruikers WHERE email = ?', String(email || '').trim().toLowerCase());
 const list = () => db.all('SELECT * FROM gebruikers ORDER BY naam').map(publicUser);
 const count = () => db.get('SELECT COUNT(*) AS n FROM gebruikers').n;
 const EMAIL = /^[^\s@<>(),;:\\"\[\]]+@[^\s@<>(),;:\\"\[\]]+\.[^\s@<>(),;:\\"\[\]]+$/;
 
+/** Too easy to guess: refused with a reason. A random password made for an invitation is exempt (nobody ever types it). */
+function checkQuality(password, who) {
+	if (unusable.has(password)) return;
+	const reason = require('./passwords').weakReason(password, who);
+	if (reason) throw Object.assign(new Error(reason), { status: 400 });
+}
+const unusable = new Set();
 function create({ email, naam, rol = 'editor', wachtwoord }, by = null) {
 	email = String(email || '').trim().toLowerCase();
 	naam = String(naam || '').trim().slice(0, 80);
@@ -69,6 +76,7 @@ function create({ email, naam, rol = 'editor', wachtwoord }, by = null) {
 	if (!naam) throw Object.assign(new Error('Vul een naam in.'), { status: 400 });
 	if (!ROLES.includes(rol)) throw Object.assign(new Error('Onbekende rol.'), { status: 400 });
 	if (!strongEnough(wachtwoord)) throw Object.assign(new Error('Gebruik minstens 12 tekens.'), { status: 400 });
+	checkQuality(wachtwoord, { email, naam });
 	if (byEmail(email)) throw Object.assign(new Error('Dat e-mailadres heeft al een account.'), { status: 409 });
 	const r = db.run('INSERT INTO gebruikers (email, naam, rol, wachtwoord_hash) VALUES (?, ?, ?, ?)', email, naam, rol, hashPassword(wachtwoord));
 	audit.log({ user: by, actie: 'gebruiker.aangemaakt', entiteit: `gebruiker:${r.id}`, nieuw: { email, naam, rol } });
@@ -77,6 +85,8 @@ function create({ email, naam, rol = 'editor', wachtwoord }, by = null) {
 
 function setPassword(id, password, by = null) {
 	if (!strongEnough(password)) throw Object.assign(new Error('Gebruik minstens 12 tekens.'), { status: 400 });
+	const who = byId(id);
+	checkQuality(password, who ? { email: who.email, naam: who.naam } : {});
 	db.run('UPDATE gebruikers SET wachtwoord_hash = ? WHERE id = ?', hashPassword(password), id);
 	audit.log({ user: by || id, actie: 'gebruiker.wachtwoord', entiteit: `gebruiker:${id}` });
 }
@@ -144,8 +154,56 @@ function disableTwoFactor(id, by = null) {
 	db.tx(() => {
 		db.run('UPDATE gebruikers SET totp_geheim = NULL, totp_open_geheim = NULL, totp_open_sinds = NULL, totp_laatste_stap = 0 WHERE id = ?', id);
 		db.run('DELETE FROM herstelcodes WHERE gebruiker_id = ?', id);
+		db.run('DELETE FROM passkeys WHERE gebruiker_id = ?', id);
 	});
 	audit.log({ user: by || id, actie: 'gebruiker.2fa_uit', entiteit: `gebruiker:${id}` });
+}
+/* Passkeys (WebAuthn): the checks themselves are in webauthn.js */
+const passkeyList = (userId) => db.all('SELECT id, naam, aangemaakt, laatst_gebruikt, alg FROM passkeys WHERE gebruiker_id = ? ORDER BY id', userId);
+const has2fa = (userId) => { const u = byId(userId); return !!(u && u.totp_geheim) || passkeyCount(userId) > 0; };
+const passkeyCount = (userId) => db.get('SELECT COUNT(*) AS n FROM passkeys WHERE gebruiker_id = ?', userId).n;
+const passkeyCredentials = (userId) => db.all('SELECT credential_id FROM passkeys WHERE gebruiker_id = ?', userId).map((r) => r.credential_id);
+function addPasskey(userId, { credentialId, jwk, alg, counter }, naam) {
+	if (passkeyCount(userId) >= 10) throw Object.assign(new Error('Maximaal 10 beveiligingssleutels per account.'), { status: 422 });
+	if (db.get('SELECT 1 FROM passkeys WHERE credential_id = ?', credentialId)) throw Object.assign(new Error('Deze beveiligingssleutel is al in gebruik.'), { status: 409 });
+	const label = String(naam || '').replace(/\s+/g, ' ').trim().slice(0, 60) || 'Beveiligingssleutel';
+	db.run('INSERT INTO passkeys (gebruiker_id, credential_id, publieke_sleutel, alg, teller, naam) VALUES (?, ?, ?, ?, ?, ?)', userId, credentialId, JSON.stringify(jwk), alg, counter, label);
+	audit.log({ user: userId, actie: 'gebruiker.passkey_toegevoegd', entiteit: `gebruiker:${userId}`, nieuw: { naam: label } });
+}
+function removePasskey(userId, id) {
+	const r = db.run('DELETE FROM passkeys WHERE gebruiker_id = ? AND id = ?', userId, id);
+	if (r.changes) audit.log({ user: userId, actie: 'gebruiker.passkey_verwijderd', entiteit: `gebruiker:${userId}` });
+	return r.changes > 0;
+}
+const passkeyFor = (userId, credentialId) => { const r = db.get('SELECT * FROM passkeys WHERE gebruiker_id = ? AND credential_id = ?', userId, credentialId); return r ? { id: r.id, jwk: JSON.parse(r.publieke_sleutel), alg: r.alg, teller: r.teller } : null; };
+const touchPasskey = (id, counter) => db.run('UPDATE passkeys SET teller = ?, laatst_gebruikt = ? WHERE id = ?', counter, db.iso(), id);
+/** Short-lived challenges for registering (bound to the person) and for the reset page (bound to the link). */
+const challenges = new Map();
+function newChallenge(owner) {
+	const challenge = require('./webauthn').newChallenge();
+	challenges.set(owner, { challenge, expires: Date.now() + 5 * 60 * 1000 });
+	while (challenges.size > 200) challenges.delete(challenges.keys().next().value);
+	return challenge;
+}
+function takeChallenge(owner) {
+	const c = challenges.get(owner);
+	challenges.delete(owner);
+	return c && c.expires > Date.now() ? c.challenge : null;
+}
+
+/**
+ * Is two-step verification required for this person (Instellingen: nobody / administrators / administrators and editors / everyone)?
+ * New accounts and a newly switched-on rule get 7 days. After that someone without a second step can only reach their account page to set it up.
+ */
+function mfaPolicy(user, now = Date.now()) {
+	let rule = 'niemand'; let since = '';
+	try { const st = require('./settings'); rule = st.get('tweestaps_verplicht'); since = st.get('tweestaps_sinds'); } catch (e) { return { required: false, enforced: false }; }
+	const required = rule === 'iedereen' || (rule === 'beheer_editor' && ['beheerder', 'editor'].includes(user.rol)) || (rule !== 'niemand' && rule !== 'iedereen' && user.rol === 'beheerder');
+	if (!required || has2fa(user.id)) return { required, has: has2fa(user.id), enforced: false };
+	const row = byId(user.id);
+	const start = Math.max(Date.parse(row.aangemaakt) || 0, Date.parse(since) || 0);
+	const deadline = start + 7 * 86400000;
+	return { required, has: false, deadline, daysLeft: Math.max(0, Math.ceil((deadline - now) / 86400000)), enforced: now > deadline };
 }
 /** A 6-digit app code (once per time step) or an unused recovery code. */
 function verifySecondFactor(id, input) {
@@ -221,6 +279,8 @@ function useTicket(id) {
 	return t;
 }
 const endTicket = (id) => tickets.delete(id);
+/** Looks at a ticket without using up one of its tries (the passkey options request). */
+const peekTicket = (id) => { const t = tickets.get(id); return t && t.expires > Date.now() && t.tries < 5 ? t : null; };
 
 /* Sessions */
 const sha = (s) => crypto.createHash('sha256').update(String(s)).digest('hex');
@@ -297,7 +357,7 @@ function findByToken(token) {
 }
 const clearToken = (userId) => db.run('UPDATE gebruikers SET token_hash = NULL, token_soort = NULL, token_tot = NULL WHERE id = ?', userId);
 /** A password nobody knows, for accounts that are created by invitation. */
-const unusablePassword = () => crypto.randomBytes(24).toString('base64url');
+const unusablePassword = () => { const p = crypto.randomBytes(24).toString('base64url'); unusable.add(p); if (unusable.size > 50) unusable.delete(unusable.values().next().value); return p; };
 
 /** First time this browser signs in for this person? Returns true only when other devices were already known (not on the very first login). */
 function noteDevice(userId, ua) {
@@ -356,4 +416,4 @@ const can = (user, action) => {
 	return false;
 };
 
-module.exports = { endSession, createToken, findByToken, clearToken, unusablePassword, noteDevice, describeDevice, notifyLock, TOKEN_TTL, setPrefs, subscribers, sessionList, setName, sessionCounts, ROLES, COOKIE, hashPassword, verifyPassword, create, setPassword, update, byId, byEmail, list, count, publicUser, beginTwoFactor, pendingTwoFactor, confirmTwoFactor, regenerateRecovery, recoveryLeft, disableTwoFactor, verifySecondFactor, lockState, failedAttempt, clearAttempts, checkLogin, createTicket, useTicket, endTicket, createSession, getSession, destroySession, destroyOthers, rotateSession, cookieHeader, parseCookies, safeEqual, subnetOf, can, seal, unseal };
+module.exports = { mfaPolicy, has2fa, peekTicket, passkeyList, passkeyCount, passkeyCredentials, addPasskey, removePasskey, passkeyFor, touchPasskey, newChallenge, takeChallenge, endSession, createToken, findByToken, clearToken, unusablePassword, noteDevice, describeDevice, notifyLock, TOKEN_TTL, setPrefs, subscribers, sessionList, setName, sessionCounts, ROLES, COOKIE, hashPassword, verifyPassword, create, setPassword, update, byId, byEmail, list, count, publicUser, beginTwoFactor, pendingTwoFactor, confirmTwoFactor, regenerateRecovery, recoveryLeft, disableTwoFactor, verifySecondFactor, lockState, failedAttempt, clearAttempts, checkLogin, createTicket, useTicket, endTicket, createSession, getSession, destroySession, destroyOthers, rotateSession, cookieHeader, parseCookies, safeEqual, subnetOf, can, seal, unseal };

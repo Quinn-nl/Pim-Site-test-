@@ -80,7 +80,7 @@ const icon = (name, cls = '') => `<svg class="i${cls ? ' ' + cls : ''}" aria-hid
 
 const HELP = require('./help');
 const contextHelp = (key) => (HELP.CONTEXT[key] ? `<details class="help" data-help="${esc(key)}"><summary>${icon('info')} Uitleg bij dit scherm</summary><p>${esc(HELP.CONTEXT[key])} <a href="/admin/help">Alle uitleg</a></p></details>` : '');
-function shell(ctx, { title, active = '', body, wide = false, script = true }) {
+function shell(ctx, { title, active = '', body, wide = false, script = true, scripts = [] }) {
 	const { session, nonce, badges = {} } = ctx;
 	const head = `<!doctype html>
 <html lang="nl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -90,14 +90,14 @@ function shell(ctx, { title, active = '', body, wide = false, script = true }) {
 	const flash = ctx.flash ? `<p class="flash ${ctx.flash.ok ? 'ok' : 'err'}" role="${ctx.flash.ok ? 'status' : 'alert'}">${icon(ctx.flash.ok ? 'check' : 'alert')}<span>${esc(ctx.flash.text)}</span></p>` : '';
 	if (!session) {
 		return `${head}
-<body>${sprite}<div class="auth"><div><div class="brand"><span class="logo">${icon('orbit')}</span><span>AETHRA<small>Beheer van de website</small></span></div>${flash}${body}</div></div></body></html>`;
+<body>${sprite}<div class="auth"><div><div class="brand"><span class="logo">${icon('orbit')}</span><span>AETHRA<small>Beheer van de website</small></span></div>${flash}${body}</div></div>${scripts.map((f) => `<script src="${asset(f)}" nonce="${esc(nonce)}" defer></script>`).join('')}</body></html>`;
 	}
 	const item = (key, href, label, ic, badge) => `<a href="${href}"${active === key ? ' aria-current="page"' : ''}>${icon(ic)}<span>${label}</span>${key === 'berichten' || key === 'reviews' ? `<span class="badge" data-badge="${key}"${badge ? '' : ' hidden'}>${badge || ''}</span>` : ''}</a>`;
 	const groups = [
 		['Inhoud', [['dash', '/admin', 'Dashboard', 'dash'], ['paginas', '/admin/paginas', 'Pagina’s en teksten', 'pages'], ['media', '/admin/media', 'Media', 'media'], ['reviews', '/admin/reviews', session.user.rol === 'redacteur' ? 'Mijn voorstellen' : 'Te beoordelen', 'check', badges.reviews], ['planning', '/admin/planning', 'Planning', 'clock'], ['vertalingen', '/admin/vertalingen', 'Vertalingen', 'globe'], ['prullenbak', '/admin/prullenbak', 'Prullenbak', 'trash']]],
 		['Inbox', [['berichten', '/admin/berichten', 'Berichten', 'mail', badges.berichten], ['sjablonen', '/admin/sjablonen', 'Antwoordsjablonen', 'reply'], ['wachtrij', '/admin/wachtrij', 'Mailwachtrij', 'send']]],
 		['Site', [['menu', '/admin/menu', 'Menu', 'menu'], ['seo', '/admin/seo', 'Zoekmachines', 'search'], ['links', '/admin/links', 'Linkcontrole', 'link'], ['redirects', '/admin/redirects', 'Redirects', 'redirect'], ['stats', '/admin/stats', 'Statistieken', 'stats']]],
-		...(session.user.rol === 'beheerder' ? [['Beheer', [['gebruikers', '/admin/gebruikers', 'Gebruikers', 'users'], ['instellingen', '/admin/instellingen', 'Instellingen', 'cog'], ['regels', '/admin/regels', 'Redactionele regels', 'shield'], ['systeem', '/admin/systeem', 'Systeem', 'server'], ['audit', '/admin/audit', 'Auditlog', 'shield']]]] : []),
+		...(session.user.rol === 'beheerder' ? [['Beheer', [['gebruikers', '/admin/gebruikers', 'Gebruikers', 'users'], ['instellingen', '/admin/instellingen', 'Instellingen', 'cog'], ['regels', '/admin/regels', 'Redactionele regels', 'shield'], ['systeem', '/admin/systeem', 'Systeem', 'server'], ['beveiliging', '/admin/beveiligingsrapport', 'Beveiliging', 'lock'], ['audit', '/admin/audit', 'Auditlog', 'shield']]]] : []),
 	];
 	const nav = groups.map(([name, items]) => `<div class="nav-group"><h2>${name}</h2>${items.map((i) => item(...i)).join('')}</div>`).join('');
 	return `${head}
@@ -116,12 +116,12 @@ function shell(ctx, { title, active = '', body, wide = false, script = true }) {
 </aside>
 <div class="mainwrap">
 <header class="topbar"><button type="button" id="navtoggle" aria-controls="side" aria-expanded="false" aria-label="Menu openen">${icon('menu')}</button><strong>AETHRA</strong></header>
-${ctx.maintenance ? `<p class="flash err" role="status">${icon('alert')}<span>De onderhoudsmodus staat aan: bezoekers zien een onderhoudspagina. <a href="/admin/instellingen">Uitzetten</a></span></p>` : ''}
+${ctx.mfa ? `<p class="flash err" role="status">${icon('lock')}<span>Tweestapsverificatie is verplicht voor jouw rol. Je hebt nog ${ctx.mfa.daysLeft} dag${ctx.mfa.daysLeft === 1 ? '' : 'en'} om het in te stellen. <a href="/admin/account">Nu instellen</a></span></p>` : ''}${ctx.maintenance ? `<p class="flash err" role="status">${icon('alert')}<span>De onderhoudsmodus staat aan: bezoekers zien een onderhoudspagina. <a href="/admin/instellingen">Uitzetten</a></span></p>` : ''}
 <p id="alarm" class="flash err" role="alert" hidden></p>
 <main id="main"${wide ? ' class="wide"' : ''}>${flash}${wide ? '' : contextHelp(active)}${body}</main>
 </div></div>
 <span id="live" class="sr" role="status" aria-atomic="true"></span><div id="toasts" role="status" aria-live="polite"></div>
-${script ? `<script src="${asset('/js/admin.js')}" nonce="${esc(nonce)}" defer></script>` : ''}
+${script ? `<script src="${asset('/js/admin.js')}" nonce="${esc(nonce)}" defer></script>` : ''}${scripts.map((f) => `<script src="${asset(f)}" nonce="${esc(nonce)}" defer></script>`).join('')}
 </body></html>`;
 }
 
@@ -134,17 +134,18 @@ ${setup ? '<p class="err-text">Er is nog geen account. Maak het eerste account o
 function forgotPage(ctx, { flash, done } = {}) {
 	return shell({ ...ctx, session: null, flash }, { title: 'Wachtwoord vergeten', body: `<section class="card narrow"><h1>Wachtwoord vergeten</h1>${done ? '<p>Als dit e-mailadres bij een account hoort, is er een mail met een link gestuurd. De link is een uur geldig. Geen mail binnen een paar minuten? Vraag een beheerder om een herstellink.</p><p><a href="/admin">Terug naar inloggen</a></p>' : `<p class="hint">Vul je e-mailadres in. Je krijgt een link om een nieuw wachtwoord te kiezen.</p><form method="post" action="/admin/vergeten"><div class="row"><label for="fe">E-mailadres</label><input id="fe" name="email" type="email" autocomplete="username" required autofocus></div><button type="submit">Stuur een link</button></form><p class="hint"><a href="/admin">Terug naar inloggen</a></p>`}</section>`, script: false });
 }
-function resetPage(ctx, { token, user, invalid, flash } = {}) {
+function resetPage(ctx, { token, user, invalid, flash, passkeys = false } = {}) {
 	if (invalid) return shell({ ...ctx, session: null, flash }, { title: 'Link verlopen', body: '<section class="card narrow"><h1>Deze link werkt niet meer</h1><p>De link is al gebruikt of verlopen. Vraag een nieuwe aan via “Wachtwoord vergeten” of bij een beheerder.</p><p><a href="/admin/vergeten">Nieuwe link aanvragen</a></p></section>', script: false });
 	const invite = user.token_soort === 'uitnodiging';
 	return shell({ ...ctx, session: null, flash }, { title: invite ? 'Welkom' : 'Nieuw wachtwoord', body: `<section class="card narrow"><h1>${invite ? `Welkom, ${esc(user.naam)}` : 'Nieuw wachtwoord'}</h1><p class="hint">${invite ? 'Kies een wachtwoord om te beginnen.' : `Kies een nieuw wachtwoord voor ${esc(user.email)}.`} Minstens 12 tekens; een zin van een paar woorden werkt het best.</p>
 <form method="post" action="/admin/herstel"><input type="hidden" name="token" value="${esc(token)}"><div class="row"><label for="rp">Nieuw wachtwoord</label><input id="rp" name="password" type="password" autocomplete="new-password" minlength="12" required autofocus></div><div class="row"><label for="rp2">Nog een keer</label><input id="rp2" name="password2" type="password" autocomplete="new-password" minlength="12" required></div>
-${user.totp_geheim && !invite ? '<div class="row"><label for="rc">Code uit je authenticator-app (of een herstelcode)</label><input id="rc" name="code" autocomplete="one-time-code" required></div>' : ''}<button type="submit">Wachtwoord instellen</button></form></section>`, script: false });
+${user.totp_geheim && !invite ? `<div class="row"><label for="rc">Code uit je authenticator-app (of een herstelcode)</label><input id="rc" name="code" autocomplete="one-time-code"${passkeys ? '' : ' required'}></div>` : ''}${passkeys && !invite ? `<input type="hidden" name="passkey" id="pk-cred"><div class="pk-login" data-passkey-reset data-token="${esc(token)}"><p class="hint">${user.totp_geheim ? 'Of bevestig' : 'Bevestig'} met je beveiligingssleutel:</p><button type="button" class="secondary" id="pk-go">${icon('lock')} Beveiligingssleutel gebruiken</button><p id="pk-ok" class="ok-text" hidden>Gelukt: sleutel bevestigd.</p><p class="err-text" id="pk-err" role="alert" hidden></p></div>` : ''}<button type="submit">Wachtwoord instellen</button></form></section>`, script: false, scripts: passkeys && !invite ? ['/js/passkey.js'] : [] });
 }
-function codePage(ctx, ticket, flash) {
-	return shell({ ...ctx, session: null, flash }, { title: 'Verificatie', body: `<section class="card narrow"><h1>Tweestapsverificatie</h1>
-<p class="hint">Vul de 6-cijferige code uit je authenticator-app in, of een van je herstelcodes.</p>
-<form method="post" action="/admin/login/code"><input type="hidden" name="ticket" value="${esc(ticket)}"><div class="row"><label for="code">Code</label><input id="code" name="code" type="text" autocomplete="one-time-code" autocapitalize="none" required autofocus></div><button type="submit">Bevestigen</button></form></section>`, script: false });
+function codePage(ctx, ticket, flash, how = { totp: true, passkeys: false }) {
+	return shell({ ...ctx, session: null, flash }, { title: 'Verificatie', scripts: how.passkeys ? ['/js/passkey.js'] : [], body: `<section class="card narrow"><h1>Tweestapsverificatie</h1>
+${how.passkeys ? `<div class="pk-login" data-passkey-login data-ticket="${esc(ticket)}"><p class="hint">Gebruik je beveiligingssleutel, passkey of vingerafdruk.</p><button type="button" id="pk-go">${icon('lock')} Inloggen met passkey</button><p class="err-text" id="pk-err" role="alert" hidden></p></div>` : ''}
+${how.totp ? `${how.passkeys ? '<p class="hint">Of gebruik een code:</p>' : '<p class="hint">Vul de 6-cijferige code uit je authenticator-app in, of een van je herstelcodes.</p>'}
+<form method="post" action="/admin/login/code"><input type="hidden" name="ticket" value="${esc(ticket)}"><div class="row"><label for="code">Code</label><input id="code" name="code" type="text" autocomplete="one-time-code" autocapitalize="none" required${how.passkeys ? '' : ' autofocus'}></div><button type="submit"${how.passkeys ? ' class="secondary"' : ''}>Bevestigen</button></form>` : ''}</section>`, script: false });
 }
 
 /* ---- dashboard ---- */
@@ -550,7 +551,7 @@ function auditPage(ctx, { rows, total, page, filter, people }) {
 ${pages > 1 ? `<nav class="tabs" aria-label="Paginering">${Array.from({ length: Math.min(pages, 30) }, (_, i) => i + 1).map((n) => `<a href="/admin/audit?${q({ page: n })}"${n === page ? ' aria-current="page"' : ''}>${n}</a>`).join('')}</nav>` : ''}</section>` });
 }
 const ACTION_NL = { 'login.gelukt': 'Ingelogd', 'login.code_mislukt': 'Foute 2FA-code', logout: 'Uitgelogd', 'gebruiker.wachtwoord': 'Wachtwoord gewijzigd', 'gebruiker.gewijzigd': 'Account gewijzigd', 'gebruiker.uitgelogd': 'Andere apparaten uitgelogd', 'tekst.gepubliceerd': 'Tekst gepubliceerd', 'pagina.gepubliceerd': 'Pagina gepubliceerd', 'media.gewijzigd': 'Foto gewijzigd', 'media.verwijderd': 'Foto verwijderd', 'bericht.status': 'Status van bericht gewijzigd', 'bericht.verwijderd': 'Bericht verwijderd', 'media.geupload': 'Foto geüpload', 'media.plek': 'Foto op de site gewijzigd', 'pagina.aangemaakt': 'Pagina aangemaakt', 'pagina.verwijderd': 'Pagina verwijderd', 'bericht.toegewezen': 'Bericht toegewezen', 'bericht.notitie': 'Notitie bij bericht' };
-function accountPage(ctx, { flash, tf = {}, sessions = [], activity = [] }) {
+function accountPage(ctx, { flash, tf = {}, sessions = [], activity = [], passkeys = [] }) {
 	const me = ctx.session.user;
 	const csrf = `<input type="hidden" name="csrf" value="${esc(ctx.session.csrf)}">`;
 	let two;
@@ -563,13 +564,16 @@ function accountPage(ctx, { flash, tf = {}, sessions = [], activity = [] }) {
 	else two = `<section class="card"><div class="card-title"><h2>Tweestapsverificatie</h2><span class="pill st-warn">Uit</span></div><p class="hint">Sterk aanbevolen: een gestolen wachtwoord geeft dan geen toegang meer.</p><form method="post" action="/admin/2fa/start">${csrf}<div class="row"><label for="sp">Bevestig met je huidige wachtwoord</label><input id="sp" name="current" type="password" autocomplete="current-password" required></div><button type="submit">Instellen</button></form></section>`;
 	const sess = `<section class="card"><h2>Ingelogd op</h2><ul class="plain sess">${sessions.map((s) => `<li>${icon('monitor')}<span class="sess-main"><strong>${esc(s.apparaat)}${s.huidig ? ' (dit apparaat)' : ''}</strong><span class="meta">Netwerk ${esc(s.netwerk)} · ingelogd ${esc(relTime(s.aangemaakt))} · laatst actief ${esc(relTime(s.laatst_gezien))}</span></span>${s.huidig ? '' : `<form method="post" action="/admin/account/sessies/${esc(s.hash)}/beeindigen" class="inline" data-confirm="Dit apparaat uitloggen?">${csrf}<button type="submit" class="small secondary">Uitloggen</button></form>`}</li>`).join('')}</ul>
 ${sessions.length > 1 ? `<form method="post" action="/admin/account/sessies-uit" data-confirm="Alle andere apparaten uitloggen?">${csrf}<button type="submit" class="secondary small">Alle andere apparaten uitloggen</button></form>` : '<p class="hint">Je bent alleen hier ingelogd.</p>'}</section>`;
+	const pk = `<section class="card"><div class="card-title"><h2>Passkeys en beveiligingssleutels</h2><span class="pill ${passkeys.length ? 'ok' : 'st-standaard'}">${passkeys.length ? `${passkeys.length} ingesteld` : 'Geen'}</span></div><p class="hint">Inloggen met je vingerafdruk, gezicht, telefoon of een USB-sleutel in plaats van een code. Niet te phishen: de sleutel werkt alleen op dit adres. Je blijft eerst je wachtwoord invullen; de sleutel is de tweede stap.</p>
+${passkeys.length ? `<ul class="plain sess">${passkeys.map((k) => `<li>${icon('lock')}<span class="sess-main"><strong>${esc(k.naam)}</strong><span class="meta">Toegevoegd ${esc(relTime(k.aangemaakt))}${k.laatst_gebruikt ? ` · laatst gebruikt ${esc(relTime(k.laatst_gebruikt))}` : ' · nog niet gebruikt'}</span></span><form method="post" action="/admin/passkeys/${k.id}/verwijderen" class="inline" data-confirm="Deze sleutel verwijderen?">${csrf}<input type="password" name="huidig" placeholder="jouw wachtwoord" autocomplete="current-password" aria-label="Jouw wachtwoord ter bevestiging" required><button type="submit" class="small danger">Verwijderen</button></form></li>`).join('')}</ul>` : ''}
+<form data-passkey-add class="pk-add"><div class="two"><div class="row"><label for="pk-name">Naam (bijvoorbeeld “iPhone” of “YubiKey”)</label><input id="pk-name" name="naam" maxlength="60"></div><div class="row"><label for="pk-pw">Jouw wachtwoord ter bevestiging</label><input id="pk-pw" name="huidig" type="password" autocomplete="current-password" required></div></div><button type="submit" class="small">Passkey toevoegen</button><p class="err-text" id="pk-add-err" role="alert" hidden></p></form></section>`;
 	const act = activity.length ? `<section class="card"><h2>Jouw recente activiteit</h2><ul class="plain act">${activity.map((a) => `<li><span>${esc(ACTION_NL[a.actie] || a.actie)}</span><time class="meta">${esc(relTime(a.timestamp))}</time></li>`).join('')}</ul></section>` : '';
 	return shell({ ...ctx, flash }, { title: 'Mijn account', active: 'account', body: `<div class="page-head"><div class="who-head">${avatar(me.naam, 'lg')}<div><h1>${esc(me.naam)}</h1><p class="hint">${esc(me.email)} · ${esc(ROLE_INFO[me.rol][0])}: ${esc(ROLE_INFO[me.rol][1].toLowerCase())}</p></div></div></div>
 <div class="acc-grid"><div>
 <section class="card"><h2>Naam</h2><form method="post" action="/admin/account/naam" class="inline">${csrf}<label for="an" class="sr">Naam</label><input id="an" name="naam" value="${esc(me.naam)}" maxlength="80" required><button type="submit" class="small">Opslaan</button></form></section>
 ${me.rol !== 'lezer' ? `<form method="post" action="/admin/account/meldingen" class="card">${csrf}<h2>Meldingen</h2><label class="chk"><input type="checkbox" name="meld_nieuw_bericht" value="1"${me.meld_nieuw_bericht ? ' checked' : ''}> E-mail bij een nieuw bericht via de website</label><label class="chk"><input type="checkbox" name="meld_toewijzing" value="1"${me.meld_toewijzing ? ' checked' : ''}> E-mail als een bericht aan mij wordt toegewezen</label><label class="chk"><input type="checkbox" name="weekrapport" value="1"${me.weekrapport ? ' checked' : ''}> Weekrapport per e-mail (maandagochtend)</label><label class="chk"><input type="checkbox" name="meld_werkdagen" value="1"${me.meld_werkdagen ? ' checked' : ''}> Meldingen alleen op werkdagen (in het weekend wachten ze tot maandag 07:00)</label><p class="fhint">Mails komen binnen via de mailwachtrij. In de mail staat geen berichttekst, alleen een link naar het beheer.</p><div class="actions"><button type="submit" class="small">Opslaan</button><button type="button" class="secondary small" id="notifybtn" hidden>Meldingen in de browser aanzetten</button></div></form>` : ''}
 <form method="post" action="/admin/account" class="card">${csrf}<h2>Wachtwoord wijzigen</h2><div class="row"><label for="cur">Huidig wachtwoord</label><input id="cur" name="current" type="password" autocomplete="current-password" required></div><div class="row"><label for="new">Nieuw wachtwoord</label><input id="new" name="password" type="password" autocomplete="new-password" minlength="12" required data-strength><div class="meter" id="meter" hidden><span></span></div><p class="fhint" id="meter-t">Minstens 12 tekens. Een zin van een paar woorden werkt het best.</p></div><div class="actions spread"><label class="chk"><input type="checkbox" data-showpw> Wachtwoorden tonen</label><button type="submit">Wijzigen</button></div></form>
-${sess}</div><div>${two}${act}</div></div>` });
+${sess}</div><div>${two}${pk}${act}</div></div>`, scripts: ['/js/passkey.js'] });
 }
 
 /* statistics (same figures as before) */
@@ -593,7 +597,7 @@ function statsPage(ctx, sum, days, { prev = null, bySource = [] } = {}) {
 
 const errorPage = (ctx, status, text) => shell({ ...ctx, session: ctx.session || null }, { title: 'Fout', body: `<section class="card narrow"><h1>${esc(String(status))}</h1><p>${esc(text)}</p><p><a href="/admin">Terug naar het begin</a></p></section>`, script: false });
 
-module.exports = { helpPage, privacyOverviewPage, repliesPage, seoPage, linksPage, rulesPage, trashPage, translationsPage, planningPage, shareLinksPage, forgotPage, resetPage, reviewsPage, reviewPage, settingsPage, systemPage, menuPage, PLACE, ORDER, loginPage, codePage, dashboardPage, pagesPage, newPagePage, textEditorPage, privacyEditorPage, pageEditorPage, sectionCard, historyPage, diffPage, mediaPage, messagesPage, messagePage, privacyRequestPage, queuePage, redirectsPage, usersPage, auditPage, accountPage, statsPage, errorPage, CONTACT_ROLES };
+module.exports = { helpPage, privacyOverviewPage, repliesPage, seoPage, linksPage, rulesPage, trashPage, translationsPage, planningPage, shareLinksPage, forgotPage, resetPage, reviewsPage, reviewPage, settingsPage, systemPage, securityPage, menuPage, PLACE, ORDER, loginPage, codePage, dashboardPage, pagesPage, newPagePage, textEditorPage, privacyEditorPage, pageEditorPage, sectionCard, historyPage, diffPage, mediaPage, messagesPage, messagePage, privacyRequestPage, queuePage, redirectsPage, usersPage, auditPage, accountPage, statsPage, errorPage, CONTACT_ROLES };
 
 /* ---- menu editor ---- */
 function menuPage(ctx, data) {
@@ -615,7 +619,7 @@ ${canWrite && data.custom ? `<form method="post" action="/admin/menu/standaard" 
 
 /* ---- settings and system ---- */
 const fmtBytes = (b) => (b >= 1073741824 ? `${(b / 1073741824).toFixed(1).replace('.', ',')} GB` : b >= 1048576 ? `${(b / 1048576).toFixed(1).replace('.', ',')} MB` : `${Math.max(1, Math.round(b / 1024))} kB`);
-function settingsPage(ctx, { values: v, mail }) {
+function settingsPage(ctx, { values: v, mail, ip = '' }) {
 	const csrf = `<input type="hidden" name="csrf" value="${esc(ctx.session.csrf)}">`;
 	const langs = LANGS.map((l) => [l, LANG_NAMES[l]]);
 	const texts = (prefix, label) => langs.map(([l, n]) => `<div class="row"><label for="${prefix}${l}">${label} (${esc(n)})</label><input id="${prefix}${l}" name="${prefix}${l}" maxlength="${prefix.startsWith('banner') ? 200 : 600}" lang="${l}" value="${esc(v[prefix + l] || '')}"></div>`).join('');
@@ -628,10 +632,22 @@ ${texts('banner_tekst_', 'Tekst')}<p class="fhint">Laat een taal leeg om de Enge
 <section class="card"><h2>Onderhoudsmodus</h2><p class="hint">Bezoekers zien een nette pagina (HTTP 503, zodat zoekmachines niet denken dat de site weg is). Het beheer blijft gewoon werken. Vergeet hem niet uit te zetten.</p>
 <label class="chk"><input type="checkbox" name="onderhoud_aan" value="1"${v.onderhoud_aan ? ' checked' : ''}> Onderhoudsmodus aan</label>${texts('onderhoud_tekst_', 'Uitleg voor bezoekers')}</section>
 <section class="card"><h2>Berichten</h2><div class="row"><label for="bewaar">Bewaartermijn van berichten (dagen)</label><input id="bewaar" type="number" name="bewaartermijn_dagen" min="30" max="1825" value="${esc(v.bewaartermijn_dagen)}"><p class="fhint">Daarna worden berichten automatisch verwijderd. Tussen 30 en 1825 dagen. Neem de termijn ook op in de privacyverklaring.</p></div></section>
+<section class="card"><h2>Inloggen en toegang</h2>
+<div class="row"><label for="mfa">Tweestapsverificatie verplicht voor</label><select id="mfa" name="tweestaps_verplicht">${[['niemand', 'Niemand (aanbevolen, maar niet verplicht)'], ['beheerder', 'Beheerders'], ['beheer_editor', 'Beheerders en editors'], ['iedereen', 'Iedereen met een account']].map(([k, t]) => `<option value="${k}"${v.tweestaps_verplicht === k ? ' selected' : ''}>${t}</option>`).join('')}</select><p class="fhint">Mensen krijgen 7 dagen om het in te stellen (een app of een passkey). Daarna komen ze pas verder in het beheer nadat ze het hebben gedaan.</p></div>
+<div class="row"><label for="ipl">Beheer alleen bereikbaar vanaf deze netwerken (optioneel)</label><textarea id="ipl" name="beheer_ip_lijst" rows="3" placeholder="203.0.113.7&#10;192.168.1.0/24">${esc(v.beheer_ip_lijst)}</textarea><p class="fhint">Eén adres of bereik per regel. Leeg = overal bereikbaar (nog steeds met wachtwoord en eventueel tweede stap). Je huidige adres is <code>${esc(ip || 'onbekend')}</code> en moet in de lijst staan. Buitengesloten? Start de server met <code>ADMIN_IP_BYPASS=1</code> en pas de lijst aan. De site zelf blijft voor iedereen bereikbaar. Het filteren op land kan hier niet: daarvoor is een lijst met adresbereiken per land nodig.</p></div></section>
 <section class="card"><h2>E-mail</h2><p>${mail.smtp ? '<span class="pill ok">Mailserver ingesteld</span>' : '<span class="pill st-warn">Geen mailserver</span>'} ${mail.team ? '<span class="pill ok">Teammelding aan</span>' : '<span class="pill st-standaard">Teammelding uit</span>'}</p>
 <p class="hint">De mailserver staat om veiligheidsredenen niet in dit scherm maar in de omgeving van de server: <code>SMTP_HOST</code>, <code>SMTP_PORT</code>, <code>SMTP_USER</code>, <code>SMTP_PASS</code>, <code>MAIL_FROM</code> en optioneel <code>MAIL_TO</code>. Per persoon stel je meldingen in onder Mijn account.</p></section>
 <div class="savebar"><button type="submit">Instellingen opslaan</button></div></form>` });
 }
+function securityPage(ctx, d) {
+	const card = (label, value, hint = '', cls = '') => `<div class="card mini ${cls}"><span class="meta">${esc(label)}</span><strong>${value}</strong>${hint ? `<span class="meta">${hint}</span>` : ''}</div>`;
+	const rows = d.accounts.map((u) => `<tr${u.actief ? '' : ' class="muted"'}><td><strong>${esc(u.naam)}</strong><br><span class="meta">${esc(u.email)}</span></td><td>${esc(u.rol)}${u.actief ? '' : ' <span class="pill st-standaard">uitgeschakeld</span>'}</td><td>${u.tweestaps ? `<span class="pill st-ok">Ja</span> <span class="meta">${[u.totp ? 'app' : '', u.passkeys ? `${u.passkeys} passkey${u.passkeys === 1 ? '' : 's'}` : ''].filter(Boolean).join(' + ')}</span>` : '<span class="pill st-warn">Nee</span>'}</td><td>${u.laatste_login ? esc(when(u.laatste_login)) : '<span class="meta">nooit</span>'}</td><td>${u.sessies}</td><td>${u.flags.length ? u.flags.map((f) => `<span class="pill st-warn">${esc(f)}</span>`).join(' ') : '<span class="meta">Geen</span>'}</td></tr>`).join('');
+	return shell(ctx, { title: 'Beveiliging', active: 'beveiliging', body: `<div class="page-head"><div><h1>Beveiliging</h1><p class="hint">Wie heeft toegang, hoe goed is dat beschermd, en staat het systeem veilig ingesteld? Dit overzicht verandert niets.</p></div><a class="button secondary" href="/admin/beveiligingsrapport.csv" download>Exporteren (CSV)</a></div>
+<div class="rolecards sys">${card('Actieve accounts', String(d.actief))}${card('Zonder tweede stap', String(d.zonderTweestaps), d.zonderTweestaps ? 'Zet dit aan onder Instellingen of vraag ze het in te stellen.' : 'Iedereen heeft een tweede stap.', d.zonderTweestaps ? 'bad' : '')}${card('Met passkey', String(d.metPasskey))}${card('Aandachtspunten', String(d.aandacht), '', d.aandacht ? 'bad' : '')}</div>
+<section class="card"><h2>Systeem</h2><ul class="plain">${d.checks.map((c) => `<li><span class="pill ${c.ok ? 'st-ok' : 'st-warn'}">${c.ok ? 'In orde' : 'Aandacht'}</span> <strong>${esc(c.titel)}</strong><br><span class="meta">${esc(c.uitleg)}</span></li>`).join('')}</ul></section>
+<section class="card"><h2>Accounts</h2><div class="scroll"><table><thead><tr><th>Wie</th><th>Rol</th><th>Tweede stap</th><th>Laatste login</th><th>Sessies</th><th>Aandachtspunten</th></tr></thead><tbody>${rows}</tbody></table></div></section>` });
+}
+
 function systemPage(ctx, d) {
 	const csrf = `<input type="hidden" name="csrf" value="${esc(ctx.session.csrf)}">`;
 	const up = d.uptime >= 86400 ? `${Math.floor(d.uptime / 86400)} d ${Math.floor((d.uptime % 86400) / 3600)} u` : d.uptime >= 3600 ? `${Math.floor(d.uptime / 3600)} u ${Math.floor((d.uptime % 3600) / 60)} min` : `${Math.max(1, Math.floor(d.uptime / 60))} min`;

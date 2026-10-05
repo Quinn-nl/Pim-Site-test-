@@ -17,6 +17,9 @@ const settings = require('./settings');
 const backup = require('./backup');
 const outbox = require('./outbox');
 const reviews = require('./reviews');
+const webauthn = require('./webauthn');
+const ipfilter = require('./ipfilter');
+const secreport = require('./securityreport');
 const planning = require('./planning');
 const sharelinks = require('./sharelinks');
 const translations = require('./translations');
@@ -90,6 +93,15 @@ function afterLogin(userId, req, ip) {
 	} catch (e) { /* a notification problem never blocks a sign-in */ }
 }
 
+/** Relying party of passkeys: the site address (SITE_URL), or for local use the address in the browser. A key made for one address never works on another. */
+function rpOf(req) {
+	let host = String(req.headers.host || 'localhost');
+	let secure = cfg.SECURE;
+	if (cfg.SITE_URL) { const u = new URL(cfg.SITE_URL); host = u.host; secure = u.protocol === 'https:'; }
+	return { rpId: host.replace(/:\d+$/, '').replace(/^\[|\]$/g, ''), origin: `${secure ? 'https' : 'http'}://${host}` };
+}
+const readJson = async (req) => { try { return JSON.parse((await readBody(req, 60 * 1024)).toString('utf8')); } catch (e) { return null; } };
+
 /** The address links in mails point to. Never taken from the Host header of an arbitrary request (that would let anyone poison a reset mail). */
 function linkBase(req) {
 	if (cfg.SITE_URL) return cfg.SITE_URL;
@@ -112,7 +124,7 @@ const FLASH = {
 	opgeslagen: { ok: true, text: 'Opgeslagen.' }, verwijderd: { ok: true, text: 'Verwijderd.' }, ingekort: { ok: true, text: 'De ketens zijn ingekort: elke oude link gaat nu in één keer naar de laatste pagina.' }, wachtwoord: { ok: true, text: 'Wachtwoord gewijzigd. Andere sessies zijn uitgelogd.' },
 	foutwachtwoord: { ok: false, text: 'Het huidige wachtwoord klopt niet.' }, kort: { ok: false, text: 'Gebruik minstens 12 tekens.' }, nofile: { ok: false, text: 'Kies eerst een bestand.' },
 	badimg: { ok: false, text: 'Upload een JPG-, PNG- of WebP-afbeelding van maximaal 5 MB.' }, vernieuwd: { ok: true, text: 'De sitemap en alle opgeslagen pagina’s worden opnieuw opgebouwd bij het volgende bezoek.' }, gestart: { ok: true, text: 'De linkcontrole is gestart. Dit kan even duren.' }, teruggezet: { ok: true, text: 'Teruggezet. De vorige staat staat in de geschiedenis.' }, gemaakt: { ok: true, text: 'Aangemaakt.' },
-	backup: { ok: true, text: 'Back-up gemaakt.' }, goedgekeurd: { ok: true, text: 'Goedgekeurd en gepubliceerd.' }, teruggezet: { ok: true, text: 'Teruggezet. Een pagina komt terug als concept.' }, geenselectie: { ok: false, text: 'Vink eerst een of meer berichten aan.' }, naam: { ok: true, text: 'Naam bijgewerkt.' }, sessies: { ok: true, text: 'Alle andere apparaten zijn uitgelogd.' }, sessies1: { ok: true, text: 'Dat apparaat is uitgelogd.' },
+	backup: { ok: true, text: 'Back-up gemaakt.' }, goedgekeurd: { ok: true, text: 'Goedgekeurd en gepubliceerd.' }, teruggezet: { ok: true, text: 'Teruggezet. Een pagina komt terug als concept.' }, geenselectie: { ok: false, text: 'Vink eerst een of meer berichten aan.' }, naam: { ok: true, text: 'Naam bijgewerkt.' }, sessies: { ok: true, text: 'Alle andere apparaten zijn uitgelogd.' }, sessies1: { ok: true, text: 'Dat apparaat is uitgelogd.' }, tweestap: { ok: false, text: 'Tweestapsverificatie is verplicht voor jouw rol. Stel hieronder een authenticator-app of een passkey in; daarna kun je weer overal bij.' }, passkeyok: { ok: true, text: 'De beveiligingssleutel is toegevoegd. Bij het volgende inloggen kun je hem gebruiken.' }, passkeyweg: { ok: true, text: 'De beveiligingssleutel is verwijderd.' },
 	geblokkeerd: { ok: false, text: 'Te veel pogingen. Probeer het later opnieuw.' },
 };
 
@@ -121,6 +133,11 @@ async function handleAdmin(req, res, url) {
 	const ip = clientIp(req);
 	const p = url.pathname;
 	const out = (status, body, extra = {}) => { res.writeHead(status, headers(nonce, { 'Content-Type': 'text/html; charset=utf-8', ...extra })); res.end(body); return true; };
+	// Optional allow-list of networks (Instellingen). ADMIN_IP_BYPASS=1 switches it off if someone locked themselves out.
+	try {
+		const list = process.env.ADMIN_IP_BYPASS === '1' || db.degraded() ? '' : settings.get('beheer_ip_lijst');
+		if (list && !ipfilter.matches(ip, ipfilter.parseList(list))) return out(403, '<!doctype html><meta charset="utf-8"><meta name="robots" content="noindex"><title>Geen toegang</title><p style="font:18px system-ui;padding:2rem;max-width:36rem">Het beheer is vanaf dit netwerk niet bereikbaar. Werk je op een andere plek, dan moet een beheerder je netwerk toevoegen onder Instellingen.</p>');
+	} catch (e) { /* settings not readable: the login itself still protects the admin */ }
 	const jsonOut = (status, obj) => { res.writeHead(status, headers(nonce, { 'Content-Type': 'application/json; charset=utf-8' })); res.end(JSON.stringify(obj)); return true; };
 	const go = (to, extra = {}) => { res.writeHead(303, headers(nonce, { Location: to, ...extra })); res.end(); return true; };
 	const wantsJson = () => /json/.test(String(req.headers.accept || '')) || /json/.test(String(req.headers['content-type'] || '')) || req.headers['x-requested-with'] === 'fetch';
@@ -145,7 +162,7 @@ async function handleAdmin(req, res, url) {
 			const r = users.checkLogin(ip, email, form.password || '');
 			if (r.locked) { try { users.notifyLock(email); } catch (e) { /* never block the answer */ } return out(429, views.loginPage(ctx, { flash: { ok: false, text: `Te veel pogingen. Probeer het opnieuw na ${new Date(r.until).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })}.` } })); }
 			if (r.error) return out(401, views.loginPage(ctx, { flash: { ok: false, text: 'E-mailadres of wachtwoord klopt niet.' }, setup: users.count() === 0 }));
-			if (r.user.totp_geheim) return out(200, views.codePage(ctx, users.createTicket(r.user.id, ip, email)));
+			if (r.user.totp_geheim || users.passkeyCount(r.user.id) > 0) return out(200, views.codePage(ctx, users.createTicket(r.user.id, ip, email), null, { totp: !!r.user.totp_geheim, passkeys: users.passkeyCount(r.user.id) > 0 }));
 			users.clearAttempts(ip, email);
 			const s = users.createSession(r.user.id, ip, req.headers['user-agent']);
 			afterLogin(r.user.id, req, ip);
@@ -163,26 +180,78 @@ async function handleAdmin(req, res, url) {
 			if (u && u.actief) { const d = deliverToken(req, u, 'herstel', users.createToken(u.id, 'herstel')); audit.log({ user: u.id, actie: 'gebruiker.herstel_aangevraagd', entiteit: `gebruiker:${u.id}`, nieuw: { gemaild: d.mailed } }); }
 			return out(200, views.forgotPage(ctx, { done: true }));
 		}
+		if (req.method === 'POST' && p === '/admin/herstel/passkey/opties') {
+			const b = await readJson(req);
+			const u = b && users.findByToken(String(b.token || ''));
+			if (!u || !users.passkeyCount(u.id)) return jsonOut(400, { ok: false, melding: 'Geen beveiligingssleutel beschikbaar.' });
+			const challenge = users.newChallenge(`reset:${u.token_hash}`);
+			return jsonOut(200, { ok: true, publicKey: { challenge, rpId: rpOf(req).rpId, allowCredentials: users.passkeyCredentials(u.id).map((id) => ({ type: 'public-key', id })), userVerification: 'preferred', timeout: 120000 } });
+		}
 		if (p === '/admin/herstel') {
 			const token = String(url.searchParams.get('token') || '');
-			if (req.method === 'GET') { const u = users.findByToken(token); return out(u ? 200 : 410, views.resetPage(ctx, u ? { token, user: u } : { invalid: true })); }
+			if (req.method === 'GET') { const u = users.findByToken(token); return out(u ? 200 : 410, views.resetPage(ctx, u ? { token, user: u, passkeys: users.passkeyCount(u.id) > 0 } : { invalid: true })); }
 			if (req.method === 'POST') {
 				const form = await readForm(req, 4096);
 				const key = `token:${ip}`;
 				if (users.lockState(ip, key).locked) return out(429, views.resetPage(ctx, { invalid: true, flash: { ok: false, text: 'Te veel pogingen. Probeer het later opnieuw.' } }));
 				const u = users.findByToken(String(form.token || ''));
 				if (!u) { users.failedAttempt(ip, key); return out(410, views.resetPage(ctx, { invalid: true })); }
-				const again = (text, status = 400) => out(status, views.resetPage(ctx, { token: String(form.token), user: u, flash: { ok: false, text } }));
+				const again = (text, status = 400) => out(status, views.resetPage(ctx, { token: String(form.token), user: u, passkeys: users.passkeyCount(u.id) > 0, flash: { ok: false, text } }));
 				if (String(form.password || '').length < 12) return again('Gebruik minstens 12 tekens.');
 				if (form.password !== form.password2) return again('De twee wachtwoorden zijn niet gelijk.');
-				if (u.totp_geheim && u.token_soort === 'herstel' && !users.verifySecondFactor(u.id, form.code)) { users.failedAttempt(ip, key); return again('De code uit je authenticator-app klopt niet.', 401); }
-				users.setPassword(u.id, form.password, u.id);
+				if (u.token_soort === 'herstel' && users.has2fa(u.id)) {
+					let proven = false;
+					if (u.totp_geheim && String(form.code || '').trim()) proven = !!users.verifySecondFactor(u.id, form.code);
+					if (!proven && form.passkey) {
+						try {
+							const cred = JSON.parse(String(form.passkey));
+							const stored = users.passkeyFor(u.id, String(cred.id || ''));
+							const challenge = users.takeChallenge(`reset:${u.token_hash}`);
+							if (stored && challenge) { const r = webauthn.verifyAssertion(cred.response || {}, { challenge, ...rpOf(req) }, stored); users.touchPasskey(stored.id, r.counter); proven = true; }
+						} catch (e) { /* not proven */ }
+					}
+					if (!proven) { users.failedAttempt(ip, key); return again(u.totp_geheim ? 'De code uit je authenticator-app of de beveiligingssleutel klopt niet.' : 'De beveiligingssleutel kon niet worden gecontroleerd. Probeer het opnieuw.', 401); }
+				}
+				try { users.setPassword(u.id, form.password, u.id); } catch (e) { return again(e.message, e.status || 400); }
 				users.clearToken(u.id);
 				users.destroyOthers(u.id, '');
 				users.clearAttempts(ip, key);
 				audit.log({ user: u.id, actie: u.token_soort === 'uitnodiging' ? 'gebruiker.uitnodiging_geaccepteerd' : 'gebruiker.herstel', entiteit: `gebruiker:${u.id}` });
 				return out(200, views.loginPage(ctx, { flash: { ok: true, text: 'Je wachtwoord is ingesteld. Log nu in.' } }));
 			}
+		}
+		if (req.method === 'POST' && p === '/admin/login/passkey/opties') {
+			const b = await readJson(req);
+			const t = b && users.peekTicket(String(b.ticket || ''));
+			if (!t) return jsonOut(401, { ok: false, melding: 'Deze stap is verlopen. Log opnieuw in.' });
+			const creds = users.passkeyCredentials(t.userId);
+			if (!creds.length) return jsonOut(400, { ok: false, melding: 'Er is geen beveiligingssleutel ingesteld.' });
+			t.challenge = webauthn.newChallenge();
+			return jsonOut(200, { ok: true, publicKey: { challenge: t.challenge, rpId: rpOf(req).rpId, allowCredentials: creds.map((id) => ({ type: 'public-key', id })), userVerification: 'preferred', timeout: 120000 } });
+		}
+		if (req.method === 'POST' && p === '/admin/login/passkey') {
+			const b = await readJson(req);
+			const t = b && users.useTicket(String(b.ticket || ''));
+			if (!t || !t.challenge || !b.credential) return jsonOut(401, { ok: false, melding: 'Deze stap is verlopen. Log opnieuw in.' });
+			if (users.lockState(ip, t.email).locked) return jsonOut(429, { ok: false, melding: 'Te veel pogingen. Probeer het later opnieuw.' });
+			try {
+				const stored = users.passkeyFor(t.userId, String(b.credential.id || ''));
+				if (!stored) throw Object.assign(new Error('Deze beveiligingssleutel hoort niet bij dit account.'), { status: 400 });
+				const r = webauthn.verifyAssertion(b.credential.response || {}, { challenge: t.challenge, ...rpOf(req) }, stored);
+				users.touchPasskey(stored.id, r.counter);
+			} catch (e) {
+				const f = users.failedAttempt(ip, t.email);
+				audit.log({ user: t.userId, actie: 'login.passkey_mislukt', entiteit: `gebruiker:${t.userId}` });
+				return jsonOut(f.locked ? 429 : 401, { ok: false, melding: f.locked ? 'Te veel pogingen. Probeer het later opnieuw.' : e.message });
+			}
+			users.endTicket(String(b.ticket));
+			users.clearAttempts(ip, t.email);
+			const s = users.createSession(t.userId, ip, req.headers['user-agent']);
+			afterLogin(t.userId, req, ip);
+			audit.log({ user: t.userId, actie: 'login.gelukt', entiteit: `gebruiker:${t.userId}`, nieuw: { tweestaps: 'passkey' } });
+			res.writeHead(200, headers(nonce, { 'Content-Type': 'application/json; charset=utf-8', 'Set-Cookie': users.cookieHeader(s.id, 8 * 3600) }));
+			res.end(JSON.stringify({ ok: true, redirect: '/admin' }));
+			return true;
 		}
 		if (req.method === 'POST' && p === '/admin/login/code') {
 			const form = await readForm(req, 4096);
@@ -209,6 +278,7 @@ async function handleAdmin(req, res, url) {
 
 	/* ---- everything below needs a session ---- */
 	ctx.session = session;
+	const user0 = (sess) => sess.user;
 	try { ctx.maintenance = settings.maintenance(); } catch (e) { ctx.maintenance = false; }
 	const isPost = req.method === 'POST';
 	let form = null;
@@ -222,6 +292,13 @@ async function handleAdmin(req, res, url) {
 			try { form = await readForm(req, 700 * 1024); } catch (e) { return fail(e.status || 400, 'Verzoek te groot of ongeldig.', ctx); }
 			if (!csrfOk(form.csrf)) return fail(403, 'Verzoek geweigerd (CSRF).', ctx);
 		}
+	}
+	// Required two-step verification: a grace period with a banner, then only the account page (to set it up) and signing out.
+	const mfa = users.mfaPolicy(user0(session));
+	ctx.mfa = mfa.required && !mfa.has && !mfa.enforced ? { daysLeft: mfa.daysLeft } : null;
+	if (mfa.enforced && !/^\/admin\/(account(\/|$)|2fa\/|passkeys\/|logout$|help$|events$)/.test(p)) {
+		if (req.method === 'GET' && !wantsJson()) return go('/admin/account?f=tweestap');
+		return jsonOut(403, { ok: false, melding: 'Stel eerst tweestapsverificatie in onder Mijn account. Dat is verplicht voor jouw rol.' });
 	}
 	const needWrite = () => (can('schrijven') ? true : (fail(403, 'Je hebt alleen leesrechten.', ctx), false));
 	const needPublish = () => (can('publiceren') ? true : (fail(403, 'Alleen een editor of beheerder mag dit. Als redacteur dien je een voorstel in.', ctx), false));
@@ -732,13 +809,24 @@ async function handleAdmin(req, res, url) {
 	}
 
 	/* ---- settings, system, back-ups (administrators) ---- */
-	if (req.method === 'GET' && p === '/admin/instellingen') { if (!needAdmin()) return true; return out(200, views.settingsPage(ctx, { values: settings.all(), mail: { smtp: mail.canSend(), team: mail.configured() } })); }
+	if (req.method === 'GET' && p === '/admin/instellingen') { if (!needAdmin()) return true; return out(200, views.settingsPage(ctx, { values: settings.all(), mail: { smtp: mail.canSend(), team: mail.configured() }, ip })); }
 	if (isPost && p === '/admin/instellingen') {
 		if (!needAdmin()) return true;
 		const input = { ...form };
 		for (const k of ['banner_aan', 'onderhoud_aan']) input[k] = form[k] === '1';
-		try { settings.save(input, user); } catch (e) { return out(e.status || 400, views.settingsPage({ ...ctx, flash: { ok: false, text: e.message } }, { values: { ...settings.all(), ...input }, mail: { smtp: mail.canSend(), team: mail.configured() } })); }
+		if (input.beheer_ip_lijst && process.env.ADMIN_IP_BYPASS !== '1') {
+			try { if (!ipfilter.matches(ip, ipfilter.parseList(input.beheer_ip_lijst))) throw new Error(`Je huidige adres (${ip}) staat niet in de lijst: je zou jezelf buitensluiten. Voeg het eerst toe.`); } catch (e) { return out(422, views.settingsPage({ ...ctx, flash: { ok: false, text: e.message } }, { values: { ...settings.all(), ...input }, mail: { smtp: mail.canSend(), team: mail.configured() }, ip })); }
+		}
+		try { settings.save(input, user); } catch (e) { return out(e.status || 400, views.settingsPage({ ...ctx, flash: { ok: false, text: e.message } }, { values: { ...settings.all(), ...input }, mail: { smtp: mail.canSend(), team: mail.configured() }, ip })); }
 		return go('/admin/instellingen?f=opgeslagen');
+	}
+	if (req.method === 'GET' && p === '/admin/beveiligingsrapport') { if (!needAdmin()) return true; return out(200, views.securityPage(ctx, secreport.summary())); }
+	if (req.method === 'GET' && p === '/admin/beveiligingsrapport.csv') {
+		if (!needAdmin()) return true;
+		audit.log({ user, actie: 'beveiligingsrapport.export', entiteit: 'systeem' });
+		res.writeHead(200, headers(nonce, { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': 'attachment; filename="aethra-beveiliging.csv"' }));
+		res.end(secreport.csv());
+		return true;
 	}
 	if (req.method === 'GET' && p === '/admin/systeem') { if (!needAdmin()) return true; return out(200, views.systemPage(ctx, systemInfo())); }
 	if (isPost && p === '/admin/systeem/backup') { if (!needAdmin()) return true; try { backup.run(user); } catch (e) { return fail(500, `De back-up is mislukt: ${e.message}`, ctx); } return go('/admin/systeem?f=backup'); }
@@ -754,6 +842,29 @@ async function handleAdmin(req, res, url) {
 		return true;
 	}
 	if (isPost && (m = /^\/admin\/mail\/(\d+)\/opnieuw$/.exec(p))) { if (!needWrite()) return true; outbox.retry(Number(m[1])); return go('/admin/wachtrij'); }
+
+	/* ---- passkeys of the person themselves ---- */
+	if (isPost && p === '/admin/passkeys/opties') {
+		if (reauth(body && body.huidig) !== true) return jsonOut(403, { ok: false, melding: 'Het wachtwoord klopt niet.' });
+		const rp = rpOf(req);
+		const challenge = users.newChallenge(`reg:${user.id}`);
+		return jsonOut(200, { ok: true, publicKey: { challenge, rp: { id: rp.rpId, name: 'Aethra beheer' }, user: { id: webauthn.b64u(crypto.createHash('sha256').update(`aethra-user-${user.id}`).digest()), name: user.email, displayName: user.naam }, pubKeyCredParams: [{ type: 'public-key', alg: -7 }, { type: 'public-key', alg: -257 }], excludeCredentials: users.passkeyCredentials(user.id).map((id) => ({ type: 'public-key', id })), authenticatorSelection: { residentKey: 'discouraged', userVerification: 'preferred' }, attestation: 'none', timeout: 120000 } });
+	}
+	if (isPost && p === '/admin/passkeys/registreren') {
+		if (!body || !body.credential) return jsonOut(400, { ok: false, melding: 'Ongeldige gegevens.' });
+		const challenge = users.takeChallenge(`reg:${user.id}`);
+		if (!challenge) return jsonOut(400, { ok: false, melding: 'Deze stap is verlopen. Probeer het opnieuw.' });
+		try {
+			const r = webauthn.verifyRegistration(body.credential.response || {}, { challenge, ...rpOf(req) });
+			users.addPasskey(user.id, r, body.naam);
+		} catch (e) { return jsonOut(e.status || 400, { ok: false, melding: e.message }); }
+		return jsonOut(200, { ok: true });
+	}
+	if (isPost && (m = /^\/admin\/passkeys\/(\d+)\/verwijderen$/.exec(p))) {
+		if (reauth(form.huidig) !== true) return go('/admin/account?f=foutwachtwoord');
+		users.removePasskey(user.id, Number(m[1]));
+		return rotated('/admin/account?f=passkeyweg');
+	}
 
 	/* ---- users (administrators) ---- */
 	if (p.startsWith('/admin/gebruikers')) {
@@ -805,7 +916,7 @@ async function handleAdmin(req, res, url) {
 	}
 
 	/* ---- own account ---- */
-	const account = (flash2, tf = {}) => out(200, views.accountPage({ ...ctx }, { flash: flash2 || flash, sessions: users.sessionList(user.id, session.id), activity: audit.byUser(user.id, 8), tf: { enabled: !!users.byId(user.id).totp_geheim, left: users.recoveryLeft(user.id), setup: users.pendingTwoFactor(user.id), ...tf } }));
+	const account = (flash2, tf = {}) => out(200, views.accountPage({ ...ctx }, { flash: flash2 || flash, sessions: users.sessionList(user.id, session.id), activity: audit.byUser(user.id, 8), passkeys: users.passkeyList(user.id), tf: { enabled: !!users.byId(user.id).totp_geheim, left: users.recoveryLeft(user.id), setup: users.pendingTwoFactor(user.id), ...tf } }));
 	if (req.method === 'GET' && p === '/admin/account') return account();
 	if (isPost && p === '/admin/account/naam') { try { users.setName(user.id, form.naam); } catch (e) { return account({ ok: false, text: e.message }); } return go('/admin/account?f=naam'); }
 	if (isPost && p === '/admin/account/meldingen') { const w = user.rol !== 'lezer'; users.setPrefs(user.id, { meld_nieuw_bericht: form.meld_nieuw_bericht === '1' && w, weekrapport: form.weekrapport === '1' && w, meld_toewijzing: form.meld_toewijzing === '1' && w, meld_werkdagen: form.meld_werkdagen === '1' && w }); return go('/admin/account?f=opgeslagen'); }
@@ -815,7 +926,7 @@ async function handleAdmin(req, res, url) {
 		const ok = reauth(form.current);
 		if (ok !== true) return go('/admin/account?f=foutwachtwoord');
 		if (String(form.password || '').length < 12) return go('/admin/account?f=kort');
-		users.setPassword(user.id, form.password, user);
+		try { users.setPassword(user.id, form.password, user); } catch (e) { return account({ ok: false, text: e.message }); }
 		const s = users.rotateSession(session, req, ip);
 		users.destroyOthers(user.id, s.id);
 		return go('/admin/account?f=wachtwoord', { 'Set-Cookie': users.cookieHeader(s.id, 8 * 3600) });

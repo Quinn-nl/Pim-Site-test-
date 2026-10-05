@@ -14,7 +14,7 @@ const SCREENS = [
 	['Antwoordsjablonen', '/admin/sjablonen', 'reactie mail standaardtekst'], ['Voorbeeldlinks', '/admin/voorbeeldlinks', 'delen concept'], ['Mijn account', '/admin/account', 'wachtwoord 2fa profiel'],
 	['Help', '/admin/help', 'uitleg handleiding sneltoetsen'], ['Privacy en cookies', '/admin/privacy-overzicht', 'cookies gegevens bewaartermijn'],
 	['Gebruikers', '/admin/gebruikers', 'rollen uitnodigen', 'beheer'], ['Instellingen', '/admin/instellingen', 'mededeling onderhoud bewaartermijn', 'beheer'], ['Redactionele regels', '/admin/regels', 'verboden termen compliance', 'beheer'],
-	['Systeem', '/admin/systeem', 'backup status schijf', 'beheer'], ['Auditlog', '/admin/audit', 'wijzigingen log', 'beheer'],
+	['Systeem', '/admin/systeem', 'backup status schijf', 'beheer'], ['Beveiliging', '/admin/beveiligingsrapport', 'beveiligingsrapport tweestaps passkeys accounts', 'beheer'], ['Auditlog', '/admin/audit', 'wijzigingen log', 'beheer'],
 ];
 const like = (q) => `%${String(q).replace(/[\\%_]/g, '\\$&')}%`;
 

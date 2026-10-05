@@ -16,6 +16,9 @@ const DEFAULTS = {
 	banner_tot: () => '',
 	banner_link: () => '',
 	...Object.fromEntries(LANGS.map((l) => [`banner_tekst_${l}`, () => ''])),
+	tweestaps_verplicht: () => 'niemand',
+	tweestaps_sinds: () => '',
+	beheer_ip_lijst: () => '',
 	onderhoud_aan: () => false,
 	...Object.fromEntries(LANGS.map((l) => [`onderhoud_tekst_${l}`, () => ''])),
 };
@@ -44,6 +47,13 @@ function save(input, user) {
 		else if (key === 'bewaartermijn_dagen') {
 			v = Number(v);
 			if (!Number.isInteger(v) || v < 30 || v > 1825) throw bad('De bewaartermijn van berichten ligt tussen 30 en 1825 dagen.');
+		} else if (key === 'tweestaps_verplicht') {
+			if (!['niemand', 'beheerder', 'beheer_editor', 'iedereen'].includes(v)) throw bad('Kies wie tweestapsverificatie verplicht moet gebruiken.');
+		} else if (key === 'tweestaps_sinds') {
+			continue;                                   // only the app sets this one
+		} else if (key === 'beheer_ip_lijst') {
+			v = String(v || '').replace(/[,;]+/g, '\n').split(/\s+/).filter(Boolean).join('\n');
+			try { require('./ipfilter').parseList(v); } catch (e) { throw bad(e.message); }
 		} else if (key === 'banner_tot') {
 			v = String(v || '').trim();
 			if (v && !/^\d{4}-\d{2}-\d{2}$/.test(v)) throw bad('Vul de einddatum van de mededeling in als datum.');
@@ -61,6 +71,7 @@ function save(input, user) {
 		if (fouten.length) throw bad(`De mededeling kan niet worden opgeslagen: ${fouten[0].melding}`);
 	}
 	const old = all();
+	if ('tweestaps_verplicht' in next && next.tweestaps_verplicht !== old.tweestaps_verplicht) next.tweestaps_sinds = new Date().toISOString();   // the 7 days of grace start now
 	db.tx(() => {
 		for (const [k, v] of Object.entries(next)) db.run('INSERT INTO instellingen (sleutel, waarde) VALUES (?, ?) ON CONFLICT(sleutel) DO UPDATE SET waarde = excluded.waarde', P + k, BOOL.has(k) ? (v ? '1' : '0') : String(v));
 	});

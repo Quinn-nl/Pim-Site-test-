@@ -26,6 +26,7 @@ const { validateAethraCompliance } = require('../lib/cms/compliance');
 const { sanitizeHtml } = require('../lib/cms/sanitize');
 const { validateLayout, TEMPLATES } = require('../lib/cms/templates');
 const totp = require('../lib/totp');
+const settings = require('../lib/cms/settings');
 const { createServer } = require('../server');
 
 const PW = 'correct horse battery';
@@ -1782,4 +1783,258 @@ test('sessions: readable device, end a single other session, never someone else\
 	assert.ok(!users.sessionList(adminId, 'x').some((s) => s.hash === hashes[0]));
 	assert.equal((await a.req('/admin')).status, 200, 'the session in use is untouched');
 	assert.ok(users.sessionList(adminId, 'x').every((s) => /\w/.test(s.apparaat)));
+});
+
+/* ---- round 2, block C: WebAuthn (a software authenticator checks our verification) ---- */
+
+const wa = require('../lib/cms/webauthn');
+const cborEnc = (v) => {
+	const head = (major, n) => (n < 24 ? Buffer.from([(major << 5) | n]) : n < 256 ? Buffer.from([(major << 5) | 24, n]) : (() => { const b = Buffer.alloc(3); b[0] = (major << 5) | 25; b.writeUInt16BE(n, 1); return b; })());
+	if (typeof v === 'number') return v >= 0 ? head(0, v) : head(1, -1 - v);
+	if (typeof v === 'string') { const b = Buffer.from(v); return Buffer.concat([head(3, b.length), b]); }
+	if (Buffer.isBuffer(v)) return Buffer.concat([head(2, v.length), v]);
+	if (v instanceof Map) return Buffer.concat([head(5, v.size), ...[...v].flatMap(([k, x]) => [cborEnc(k), cborEnc(x)])]);
+	if (Array.isArray(v)) return Buffer.concat([head(4, v.length), ...v.map(cborEnc)]);
+	throw new Error('cbor');
+};
+/** A tiny authenticator: makes keys, registers and signs like a browser would hand it over. */
+function softKey({ alg = -7, rpId = 'localhost', origin = 'http://localhost:3000' } = {}) {
+	const pair = alg === -7 ? crypto.generateKeyPairSync('ec', { namedCurve: 'P-256' }) : crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
+	const jwk = pair.publicKey.export({ format: 'jwk' });
+	const cose = alg === -7 ? new Map([[1, 2], [3, -7], [-1, 1], [-2, Buffer.from(jwk.x, 'base64url')], [-3, Buffer.from(jwk.y, 'base64url')]]) : new Map([[1, 3], [3, -257], [-1, Buffer.from(jwk.n, 'base64url')], [-2, Buffer.from(jwk.e, 'base64url')]]);
+	const credId = crypto.randomBytes(24);
+	const rpHash = (id = rpId) => crypto.createHash('sha256').update(id).digest();
+	const cd = (type, challenge, o = origin, extra = {}) => Buffer.from(JSON.stringify({ type, challenge, origin: o, ...extra }));
+	const counterBuf = (n) => { const b = Buffer.alloc(4); b.writeUInt32BE(n); return b; };
+	return {
+		credId,
+		register: ({ challenge, flags = 0x45, rp = rpId, o = origin, extra } = {}) => {
+			const idLen = Buffer.alloc(2); idLen.writeUInt16BE(credId.length);
+			const authData = Buffer.concat([rpHash(rp), Buffer.from([flags]), counterBuf(0), Buffer.alloc(16), idLen, credId, cborEnc(cose)]);
+			return { clientDataJSON: cd('webauthn.create', challenge, o, extra).toString('base64url'), attestationObject: cborEnc(new Map([['fmt', 'none'], ['attStmt', new Map()], ['authData', authData]])).toString('base64url') };
+		},
+		sign: ({ challenge, counter = 1, flags = 0x05, rp = rpId, o = origin, type = 'webauthn.get', tamper = false } = {}) => {
+			const authData = Buffer.concat([rpHash(rp), Buffer.from([flags]), counterBuf(counter)]);
+			const cdj = cd(type, challenge, o);
+			const data = Buffer.concat([authData, crypto.createHash('sha256').update(cdj).digest()]);
+			const signature = alg === -7 ? crypto.sign('sha256', data, { key: pair.privateKey, dsaEncoding: 'der' }) : crypto.sign('sha256', data, pair.privateKey);
+			if (tamper) signature[signature.length - 1] ^= 1;
+			return { clientDataJSON: cdj.toString('base64url'), authenticatorData: authData.toString('base64url'), signature: signature.toString('base64url') };
+		},
+	};
+}
+const RP = { rpId: 'localhost', origin: 'http://localhost:3000' };
+
+test('WebAuthn registration: our challenge, our origin and rp id, user present; ES256 and RS256 keys', () => {
+	for (const alg of [-7, -257]) {
+		const k = softKey({ alg });
+		const ch = wa.newChallenge();
+		const r = wa.verifyRegistration(k.register({ challenge: ch }), { challenge: ch, ...RP });
+		assert.equal(r.credentialId, k.credId.toString('base64url'));
+		assert.equal(r.alg, alg);
+		assert.equal(r.counter, 0);
+		assert.ok(r.jwk.kty === (alg === -7 ? 'EC' : 'RSA'));
+	}
+	const k = softKey();
+	const ch = wa.newChallenge();
+	const bad = (arg, msg) => assert.throws(() => wa.verifyRegistration(arg, { challenge: ch, ...RP }), (e) => e.status === 400, msg);
+	bad(k.register({ challenge: 'another-challenge' }), 'wrong challenge');
+	bad(k.register({ challenge: ch, o: 'https://evil.example' }), 'wrong origin (a phishing site)');
+	bad(k.register({ challenge: ch, rp: 'evil.example' }), 'wrong relying party');
+	bad(k.register({ challenge: ch, flags: 0x40 }), 'user not present');
+	bad(k.register({ challenge: ch, extra: { crossOrigin: true } }), 'cross-origin frames are refused');
+	bad({ clientDataJSON: 'e30', attestationObject: 'AAAA' }, 'garbage');
+	bad({ clientDataJSON: k.register({ challenge: ch }).clientDataJSON, attestationObject: Buffer.from([0xa1, 0x64, 0x61]).toString('base64url') }, 'truncated CBOR does not crash');
+});
+
+test('WebAuthn sign-in: valid signature, counter must go up, tampering and replays are refused', () => {
+	const k = softKey();
+	const ch0 = wa.newChallenge();
+	const reg = wa.verifyRegistration(k.register({ challenge: ch0 }), { challenge: ch0, ...RP });
+	const stored = (teller) => ({ jwk: reg.jwk, alg: reg.alg, teller });
+	const ch = wa.newChallenge();
+	assert.equal(wa.verifyAssertion(k.sign({ challenge: ch, counter: 5 }), { challenge: ch, ...RP }, stored(0)).counter, 5);
+	const fails = (arg, st, why) => assert.throws(() => wa.verifyAssertion(arg, { challenge: ch, ...RP }, st), (e) => e.status === 400, why);
+	fails(k.sign({ challenge: ch, counter: 5, tamper: true }), stored(0), 'a changed signature');
+	fails(k.sign({ challenge: wa.newChallenge(), counter: 6 }), stored(5), 'a signature over another challenge (replay)');
+	fails(k.sign({ challenge: ch, counter: 5 }), stored(5), 'the counter did not go up: a cloned key');
+	fails(k.sign({ challenge: ch, counter: 3 }), stored(5), 'the counter went back');
+	fails(k.sign({ challenge: ch, counter: 6, o: 'https://evil.example' }), stored(5), 'another origin');
+	fails(k.sign({ challenge: ch, counter: 6, rp: 'evil.example' }), stored(5), 'another relying party');
+	fails(k.sign({ challenge: ch, counter: 6, flags: 0 }), stored(5), 'user not present');
+	fails(k.sign({ challenge: ch, counter: 6, type: 'webauthn.create' }), stored(5), 'a registration cannot be used to sign in');
+	assert.equal(wa.verifyAssertion(k.sign({ challenge: ch, counter: 0 }), { challenge: ch, ...RP }, stored(0)).counter, 0, 'keys that always report 0 are fine');
+	const other = softKey();
+	fails(other.sign({ challenge: ch, counter: 9 }), stored(5), 'a signature from a different key');
+	const rsa = softKey({ alg: -257 });
+	const rr = wa.verifyRegistration(rsa.register({ challenge: ch0 }), { challenge: ch0, ...RP });
+	assert.equal(wa.verifyAssertion(rsa.sign({ challenge: ch, counter: 2 }), { challenge: ch, ...RP }, { jwk: rr.jwk, alg: rr.alg, teller: 1 }).counter, 2);
+});
+
+test('passkeys over HTTP: register, sign in as the second step, replay and tampering fail, reset needs the key', async () => {
+	const uid = users.create({ email: 'pk@example.org', naam: 'Pass Key', rol: 'editor', wachtwoord: PW });
+	const k = softKey({ rpId: '127.0.0.1', origin: base });
+	const c = client('pk@example.org'); await c.login();
+	// no password, no options
+	assert.equal((await c.json('/admin/passkeys/opties', { huidig: 'wrong' })).status, 403);
+	let r = await c.json('/admin/passkeys/opties', { huidig: PW });
+	assert.equal(r.status, 200);
+	const opt = (await r.json()).publicKey;
+	assert.deepEqual(opt.pubKeyCredParams.map((p) => p.alg), [-7, -257]);
+	assert.equal(opt.rp.id, '127.0.0.1');
+	assert.equal(opt.attestation, 'none');
+	// a registration with the wrong challenge is refused, the right one is accepted
+	assert.equal((await c.json('/admin/passkeys/registreren', { naam: 'Telefoon', credential: { response: k.register({ challenge: 'nope' }) } })).status, 400);
+	r = await c.json('/admin/passkeys/opties', { huidig: PW });
+	const ch = (await r.json()).publicKey.challenge;
+	r = await c.json('/admin/passkeys/registreren', { naam: 'Telefoon', credential: { response: k.register({ challenge: ch }) } });
+	assert.equal(r.status, 200);
+	assert.equal(users.passkeyCount(uid), 1);
+	assert.ok(users.byId(uid) && users.publicUser(users.byId(uid)).tweestaps, 'a passkey counts as two-step verification');
+	assert.equal((await c.json('/admin/passkeys/registreren', { naam: 'Nog eens', credential: { response: k.register({ challenge: ch }) } })).status, 400, 'a challenge works once');
+	assert.match(await (await c.req('/admin/account')).text(), /Telefoon[\s\S]*nog niet gebruikt/);
+
+	// sign in: the password gives the second step, the key finishes it
+	const step = async () => { const x = client('pk@example.org'); const res = await x.req('/admin/login', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ email: 'pk@example.org', password: PW }) }); const html = await res.text(); return { x, res, html, ticket: /name="ticket" value="([0-9a-f]+)"|data-ticket="([0-9a-f]+)"/.exec(html) }; };
+	const s1 = await step();
+	assert.equal(s1.res.status, 200);
+	assert.match(s1.html, /data-passkey-login/);
+	assert.ok(!/name="code"/.test(s1.html), 'a person with only a passkey gets no code field');
+	const ticket = /data-ticket="([0-9a-f]+)"/.exec(s1.html)[1];
+	const unauth = (path, body) => fetch(`${base}${path}`, { method: 'POST', redirect: 'manual', headers: { 'content-type': 'application/json', 'user-agent': UA }, body: JSON.stringify(body) });
+	assert.equal((await unauth('/admin/login/passkey/opties', { ticket: 'f'.repeat(48) })).status, 401);
+	const o = await (await unauth('/admin/login/passkey/opties', { ticket })).json();
+	assert.deepEqual(o.publicKey.allowCredentials.map((x) => x.id), [k.credId.toString('base64url')]);
+	const bad = await unauth('/admin/login/passkey', { ticket, credential: { id: k.credId.toString('base64url'), response: k.sign({ challenge: o.publicKey.challenge, counter: 1, tamper: true }) } });
+	assert.equal(bad.status, 401, 'a wrong signature');
+	const good = await unauth('/admin/login/passkey', { ticket, credential: { id: k.credId.toString('base64url'), response: k.sign({ challenge: o.publicKey.challenge, counter: 1 }) } });
+	assert.equal(good.status, 200);
+	const cookie = good.headers.get('set-cookie').split(';')[0];
+	assert.equal((await fetch(`${base}/admin`, { headers: { cookie, 'user-agent': UA }, redirect: 'manual' })).status, 200, 'the session works');
+	assert.equal((await fetch(`${base}/admin/passkeys/opties`, { method: 'POST', redirect: 'manual' })).status, 303);
+	assert.match(await (await c.req('/admin/account')).text(), /laatst gebruikt/);
+	// the same signed answer a second time (a replay with a new ticket) is useless
+	const s2 = await step();
+	const t2 = /data-ticket="([0-9a-f]+)"/.exec(s2.html)[1];
+	const o2 = await (await unauth('/admin/login/passkey/opties', { ticket: t2 })).json();
+	const replay = await unauth('/admin/login/passkey', { ticket: t2, credential: { id: k.credId.toString('base64url'), response: k.sign({ challenge: o.publicKey.challenge, counter: 1 }) } });
+	assert.equal(replay.status, 401, 'an old signature (old challenge, old counter)');
+	const ok2 = await unauth('/admin/login/passkey', { ticket: t2, credential: { id: k.credId.toString('base64url'), response: k.sign({ challenge: o2.publicKey.challenge, counter: 2 }) } });
+	assert.equal(ok2.status, 200);
+
+	// password reset for a passkey-only person needs the key
+	const adm = client(); await adm.login();
+	const link = await adm.post(`/admin/gebruikers/${uid}/herstellink`, { huidig: PW });
+	const lh = await link.text();
+	const token = /token=([0-9a-f]{64})/.exec(lh)[1];
+	const page = await (await fetch(`${base}/admin/herstel?token=${token}`)).text();
+	assert.match(page, /data-passkey-reset/);
+	const form = (extra) => fetch(`${base}/admin/herstel`, { method: 'POST', redirect: 'manual', headers: { 'content-type': 'application/x-www-form-urlencoded', 'user-agent': UA }, body: new URLSearchParams({ token, password: 'a brand new long password', password2: 'a brand new long password', ...extra }) });
+	assert.equal((await form({})).status, 401, 'without the key no reset');
+	const ro = await (await unauth('/admin/herstel/passkey/opties', { token })).json();
+	const cred = { id: k.credId.toString('base64url'), response: k.sign({ challenge: ro.publicKey.challenge, counter: 3 }) };
+	assert.equal((await form({ passkey: JSON.stringify({ ...cred, response: k.sign({ challenge: 'wrong', counter: 4 }) }) })).status, 401);
+	assert.equal((await form({ passkey: JSON.stringify(cred) })).status, 401, 'the challenge was used by the failed attempt');
+	const ro2 = await (await unauth('/admin/herstel/passkey/opties', { token })).json();
+	assert.equal((await form({ passkey: JSON.stringify({ id: cred.id, response: k.sign({ challenge: ro2.publicKey.challenge, counter: 5 }) }) })).status, 200);
+	// an administrator can switch it all off for someone who lost their key
+	users.disableTwoFactor(uid, adminId);
+	assert.equal(users.passkeyCount(uid), 0);
+});
+
+test('password quality: refuses easy patterns with a reason, accepts passphrases', async () => {
+	const { weakReason } = require('../lib/cms/passwords');
+	for (const weak of ['Welkom12345678', 'Wachtwoord2026!!', 'qwertyuiop1234', 'aaaaaaaaaaaaaa', 'abcdefgh12345678', 'passwordpassword', 'Sunshine!2024xx', 'P@ssw0rd2025xx']) assert.ok(weakReason(weak), weak);
+	for (const fine of ['correct horse battery', 'vlinders-paardenbloem-kachel', 'a brand new long password', 'Zonnebloem-fiets-Koffie-8']) assert.equal(weakReason(fine), null, fine);
+	assert.match(weakReason('pim.jansen-1980-ok', { email: 'pim@example.nl', naam: 'Pim Jansen' }), /eigen naam/);
+	assert.match(weakReason('pim@example.nl-x-extra', { email: 'pim@example.nl', naam: 'P' }), /e-mailadres/);
+	assert.throws(() => users.create({ email: 'weak@example.org', naam: 'Weak', rol: 'lezer', wachtwoord: 'Welkom12345678' }), (e) => e.status === 400 && /veelgebruikt/.test(e.message));
+	const c = client(); await c.login();
+	let r = await c.post('/admin/account', { current: PW, password: 'Welkom12345678' });
+	assert.equal(r.status, 200, 'the account page explains why');
+	assert.match(await r.text(), /veelgebruikt wachtwoord/);
+	r = await c.post('/admin/gebruikers', { email: 'weak2@example.org', naam: 'Weak Two', rol: 'lezer', wachtwoord: 'qwertyuiop1234', huidig: PW });
+	assert.equal(r.status, 400);
+	// an invitation uses a random password nobody types: exempt
+	const inv = await (await adminAgain()).post('/admin/gebruikers', { email: 'inv2@example.org', naam: 'Inv Two', rol: 'lezer', wachtwoord: '', huidig: PW });
+	assert.equal(inv.status, 200);
+	async function adminAgain() { const x = client(); await x.login(); return x; }
+});
+
+test('ip allow-list: parsing, matching (IPv4, IPv6, CIDR), lock-out guard, blocked address and the escape hatch', async () => {
+	const f = require('../lib/cms/ipfilter');
+	const l = f.parseList('203.0.113.7\n192.168.1.0/24, 2001:db8::/32');
+	assert.ok(f.matches('203.0.113.7', l) && f.matches('::ffff:203.0.113.7', l) && f.matches('192.168.1.200', l) && f.matches('2001:db8:1::5', l));
+	assert.ok(!f.matches('203.0.113.8', l) && !f.matches('192.168.2.1', l) && !f.matches('2001:db9::1', l) && !f.matches('nonsense', l));
+	for (const bad of ['999.1.1.1', '10.0.0.0/33', '10.0.0.0/x', 'hello']) assert.throws(() => f.parseList(bad), /geen geldig|klopt niet/, bad);
+
+	const c = client(); await c.login();
+	const other = await c.post('/admin/instellingen', { bewaartermijn_dagen: '365', beheer_ip_lijst: '203.0.113.0/24' });
+	assert.equal(other.status, 422, 'refuses a list that excludes the caller');
+	assert.match(await other.text(), /buitensluiten/);
+	assert.equal(settings.get('beheer_ip_lijst'), '');
+	const own = await c.post('/admin/instellingen', { bewaartermijn_dagen: '365', beheer_ip_lijst: '127.0.0.0/8, ::1' });
+	assert.equal(own.status, 303);
+	assert.equal((await c.req('/admin')).status, 200);
+	// a list that does not contain us (set behind the guard's back) blocks everything, the public site stays open
+	settings.save({ beheer_ip_lijst: '203.0.113.0/24' }, adminId);
+	assert.equal((await c.req('/admin')).status, 403);
+	assert.equal((await fetch(`${base}/admin/login`, { redirect: 'manual' })).status, 403);
+	assert.equal((await fetch(`${base}/`, { redirect: 'manual' })).status < 400, true, 'the public site is not affected');
+	process.env.ADMIN_IP_BYPASS = '1';
+	assert.equal((await c.req('/admin')).status, 200, 'ADMIN_IP_BYPASS=1 switches it off');
+	delete process.env.ADMIN_IP_BYPASS;
+	settings.save({ beheer_ip_lijst: '' }, adminId);
+	assert.equal((await c.req('/admin')).status, 200);
+});
+
+test('required two-step verification: banner during the grace period, then only the account page', async () => {
+	const id = users.create({ email: 'mfa@example.org', naam: 'Mfa Tester', rol: 'editor', wachtwoord: PW });
+	const c = client('mfa@example.org'); await c.login();
+	assert.doesNotMatch(await (await c.req('/admin')).text(), /Tweestapsverificatie is verplicht/);
+	settings.save({ tweestaps_verplicht: 'beheerder' }, adminId);
+	assert.equal(users.mfaPolicy(users.byId(id)).required, false, 'editors are not covered by "beheerders"');
+	settings.save({ tweestaps_verplicht: 'beheer_editor' }, adminId);
+	const p = users.mfaPolicy(users.byId(id));
+	assert.ok(p.required && !p.enforced && p.daysLeft >= 6);
+	assert.match(await (await c.req('/admin')).text(), /Tweestapsverificatie is verplicht voor jouw rol/);
+	// grace over: everything redirects to the account page, which stays usable
+	const old = new Date(Date.now() - 9 * 86400000).toISOString();
+	db.run('UPDATE gebruikers SET aangemaakt = ? WHERE id = ?', old, id);
+	db.run("UPDATE instellingen SET waarde = ? WHERE sleutel = 'inst.tweestaps_sinds'", old);
+	assert.ok(users.mfaPolicy(users.byId(id)).enforced);
+	const r = await c.req('/admin/paginas');
+	assert.equal(r.status, 303);
+	assert.match(r.headers.get('location'), /\/admin\/account/);
+	assert.equal((await c.req('/admin/account')).status, 200);
+	assert.equal((await c.json('/admin/paginas/nieuw', {})).status, 403);
+	// a confirmed second step lifts it
+	db.run("UPDATE gebruikers SET totp_geheim = ? WHERE id = ?", users.seal(totp.newSecret()), id);
+	assert.equal(users.mfaPolicy(users.byId(id)).enforced, false);
+	assert.equal((await c.req('/admin/paginas')).status, 200);
+	db.run('UPDATE gebruikers SET totp_geheim = NULL WHERE id = ?', id);
+	assert.ok(users.mfaPolicy(users.byId(id)).enforced);
+	settings.save({ tweestaps_verplicht: 'niemand' }, adminId);
+	assert.equal((await c.req('/admin/paginas')).status, 200, 'switched off again');
+	assert.equal(users.mfaPolicy(users.byId(id)).enforced, false);
+});
+
+test('security report: administrators only, shows 2FA coverage and flags, exports a safe CSV', async () => {
+	const c = client(); await c.login();
+	const html = await (await c.req('/admin/beveiligingsrapport')).text();
+	assert.match(html, /<h1>Beveiliging<\/h1>/);
+	assert.match(html, /Zonder tweede stap/);
+	assert.match(html, /Beveiligde cookies/);
+	const rep = require('../lib/cms/securityreport');
+	const id = users.create({ email: '=evil@example.org', naam: '=HYPERLINK("x")', rol: 'lezer', wachtwoord: PW });
+	db.run("UPDATE gebruikers SET laatste_login = '2020-01-01T00:00:00.000Z' WHERE id = ?", id);
+	const row = rep.accounts().find((a) => a.id === id);
+	assert.ok(row.flags.includes('Geen tweede stap') && row.flags.some((f) => /90 dagen/.test(f)));
+	const csv = await (await c.req('/admin/beveiligingsrapport.csv')).text();
+	assert.match(csv, /^naam,e-mail,rol/);
+	assert.doesNotMatch(csv, /(^|,)"=/m, 'cells that start with = are neutralised');
+	assert.equal(rep.summary().zonderTweestaps > 0, true);
+	const ed = client('els@example.org'); await ed.login();
+	assert.equal((await ed.req('/admin/beveiligingsrapport')).status, 403);
+	assert.equal((await ed.req('/admin/beveiligingsrapport.csv')).status, 403);
 });

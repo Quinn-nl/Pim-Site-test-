@@ -53,6 +53,12 @@ Alles wat je kunt bewerken staat in `data/aethra.db` (SQLite) en `data/uploads` 
 
 ## 4. Veiligheid
 - Wachtwoorden: scrypt (N=16384, r=8, p=1) met eigen salt; minstens 12 tekens. Inlog-lockout: 5 pogingen per 15 min, daarna 15 min / 1 u / 24 u; beheerders krijgen een mail bij een blokkade (max. 1 per uur per account).
+- Wachtwoordcontrole: een lijst van gangbare wachtwoorden en patronen (Welkom123, toetsenbordrijen, herhaling, eigen naam of e-mailadres) wordt geweigerd met een reden. Dit is géén controle tegen gelekte wachtwoorden.
+- Passkeys (WebAuthn) als tweede stap: ES256 en RS256, attestation “none”, tellercontrole; de sleutel is gebonden aan het adres uit `SITE_URL` (of het adres in de browser bij lokaal gebruik). Verloren sleutel: een beheerder zet de tweede stap uit (Gebruikers).
+- Tweestaps verplicht per rol (Instellingen > Inloggen en toegang): 7 dagen respijt met een melding, daarna komt iemand alleen nog bij Mijn account totdat het is ingesteld.
+- Optionele IP-lijst voor het beheer (adressen en CIDR, IPv4/IPv6). Een lijst waarin het eigen adres ontbreekt wordt geweigerd. Buitengesloten? Start de server met `ADMIN_IP_BYPASS=1`, pas de lijst aan en haal de variabele weg. Filteren op land kan niet.
+- Beveiligingsrapport (`/admin/beveiligingsrapport`, CSV-export): per account tweede stap, passkeys, laatste login, sessies en aandachtspunten, plus systeemcontroles.
+- Gezondheid: `/healthz` (kort antwoord) en `/healthz/status` (met redenen als `HEALTH_TOKEN` is gezet), ook in onderhoudsmodus bereikbaar.
 - Tweestapsverificatie (TOTP, RFC 6238, getest met de officiële testvectoren) met AES-256-GCM-versleuteld geheim en gehashte herstelcodes. Een wachtwoordherstel vraagt bij 2FA ook een code.
 - Sessies: 8 uur absoluut, 1 uur inactief, gebonden aan browser en /24-netwerk, id wordt na kritieke acties vernieuwd, cookie `HttpOnly; SameSite=Strict; Path=/admin` (+ `Secure` in productie). CSRF-token op elke POST. CSP met nonce, `X-Frame-Options: DENY`, `nosniff`.
 - Een nieuw apparaat bij inloggen geeft een mail aan de gebruiker (niet bij de allereerste login).
@@ -67,7 +73,7 @@ Alles wat je kunt bewerken staat in `data/aethra.db` (SQLite) en `data/uploads` 
 - **Back-up**: dagelijks automatisch in `data/backups` (alleen database). `npm run backup` kopieert de hele datamap. Kopieer ze ook buiten de server.
 - **Terugzetten**: site stoppen, `node scripts/restore.js <naam of pad>`, site starten. Het script controleert het bestand (`integrity_check`) en bewaart de huidige database als `aethra.db.before-restore-…`.
 - **Database onbereikbaar**: de publieke site blijft uit het geheugen draaien, het beheer antwoordt 503 en herstelt vanzelf.
-- **Migraties**: `database/migrations/*.sql` draaien eenmalig bij het starten (001–004). Een migratie die een tabel opnieuw opbouwt begint met `-- migrate: foreign-keys-off`.
+- **Migraties**: `database/migrations/*.sql` draaien eenmalig bij het starten (001–005). Een migratie die een tabel opnieuw opbouwt begint met `-- migrate: foreign-keys-off`.
 
 ## 6. Tests
 - `npm test`: 90+ tests (publieke site, CMS, beveiliging, wachtrijen, planning, back-up, reviewflow, enz.). Met `cwebp`/`avifenc` op het systeem draait ook de test met de échte beeldtools.
@@ -75,7 +81,7 @@ Alles wat je kunt bewerken staat in `data/aethra.db` (SQLite) en `data/uploads` 
 - Nog altijd handmatig: een échte authenticator-app op een telefoon, en een échte mailserver.
 
 ## 7. Bekende grenzen
-- Bulkacties bestaan voor berichten, redirects en foto’s, niet voor pagina’s.
-- Afbeeldingen worden niet fysiek bijgesneden; het focuspunt bepaalt wat zichtbaar blijft bij bijsnijden door de browser.
+- Bijsnijden: bij het uploaden worden 16:9-varianten rond het focuspunt gemaakt (met `cwebp`/`avifenc` aanwezig); zonder die tools bepaalt het focuspunt wat de browser toont.
+- Passkeys zijn alleen met een software-authenticator getest, niet met een echte sleutel of telefoon.
 - Het weekrapport en de linkcontrole gebruiken de servertijd.
 - Vertalingen blijven eerste versies tot een moedertaalspreker ze heeft nagekeken. De naam “AETHRA” heeft een openstaand merkenvraagstuk.
