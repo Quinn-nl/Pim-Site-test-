@@ -34,6 +34,6 @@ function labelOf(field) {
 	return { label, hint };
 }
 
-const SLOTS = { hero: 'Foto bij de banner (homepage)', problem: 'Foto bij het probleem', status: 'Foto bij de status', social: 'Deelafbeelding (1200 × 630, zichtbaar als de site wordt gedeeld)' };
+const SLOTS = { hero: 'Foto bij de banner (homepage)', problem: 'Foto bij het probleem', status: 'Foto bij de status', social: 'Deelafbeelding (1200 × 630)' };
 
 module.exports = { labelOf, SLOTS };

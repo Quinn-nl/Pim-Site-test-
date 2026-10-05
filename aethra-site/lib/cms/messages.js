@@ -11,7 +11,9 @@ const mail = require('../mail');
 const cfg = require('../config');
 const { UI, LANGS } = require('../i18n');
 
-const STATUSES = ['nieuw', 'gelezen', 'beantwoord', 'afgesloten'];
+const STATUSES = ['nieuw', 'gelezen', 'in_behandeling', 'beantwoord', 'afgesloten'];
+/** What the editors see. The stored values stay stable, the words can change. */
+const STATUS_LABELS = { nieuw: 'Niet gelezen', gelezen: 'Gelezen', in_behandeling: 'In behandeling', beantwoord: 'Beantwoord', afgesloten: 'Afgerond' };
 const MAX_ATTEMPTS = 5;
 const BASE_WAIT_MS = 5 * 60 * 1000;
 const ALARM_AFTER_MS = 60 * 60 * 1000;
@@ -33,12 +35,14 @@ function enqueue(berichtId, soort) {
 const shape = (r) => (r ? { id: r.id, tijd: r.tijd, taal: r.taal, naam: r.naam, email: r.email, organisatie: r.organisatie, rol: r.rol, tekst: r.tekst, bron: r.bron, campagne: r.campagne, status: r.status, notitie: r.notitie, toegewezen_aan: r.toegewezen_aan } : null);
 const get = (id) => shape(db.get('SELECT * FROM berichten WHERE id = ?', id));
 
-function filterSql({ q = '', status = '', rol = '', taal = '', bron = '', van = '', tot = '' } = {}) {
+function filterSql({ q = '', status = '', rol = '', taal = '', bron = '', van = '', tot = '', toegewezen = '' } = {}) {
 	const where = [];
 	const params = [];
 	if (q) { where.push('(naam LIKE ? ESCAPE \'\\\' OR email LIKE ? ESCAPE \'\\\' OR organisatie LIKE ? ESCAPE \'\\\' OR tekst LIKE ? ESCAPE \'\\\')'); const like = `%${String(q).replace(/[\\%_]/g, '\\$&')}%`; params.push(like, like, like, like); }
 	if (STATUSES.includes(status)) { where.push('status = ?'); params.push(status); }
 	if (rol) { where.push('rol = ?'); params.push(rol); }
+	if (toegewezen === 'niemand') where.push('toegewezen_aan IS NULL');
+	else if (/^\d+$/.test(String(toegewezen))) { where.push('toegewezen_aan = ?'); params.push(Number(toegewezen)); }
 	if (LANGS.includes(taal)) { where.push('taal = ?'); params.push(taal); }
 	if (bron) { where.push('bron = ?'); params.push(bron); }
 	if (/^\d{4}-\d{2}-\d{2}$/.test(van)) { where.push('tijd >= ?'); params.push(`${van}T00:00:00.000Z`); }
@@ -50,6 +54,13 @@ function list(filter = {}, { limit = 50, offset = 0 } = {}) {
 	return db.all(`SELECT * FROM berichten ${sql} ORDER BY tijd DESC, id DESC LIMIT ? OFFSET ?`, ...params, limit, offset).map(shape);
 }
 const count = (filter = {}) => { const { sql, params } = filterSql(filter); return db.get(`SELECT COUNT(*) AS n FROM berichten ${sql}`, ...params).n; };
+/** Number of messages per status for the current filters (the status filter itself is ignored, so the tabs stay stable). */
+function statusCounts(filter = {}) {
+	const { sql, params } = filterSql({ ...filter, status: '' });
+	const out = Object.fromEntries(STATUSES.map((s) => [s, 0]));
+	for (const r of db.all(`SELECT status, COUNT(*) AS n FROM berichten ${sql} GROUP BY status`, ...params)) out[r.status] = r.n;
+	return out;
+}
 const unreadCount = () => db.get("SELECT COUNT(*) AS n FROM berichten WHERE status = 'nieuw'").n;
 const sources = () => db.all('SELECT DISTINCT bron FROM berichten ORDER BY bron').map((r) => r.bron);
 const roles = () => db.all('SELECT DISTINCT rol FROM berichten ORDER BY rol').map((r) => r.rol);
@@ -64,6 +75,23 @@ function setStatus(id, status, user) {
 }
 /** Opening a new message marks it as read; later statuses are never moved back. */
 function markRead(id) { db.run("UPDATE berichten SET status = 'gelezen' WHERE id = ? AND status = 'nieuw'", id); events.broadcast('berichten', { nieuw: unreadCount() }); }
+/** One action for several messages at once. Returns how many changed. */
+function bulk(ids, actie, waarde, user) {
+	const list = [...new Set((ids || []).map(Number).filter((n) => Number.isInteger(n) && n > 0))].slice(0, 200);
+	if (!list.length) return 0;
+	let n = 0;
+	db.tx(() => {
+		for (const id of list) {
+			if (!get(id)) continue;
+			if (actie === 'status') setStatus(id, waarde, user);
+			else if (actie === 'toewijzen') assign(id, waarde ? Number(waarde) : null, user);
+			else if (actie === 'verwijderen') remove(id, user);
+			else throw Object.assign(new Error('Onbekende actie.'), { status: 400 });
+			n += 1;
+		}
+	});
+	return n;
+}
 function setNote(id, notitie, user) {
 	db.run('UPDATE berichten SET notitie = ? WHERE id = ?', String(notitie || '').slice(0, 5000), id);
 	audit.log({ user, actie: 'bericht.notitie', entiteit: `bericht:${id}` });
@@ -169,4 +197,4 @@ function start() {
 const stop = () => { if (timer) clearInterval(timer); timer = null; if (kicked) clearTimeout(kicked); kicked = null; };
 const busy = () => ticking;
 
-module.exports = { STATUSES, MAX_ATTEMPTS, add, enqueue, get, list, count, unreadCount, sources, roles, setStatus, markRead, setNote, assign, remove, byEmail, removeByEmail, purge, csv, tick, waitAfter, alarmCount, alarm, queueStats, queueList, retry, kick, start, stop, busy };
+module.exports = { STATUSES, STATUS_LABELS, statusCounts, bulk, MAX_ATTEMPTS, add, enqueue, get, list, count, unreadCount, sources, roles, setStatus, markRead, setNote, assign, remove, byEmail, removeByEmail, purge, csv, tick, waitAfter, alarmCount, alarm, queueStats, queueList, retry, kick, start, stop, busy };

@@ -438,3 +438,92 @@
 		}
 	}, 30000);
 })();
+
+/* ---- shared helpers for inbox, media, users and account ---- */
+(function () {
+	'use strict';
+	const $ = (s, r = document) => r.querySelector(s);
+	const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
+
+	for (const s of $$('[data-autosubmit]')) s.addEventListener('change', () => s.form && s.form.submit());
+
+	// message list: selection and bulk actions
+	const bulk = $('#bulkform');
+	if (bulk) {
+		const boxes = () => $$('[data-sel]', bulk);
+		const act = $('#bulkact');
+		const go = $('#bulkgo');
+		const update = () => {
+			const on = boxes().filter((b) => b.checked);
+			$('#selcount').textContent = on.length ? `${on.length} geselecteerd` : 'Niets geselecteerd';
+			$('#bulkbar').classList.toggle('active', on.length > 0);
+			act.disabled = !on.length;
+			go.disabled = !on.length || !act.value;
+			for (const b of boxes()) b.closest('.msg-row').classList.toggle('selected', b.checked);
+			$('#selall').checked = on.length > 0 && on.length === boxes().length;
+		};
+		bulk.addEventListener('change', (e) => { if (e.target.matches('[data-sel], #bulkact')) update(); });
+		$('#selall').addEventListener('change', (e) => { for (const b of boxes()) b.checked = e.target.checked; update(); });
+		bulk.addEventListener('submit', (e) => {
+			if (act.value === 'verwijderen' && !window.confirm(bulk.dataset.confirmDelete || 'Verwijderen?')) e.preventDefault();
+		});
+	}
+
+	// media: upload preview, library filter, edit dialogs
+	const drop = $('#drop');
+	if (drop) {
+		const input = $('input[type=file]', drop);
+		const show = (file) => {
+			if (!file) return;
+			const name = $('.drop-name', drop);
+			name.textContent = `${file.name} · ${Math.max(1, Math.round(file.size / 1024))} kB`;
+			name.hidden = false;
+			const reader = new FileReader();
+			reader.onload = () => { const img = $('.drop-prev', drop); img.src = reader.result; img.hidden = false; $('.drop-empty', drop).hidden = true; };
+			reader.readAsDataURL(file);
+		};
+		input.addEventListener('change', () => show(input.files[0]));
+		for (const ev of ['dragenter', 'dragover']) drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add('over'); });
+		for (const ev of ['dragleave', 'drop']) drop.addEventListener(ev, () => drop.classList.remove('over'));
+		drop.addEventListener('drop', (e) => { e.preventDefault(); if (e.dataTransfer.files.length) { input.files = e.dataTransfer.files; show(input.files[0]); } });
+	}
+	const grid = $('#mgrid');
+	if (grid) {
+		let mode = 'all';
+		const apply = () => {
+			const q = ($('#mq').value || '').trim().toLowerCase();
+			let shown = 0;
+			for (const c of $$('[data-media]', grid)) {
+				const hit = (!q || c.dataset.search.includes(q)) && (mode === 'all' || (mode === 'used') === (c.dataset.use === '1'));
+				c.classList.toggle('hidden', !hit);
+				if (hit) shown += 1;
+			}
+			$('#mnone').hidden = shown > 0;
+		};
+		$('#mq').addEventListener('input', apply);
+		for (const b of $$('[data-mfilter]')) b.addEventListener('click', () => { mode = b.dataset.mfilter; for (const o of $$('[data-mfilter]')) o.setAttribute('aria-pressed', String(o === b)); apply(); });
+	}
+	document.addEventListener('click', (e) => {
+		const open = e.target.closest('[data-dialog]');
+		if (open) { const d = document.getElementById(open.dataset.dialog); if (d && d.showModal) d.showModal(); return; }
+		if (e.target.closest('[data-close]')) { const d = e.target.closest('dialog'); if (d) d.close(); return; }
+		if (e.target.tagName === 'DIALOG') e.target.close(); // click on the backdrop
+	});
+
+	// account: show passwords, strength meter
+	for (const t of $$('[data-showpw]')) t.addEventListener('change', () => { for (const i of $$('input[name=current], input[name=password]', t.form)) i.type = t.checked ? 'text' : 'password'; });
+	const pw = $('[data-strength]');
+	if (pw) {
+		const meter = $('#meter');
+		const text = $('#meter-t');
+		pw.addEventListener('input', () => {
+			const v = pw.value;
+			meter.hidden = !v;
+			const classes = [/[a-z]/, /[A-Z]/, /\d/, /[^A-Za-z0-9]/].filter((r) => r.test(v)).length;
+			const level = v.length < 12 ? 1 : (v.length >= 16 || classes >= 3) ? 3 : 2;
+			meter.dataset.level = String(level);
+			meter.firstElementChild.style.width = `${[0, 33, 66, 100][level]}%`;
+			text.textContent = level === 1 ? `Nog ${12 - v.length} teken${12 - v.length === 1 ? '' : 's'} nodig (minstens 12).` : level === 2 ? 'Voldoende. Langer is sterker.' : 'Sterk.';
+		});
+	}
+})();

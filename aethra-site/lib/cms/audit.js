@@ -17,6 +17,7 @@ function list({ limit = 100, offset = 0, actie = '' } = {}) {
 	const params = actie ? [`%${actie}%`] : [];
 	return db.all(`SELECT a.*, g.email AS gebruiker FROM audit_logs a LEFT JOIN gebruikers g ON g.id = a.gebruiker_id ${where} ORDER BY a.id DESC LIMIT ? OFFSET ?`, ...params, limit, offset);
 }
+const byUser = (userId, limit = 10) => db.all('SELECT actie, entiteit, timestamp FROM audit_logs WHERE gebruiker_id = ? ORDER BY id DESC LIMIT ?', userId, limit);
 const count = (actie = '') => db.get(`SELECT COUNT(*) AS n FROM audit_logs ${actie ? 'WHERE actie LIKE ?' : ''}`, ...(actie ? [`%${actie}%`] : [])).n;
 
 /** Monthly job: rows older than 180 days go to a gzipped text file, then leave the table. */
@@ -34,4 +35,4 @@ function rotate(now = new Date()) {
 	return { archived: rows.length, file: target };
 }
 
-module.exports = { log, list, count, rotate };
+module.exports = { byUser, log, list, count, rotate };

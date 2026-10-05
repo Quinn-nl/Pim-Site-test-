@@ -268,6 +268,18 @@ function getSession(req, ip) {
 	return { id, csrf: row.csrf, user: publicUser(user) };
 }
 const destroySession = (req) => { const id = parseCookies(req.headers.cookie)[COOKIE]; if (id) db.run('DELETE FROM sessies WHERE id_hash = ?', sha(id)); };
+/** Active sessions of one user (the cookie itself is never stored, only its hash). */
+function sessionList(userId, currentId) {
+	return db.all('SELECT id_hash, aangemaakt, laatst_gezien FROM sessies WHERE gebruiker_id = ? ORDER BY laatst_gezien DESC', userId).map((r) => ({ aangemaakt: r.aangemaakt, laatst_gezien: r.laatst_gezien, huidig: r.id_hash === sha(currentId || '') }));
+}
+function setName(id, naam) {
+	naam = String(naam || '').trim().slice(0, 80);
+	if (!naam) throw Object.assign(new Error('Vul een naam in.'), { status: 400 });
+	const old = byId(id);
+	db.run('UPDATE gebruikers SET naam = ? WHERE id = ?', naam, id);
+	audit.log({ user: id, actie: 'gebruiker.gewijzigd', entiteit: `gebruiker:${id}`, oud: { naam: old.naam }, nieuw: { naam } });
+}
+const sessionCounts = () => Object.fromEntries(db.all('SELECT gebruiker_id, COUNT(*) AS n FROM sessies GROUP BY gebruiker_id').map((r) => [r.gebruiker_id, r.n]));
 function destroyOthers(userId, keepId) { db.run('DELETE FROM sessies WHERE gebruiker_id = ? AND id_hash != ?', userId, sha(keepId || '')); }
 /** New session id (and csrf) for the same session: used after every critical action. */
 function rotateSession(session, req, ip) {
@@ -289,4 +301,4 @@ const can = (user, action) => {
 	return false;
 };
 
-module.exports = { ROLES, COOKIE, hashPassword, verifyPassword, create, setPassword, update, byId, byEmail, list, count, publicUser, beginTwoFactor, pendingTwoFactor, confirmTwoFactor, regenerateRecovery, recoveryLeft, disableTwoFactor, verifySecondFactor, lockState, failedAttempt, clearAttempts, checkLogin, createTicket, useTicket, endTicket, createSession, getSession, destroySession, destroyOthers, rotateSession, cookieHeader, parseCookies, safeEqual, subnetOf, can, seal, unseal };
+module.exports = { sessionList, setName, sessionCounts, ROLES, COOKIE, hashPassword, verifyPassword, create, setPassword, update, byId, byEmail, list, count, publicUser, beginTwoFactor, pendingTwoFactor, confirmTwoFactor, regenerateRecovery, recoveryLeft, disableTwoFactor, verifySecondFactor, lockState, failedAttempt, clearAttempts, checkLogin, createTicket, useTicket, endTicket, createSession, getSession, destroySession, destroyOthers, rotateSession, cookieHeader, parseCookies, safeEqual, subnetOf, can, seal, unseal };

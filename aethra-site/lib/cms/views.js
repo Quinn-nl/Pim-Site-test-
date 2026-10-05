@@ -9,6 +9,7 @@ const { SECTIONS, TEMPLATES } = require('./templates');
 const content = require('./content');
 const pagesApi = require('./pages');
 const media = require('./media');
+const messagesApi = require('./messages');
 
 const nf = (n) => new Intl.NumberFormat('nl-NL').format(n);
 const when = (iso) => { try { return new Date(iso).toLocaleString('nl-NL', { dateStyle: 'short', timeStyle: 'short' }); } catch (e) { return String(iso || ''); } };
@@ -306,50 +307,128 @@ ${canWrite ? `<form method="post" action="/admin/historie/${entry.id}/terugzette
 }
 
 /* ---- media ---- */
-function mediaPage(ctx, { items, slots, enc }) {
+function mediaPage(ctx, { items, slots, enc, usage = {} }) {
 	const canWrite = ctx.session.user.rol !== 'lezer';
-	const rightsLabel = { eigen: 'Eigen foto', gelicentieerd: 'Gelicentieerd', ai_sfeer: 'AI-sfeerbeeld (alleen als illustratie)' };
-	const altInputs = (alt) => LANGS.map((l) => `<div class="row"><label for="alt-${l}">Omschrijving ${esc(LANG_NAMES[l])}${l === 'en' ? ' *' : ''}</label><input id="alt-${l}" name="alt_${l}" maxlength="200" lang="${l}" value="${esc((alt || {})[l] || '')}"${l === 'en' ? ' required' : ''}></div>`).join('');
-	const upload = canWrite ? `<section class="card"><h2>Foto uploaden</h2><p class="hint">JPG, PNG of WebP, maximaal 5 MB. Locatiegegevens worden verwijderd. ${enc.webp || enc.avif ? `Er worden ook ${[enc.webp && 'WebP (1x en 2x)', enc.avif && 'AVIF'].filter(Boolean).join(' en ')}-versies gemaakt.` : 'Voor WebP en AVIF zijn <code>cwebp</code> en <code>avifenc</code> nodig op de server; zonder blijft het origineel in gebruik.'}</p>
-<form method="post" action="/admin/media/upload" enctype="multipart/form-data"><input type="hidden" name="csrf" value="${esc(ctx.session.csrf)}">
-<div class="row"><label for="file">Bestand</label><input id="file" type="file" name="file" accept="image/jpeg,image/png,image/webp" required></div>${altInputs()}
-<div class="row"><label for="rechten">Rechten</label><select id="rechten" name="rechten">${media.RIGHTS.map((r) => `<option value="${r}">${esc(rightsLabel[r])}</option>`).join('')}</select></div>
-<div class="row"><label for="bron">Bron of licentie (optioneel)</label><input id="bron" name="bron" maxlength="200"></div>
-<button type="submit">Uploaden</button></form></section>` : '';
-	const slotRows = IMAGE_SLOTS.map((s) => `<tr><td>${esc(SLOTS[s.slot] || s.label)}</td><td><form method="post" action="/admin/media/plek" class="inline"><input type="hidden" name="csrf" value="${esc(ctx.session.csrf)}"><input type="hidden" name="plek" value="${esc(s.slot)}"><select name="media" aria-label="${esc(SLOTS[s.slot] || s.label)}"${canWrite ? '' : ' disabled'}><option value="">(geen foto)</option>${items.map((m) => `<option value="${m.id}"${slots[s.slot] === m.id ? ' selected' : ''}>#${m.id} ${esc(m.alt.en || m.bestand)}</option>`).join('')}</select>${canWrite ? ' <button type="submit" class="small">Opslaan</button>' : ''}</form></td></tr>`).join('');
-	const grid = items.length ? `<div class="mgrid">${items.map((m) => `<figure class="card mitem"><img src="/uploads/${esc(m.bestand)}" alt="${esc(m.alt.en || '')}" loading="lazy" width="${m.breedte}" height="${m.hoogte}"><figcaption><strong>#${m.id}</strong> ${esc(m.alt.en || '')}<br><span class="meta">${m.breedte}×${m.hoogte} · ${esc(rightsLabel[m.rechten])}${m.varianten.length ? ` · ${m.varianten.length} varianten` : ''}</span></figcaption>
-${canWrite ? `<details><summary>Wijzigen</summary><form method="post" action="/admin/media/${m.id}"><input type="hidden" name="csrf" value="${esc(ctx.session.csrf)}">${altInputs(m.alt)}<div class="row"><label>Rechten</label><select name="rechten">${media.RIGHTS.map((r) => `<option value="${r}"${m.rechten === r ? ' selected' : ''}>${esc(rightsLabel[r])}</option>`).join('')}</select></div><div class="row"><label>Bron</label><input name="bron" maxlength="200" value="${esc(m.bron)}"></div><button type="submit" class="small">Opslaan</button></form><form method="post" action="/admin/media/${m.id}/verwijderen" data-confirm="Deze foto verwijderen?"><input type="hidden" name="csrf" value="${esc(ctx.session.csrf)}"><button type="submit" class="danger small">Verwijderen</button></form></details>` : ''}</figure>`).join('')}</div>` : '<p class="hint">Nog geen foto’s.</p>';
-	return shell(ctx, { title: 'Media', active: 'media', body: `<h1>Media</h1><p class="hint">Gebruik alleen foto’s waarvoor je de rechten hebt. AI-beelden zijn alleen sfeer en nooit het prototype zelf.</p>
-<section class="card"><h2>Foto’s op de site</h2><div class="scroll"><table><tbody>${slotRows}</tbody></table></div></section>${upload}<section class="card"><h2>Bibliotheek</h2>${grid}</section>` });
+	const csrf = `<input type="hidden" name="csrf" value="${esc(ctx.session.csrf)}">`;
+	const rightsLabel = { eigen: 'Eigen foto', gelicentieerd: 'Gelicentieerd', ai_sfeer: 'AI-sfeerbeeld' };
+	const rightsLong = { eigen: 'Eigen foto', gelicentieerd: 'Gelicentieerd', ai_sfeer: 'AI-sfeerbeeld (alleen als illustratie)' };
+	const fmtSize = (b) => (b >= 1048576 ? `${(b / 1048576).toFixed(1).replace('.', ',')} MB` : `${Math.max(1, Math.round(b / 1024))} kB`);
+	const altOther = (alt, idp) => LANGS.filter((l) => l !== 'en').map((l) => `<div class="row"><label for="${idp}${l}">Omschrijving ${esc(LANG_NAMES[l])}</label><input id="${idp}${l}" name="alt_${l}" maxlength="200" lang="${l}" value="${esc((alt || {})[l] || '')}"></div>`).join('');
+	const altFields = (alt, idp) => `<div class="row"><label for="${idp}en">Omschrijving voor slechtzienden (Engels) *</label><input id="${idp}en" name="alt_en" maxlength="200" lang="en" required value="${esc((alt || {}).en || '')}"><p class="fhint">Beschrijf wat er te zien is, bijvoorbeeld “Een elektrische bus rijdt door een stadscentrum”.</p></div>
+<details class="fold-lite"><summary>Omschrijving in andere talen</summary>${altOther(alt, idp)}</details>`;
+	const rightsSel = (value, id) => `<select id="${id}" name="rechten">${media.RIGHTS.map((r) => `<option value="${r}"${value === r ? ' selected' : ''}>${esc(rightsLong[r])}</option>`).join('')}</select>`;
+	const total = items.reduce((n, m) => n + (m.grootte || 0), 0);
+	const unused = items.filter((m) => !(usage[m.id] || []).length).length;
+	const byId = Object.fromEntries(items.map((m) => [m.id, m]));
+	const thumb = (m, cls = '') => (m ? `<img class="${cls}" src="/uploads/${esc(m.bestand)}" alt="${esc(m.alt.en || '')}" loading="lazy" width="${m.breedte}" height="${m.hoogte}">` : `<span class="ph ${cls}">${icon('media')}<span>Geen foto</span></span>`);
+	const slotCards = IMAGE_SLOTS.map((s) => {
+		const cur = byId[slots[s.slot]];
+		return `<form method="post" action="/admin/media/plek" class="card slot">${csrf}<input type="hidden" name="plek" value="${esc(s.slot)}">
+<div class="slot-img">${thumb(cur)}</div><div class="slot-body"><strong>${esc(SLOTS[s.slot] || s.label)}</strong>
+<select name="media" aria-label="Foto voor ${esc(SLOTS[s.slot] || s.label)}" data-autosubmit${canWrite ? '' : ' disabled'}><option value="">(geen foto)</option>${items.map((m) => `<option value="${m.id}"${slots[s.slot] === m.id ? ' selected' : ''}>#${m.id} ${esc((m.alt.en || m.bestand).slice(0, 40))}</option>`).join('')}</select>
+${canWrite ? '<noscript><button type="submit" class="small">Opslaan</button></noscript>' : ''}</div></form>`;
+	}).join('');
+	const upload = canWrite ? `<section class="card" id="upload"><h2>Foto toevoegen</h2>
+<form method="post" action="/admin/media/upload" enctype="multipart/form-data" class="upl">${csrf}
+<label class="drop" id="drop" for="file"><input id="file" type="file" name="file" accept="image/jpeg,image/png,image/webp" required><span class="drop-empty">${icon('media')}<strong>Sleep een foto hierheen</strong><span>of klik om te kiezen · JPG, PNG of WebP · maximaal 5 MB</span></span><img class="drop-prev" alt="" hidden><span class="drop-name" hidden></span></label>
+<div class="upl-fields">${altFields(null, 'u-')}
+<div class="row"><label for="u-rechten">Rechten</label>${rightsSel('eigen', 'u-rechten')}</div>
+<div class="row"><label for="u-bron">Bron of licentie (optioneel)</label><input id="u-bron" name="bron" maxlength="200"></div>
+<button type="submit">${icon('plus')} Uploaden</button></div></form>
+<p class="hint">Locatiegegevens (GPS) worden uit de foto gehaald. ${enc.webp || enc.avif ? `Er worden automatisch ${[enc.webp && 'WebP (1x en 2x)', enc.avif && 'AVIF'].filter(Boolean).join(' en ')}-versies gemaakt.` : 'Voor kleinere WebP- en AVIF-versies zijn <code>cwebp</code> en <code>avifenc</code> nodig op de server; zonder blijft het origineel in gebruik.'}</p></section>` : '';
+	const card = (m) => {
+		const used = usage[m.id] || [];
+		const missing = LANGS.filter((l) => !m.alt[l]).length;
+		const useLabel = used.map((u) => (u.soort === 'plek' ? SLOTS[u.naam] || u.naam : 'Pagina')).join(', ');
+		return `<figure class="card mitem" data-media data-search="${esc(`${m.id} ${m.alt.en || ''} ${m.bron || ''}`.toLowerCase())}" data-use="${used.length ? 1 : 0}" data-rights="${esc(m.rechten)}">
+<button type="button" class="thumb" data-dialog="m${m.id}" aria-label="Foto ${m.id} bekijken en bewerken">${thumb(m)}</button>
+<figcaption><strong>${esc(m.alt.en || m.bestand)}</strong><span class="meta">${m.breedte}×${m.hoogte} · ${fmtSize(m.grootte)}${m.varianten.length ? ` · ${m.varianten.length} versies` : ''}</span>
+<span class="tags">${used.length ? `<span class="pill ok" title="${esc(useLabel)}">In gebruik</span>` : '<span class="pill st-standaard">Ongebruikt</span>'}<span class="pill${m.rechten === 'ai_sfeer' ? ' st-warn' : ' st-standaard'}">${esc(rightsLabel[m.rechten])}</span>${missing ? `<span class="pill st-warn" title="Omschrijving ontbreekt in ${missing} taal/talen">${missing} omschr. mist</span>` : ''}</span></figcaption></figure>`;
+	};
+	const dialog = (m) => {
+		const used = usage[m.id] || [];
+		return `<dialog id="m${m.id}" class="dlg" aria-label="Foto ${m.id}"><div class="dlg-head"><h2>Foto #${m.id}</h2><button type="button" class="secondary small" data-close aria-label="Sluiten">Sluiten</button></div>
+<div class="dlg-body"><div class="dlg-img">${thumb(m)}<p class="meta">${esc(m.bestand)} · ${m.breedte}×${m.hoogte} · ${fmtSize(m.grootte)}</p>${used.length ? `<p class="meta">In gebruik als: ${esc(used.map((u) => (u.soort === 'plek' ? SLOTS[u.naam] || u.naam : 'Pagina')).join(', '))}</p>` : '<p class="meta">Wordt nergens gebruikt.</p>'}</div>
+${canWrite ? `<div><form method="post" action="/admin/media/${m.id}">${csrf}${altFields(m.alt, `e${m.id}-`)}<div class="row"><label for="e${m.id}-r">Rechten</label>${rightsSel(m.rechten, `e${m.id}-r`)}</div><div class="row"><label for="e${m.id}-b">Bron of licentie</label><input id="e${m.id}-b" name="bron" maxlength="200" value="${esc(m.bron)}"></div><button type="submit">Opslaan</button></form>
+<form method="post" action="/admin/media/${m.id}/verwijderen" data-confirm="Deze foto definitief verwijderen?" class="dz">${csrf}<button type="submit" class="danger small"${used.length ? ' disabled title="Haal de foto eerst weg waar hij gebruikt wordt"' : ''}>Verwijderen</button>${used.length ? '<span class="meta"> Eerst vervangen waar hij gebruikt wordt.</span>' : ''}</form></div>` : ''}</div></dialog>`;
+	};
+	const library = items.length ? `<div class="toolbar"><div class="searchbar">${icon('search')}<input type="search" id="mq" placeholder="Zoek in omschrijving of bron" aria-label="Zoek foto’s"></div>
+<div class="chips" role="group" aria-label="Filter"><button type="button" class="chip" data-mfilter="all" aria-pressed="true">Alle <span class="n">${items.length}</span></button><button type="button" class="chip" data-mfilter="used" aria-pressed="false">In gebruik <span class="n">${items.length - unused}</span></button><button type="button" class="chip" data-mfilter="unused" aria-pressed="false">Ongebruikt <span class="n">${unused}</span></button></div></div>
+<div class="mgrid" id="mgrid">${items.map(card).join('')}</div><p class="hint" id="mnone" hidden>Geen foto’s gevonden met deze filter.</p>${items.map(dialog).join('')}` : `<div class="empty">${icon('media')}<p><strong>Nog geen foto’s.</strong></p><p class="hint">Upload hierboven je eerste foto. Gebruik alleen foto’s waarvoor je de rechten hebt.</p></div>`;
+	return shell(ctx, { title: 'Media', active: 'media', body: `<div class="page-head"><div><h1>Media</h1><p class="hint">${nf(items.length)} foto${items.length === 1 ? '' : '’s'} · ${fmtSize(total)} in totaal${unused ? ` · ${unused} ongebruikt` : ''}. AI-beelden zijn alleen sfeer en nooit het prototype zelf.</p></div>${canWrite ? '<a class="btn-link" href="#upload">' + icon('plus') + ' Foto toevoegen</a>' : ''}</div>
+<section class="card"><h2>Foto’s op de site</h2><p class="hint">Kies welke foto waar op de website komt. Een wijziging is direct zichtbaar.</p><div class="slots">${slotCards}</div></section>${upload}<section class="card"><h2>Bibliotheek</h2>${library}</section>` });
 }
 
 /* ---- messages ---- */
-function messagesPage(ctx, { list, total, page, pages, filter, sources, roles, retention, flash }) {
+const ST = messagesApi.STATUS_LABELS;
+const initials = (name) => String(name || '?').trim().split(/\s+/).slice(0, 2).map((w) => w[0] || '').join('').toUpperCase() || '?';
+const avatar = (name, cls = '') => `<span class="avatar${cls ? ' ' + cls : ''}" aria-hidden="true">${esc(initials(name))}</span>`;
+function relTime(v) {
+	const t = typeof v === 'number' ? v : Date.parse(v);
+	if (!t) return '-';
+	const min = Math.round((Date.now() - t) / 60000);
+	if (min < 1) return 'zojuist';
+	if (min < 60) return `${min} min geleden`;
+	if (min < 1440) return `${Math.round(min / 60)} uur geleden`;
+	const d = Math.round(min / 1440);
+	return d === 1 ? 'gisteren' : d < 14 ? `${d} dagen geleden` : when(new Date(t).toISOString());
+}
+const statusPill = (s) => `<span class="pill st-${esc(s)}">${esc(ST[s] || s)}</span>`;
+function messagesPage(ctx, { list, total, page, pages, filter, counts, people, sources, roles, retention, queueProblems = 0, flash }) {
+	const me = ctx.session.user;
+	const canWrite = me.rol !== 'lezer';
+	const csrf = `<input type="hidden" name="csrf" value="${esc(ctx.session.csrf)}">`;
 	const q = (extra = {}) => new URLSearchParams(Object.entries({ ...filter, ...extra }).filter(([, v]) => v)).toString();
-	const select = (name, label, options, value) => `<label>${label} <select name="${name}"><option value="">alle</option>${options.map(([v, l]) => `<option value="${esc(v)}"${value === v ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select></label>`;
-	const f = `<form method="get" action="/admin/berichten" class="filters"><label>Zoeken <input type="search" name="q" value="${esc(filter.q || '')}" placeholder="naam, e-mail, tekst"></label>
-${select('status', 'Status', ['nieuw', 'gelezen', 'beantwoord', 'afgesloten'].map((s) => [s, s]), filter.status || '')}${select('rol', 'Rol', roles.map((r) => [r, r]), filter.rol || '')}${select('taal', 'Taal', LANGS.map((l) => [l, l.toUpperCase()]), filter.taal || '')}${select('bron', 'Bron', sources.map((s) => [s, s]), filter.bron || '')}
-<label>Van <input type="date" name="van" value="${esc(filter.van || '')}"></label><label>Tot <input type="date" name="tot" value="${esc(filter.tot || '')}"></label><button type="submit" class="small">Filteren</button> <a href="/admin/berichten">wis</a></form>`;
-	const rows = list.length ? `<div class="scroll"><table><thead><tr><th>Ontvangen</th><th>Naam</th><th>Organisatie</th><th>Rol</th><th>Taal</th><th>Bron</th><th>Status</th></tr></thead><tbody>${list.map((m) => `<tr class="${m.status === 'nieuw' ? 'unread' : ''}"><td>${esc(when(m.tijd))}</td><td><a href="/admin/berichten/${m.id}">${esc(m.naam)}</a><br><span class="meta">${esc(m.email)}</span></td><td>${esc(m.organisatie)}</td><td>${esc(m.rol)}</td><td>${esc(m.taal.toUpperCase())}</td><td>${esc(m.bron)}${m.campagne ? ' / ' + esc(m.campagne) : ''}</td><td><span class="pill st-${esc(m.status)}">${esc(m.status)}</span></td></tr>`).join('')}</tbody></table></div>` : '<p class="hint">Geen berichten gevonden.</p>';
-	const pager = pages > 1 ? `<nav class="tabs" aria-label="Paginering">${Array.from({ length: pages }, (_, i) => i + 1).map((n) => `<a href="/admin/berichten?${q({ page: n })}"${n === page ? ' aria-current="page"' : ''}>${n}</a>`).join('')}</nav>` : '';
-	return shell({ ...ctx, flash }, { title: 'Berichten', active: 'berichten', body: `<h1>Berichten <span class="count">(${nf(total)})</span></h1><p class="hint">Berichten blijven ${retention} dagen bewaard en worden daarna automatisch verwijderd. <a href="/admin/berichten.csv?${esc(q())}">Exporteren (CSV)</a> · <a href="/admin/berichten/privacy">Privacyverzoek</a> · <a href="/admin/wachtrij">Mailwachtrij</a></p>${f}<section class="card">${rows}${pager}</section>` });
+	const href = (extra) => `/admin/berichten${q(extra) ? '?' + q(extra) : ''}`;
+	const all = Object.values(counts).reduce((a, b) => a + b, 0);
+	const tabs = [['', 'Alle', all], ...messagesApi.STATUSES.map((s) => [s, ST[s], counts[s]])];
+	const chips = `<nav class="chips" aria-label="Status">${tabs.map(([v, l, n]) => `<a class="chip${v === 'nieuw' && n ? ' hot' : ''}" href="${href({ status: v, page: '' })}"${(filter.status || '') === v ? ' aria-current="page"' : ''}>${esc(l)} <span class="n">${nf(n)}</span></a>`).join('')}</nav>`;
+	const mineVal = String(me.id);
+	const assignSel = `<select name="toegewezen" aria-label="Toegewezen aan" data-autosubmit><option value="">Iedereen</option><option value="${mineVal}"${filter.toegewezen === mineVal ? ' selected' : ''}>Aan mij toegewezen</option><option value="niemand"${filter.toegewezen === 'niemand' ? ' selected' : ''}>Niet toegewezen</option>${people.filter((u) => u.id !== me.id).map((u) => `<option value="${u.id}"${filter.toegewezen === String(u.id) ? ' selected' : ''}>${esc(u.naam)}</option>`).join('')}</select>`;
+	const sel = (name, label, options, value) => `<label>${label}<select name="${name}"><option value="">alle</option>${options.map(([v, l]) => `<option value="${esc(v)}"${value === v ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select></label>`;
+	const extraOpen = ['rol', 'taal', 'bron', 'van', 'tot'].some((k) => filter[k]);
+	const bar = `<form method="get" action="/admin/berichten" class="toolbar">${filter.status ? `<input type="hidden" name="status" value="${esc(filter.status)}">` : ''}<div class="searchbar">${icon('search')}<input type="search" name="q" value="${esc(filter.q || '')}" placeholder="Zoek op naam, e-mail of tekst" aria-label="Zoeken"></div>${assignSel}
+<details class="morefilters"${extraOpen ? ' open' : ''}><summary class="btn-link secondary small">Meer filters${extraOpen ? ' •' : ''}</summary><div class="morebox">${sel('rol', 'Rol', roles.map((r) => [r, r]), filter.rol || '')}${sel('taal', 'Taal', LANGS.map((l) => [l, l.toUpperCase()]), filter.taal || '')}${sel('bron', 'Bron', sources.map((s) => [s, s]), filter.bron || '')}<label>Van<input type="date" name="van" value="${esc(filter.van || '')}"></label><label>Tot<input type="date" name="tot" value="${esc(filter.tot || '')}"></label></div></details>
+<button type="submit" class="small">Zoeken</button>${Object.values(filter).some(Boolean) ? `<a href="/admin/berichten" class="clear">Alles wissen</a>` : ''}</form>`;
+	const row = (m) => {
+		const who = people.find((u) => u.id === m.toegewezen_aan);
+		return `<li class="msg-row${m.status === 'nieuw' ? ' unread' : ''}">${canWrite ? `<label class="selbox"><input type="checkbox" name="sel_${m.id}" value="1" data-sel aria-label="Selecteer bericht van ${esc(m.naam)}"></label>` : ''}
+<a class="msg-main" href="/admin/berichten/${m.id}"><span class="msg-top"><strong>${esc(m.naam)}</strong>${m.organisatie ? `<span class="meta"> · ${esc(m.organisatie)}</span>` : ''}<span class="meta"> · ${esc(m.rol)} · ${esc(m.taal.toUpperCase())}</span></span><span class="msg-snip">${esc(m.tekst.replace(/\s+/g, ' ').slice(0, 140))}${m.tekst.length > 140 ? '…' : ''}</span></a>
+<span class="msg-side">${statusPill(m.status)}${who ? `<span class="who-chip" title="Toegewezen aan ${esc(who.naam)}">${avatar(who.naam)}<span>${esc(who.naam.split(' ')[0])}</span></span>` : ''}<time class="meta" datetime="${esc(m.tijd)}" title="${esc(when(m.tijd))}">${esc(relTime(m.tijd))}</time></span></li>`;
+	};
+	const actions = canWrite ? `<div class="bulkbar" id="bulkbar"><label class="selbox"><input type="checkbox" id="selall" aria-label="Alles op deze pagina selecteren"></label><span id="selcount" class="meta">Niets geselecteerd</span>
+<select name="actie" id="bulkact" aria-label="Actie voor de selectie" disabled><option value="">Kies een actie…</option><optgroup label="Zet status op">${messagesApi.STATUSES.map((s) => `<option value="status:${s}">${esc(ST[s])}</option>`).join('')}</optgroup><optgroup label="Toewijzen aan"><option value="toewijzen:${me.id}">Mij</option>${people.filter((u) => u.id !== me.id).map((u) => `<option value="toewijzen:${u.id}">${esc(u.naam)}</option>`).join('')}<option value="toewijzen:">Niemand</option></optgroup><option value="verwijderen">Verwijderen…</option></select>
+<button type="submit" class="small" id="bulkgo" disabled>Uitvoeren</button></div>` : '';
+	const emptyText = Object.values(filter).some(Boolean) ? 'Geen berichten die bij deze filters passen.' : 'Er zijn nog geen berichten binnengekomen via het contactformulier.';
+	const listHtml = list.length ? `<form method="post" action="/admin/berichten/bulk" id="bulkform" data-confirm-delete="Alle geselecteerde berichten definitief verwijderen?">${csrf}<input type="hidden" name="terug" value="${esc(href({}))}">${actions}<ul class="msglist">${list.map(row).join('')}</ul></form>` : `<div class="empty">${icon('mail')}<p><strong>${esc(emptyText)}</strong></p></div>`;
+	const pager = pages > 1 ? `<nav class="tabs" aria-label="Paginering">${Array.from({ length: pages }, (_, i) => i + 1).map((n) => `<a href="${href({ page: n })}"${n === page ? ' aria-current="page"' : ''}>${n}</a>`).join('')}</nav>` : '';
+	return shell({ ...ctx, flash }, { title: 'Berichten', active: 'berichten', body: `<div class="page-head"><div><h1>Berichten</h1><p class="hint">Via het contactformulier. Berichten blijven ${retention} dagen bewaard en worden daarna automatisch verwijderd.</p></div>
+<div class="head-actions"><a class="btn-link secondary small" href="/admin/berichten.csv?${esc(q())}">${icon('send')} Exporteren</a><a class="btn-link secondary small" href="/admin/berichten/privacy">${icon('shield')} Privacyverzoek</a><a class="btn-link secondary small" href="/admin/wachtrij">${icon('mail')} Mailwachtrij${queueProblems ? ` <span class="badge">${queueProblems}</span>` : ''}</a></div></div>
+${chips}${bar}<section class="card flush">${listHtml}${pager}</section>` });
 }
 function messagePage(ctx, { m, gebruikers, aantalVanAdres, flash }) {
-	const canWrite = ctx.session.user.rol !== 'lezer';
-	const subject = encodeURIComponent(`Re: je bericht via de website van Aethra`);
+	const me = ctx.session.user;
+	const canWrite = me.rol !== 'lezer';
+	const subject = encodeURIComponent('Re: je bericht via de website van Aethra');
 	const quote = encodeURIComponent(`\n\n> ${String(m.tekst).split('\n').join('\n> ')}`);
 	const csrf = `<input type="hidden" name="csrf" value="${esc(ctx.session.csrf)}">`;
-	return shell({ ...ctx, flash }, { title: m.naam, active: 'berichten', body: `<p><a href="/admin/berichten">← alle berichten</a></p><h1>${esc(m.naam)}</h1>
-<section class="card"><p><a href="mailto:${esc(m.email)}?subject=${subject}&amp;body=${quote}">${esc(m.email)}</a> · ${esc(m.rol)}${m.organisatie ? ' · ' + esc(m.organisatie) : ''} · ${esc(m.taal.toUpperCase())}</p>
-<p class="meta">${esc(when(m.tijd))}${m.bron && m.bron !== 'direct' ? ' · bron: ' + esc(m.bron) + (m.campagne ? ' / ' + esc(m.campagne) : '') : ''}</p>
-<p class="msg-text">${esc(m.tekst).replace(/\n/g, '<br>')}</p>
-<p><a class="btn-link" href="mailto:${esc(m.email)}?subject=${subject}&amp;body=${quote}">Beantwoorden per e-mail</a></p></section>
-${canWrite ? `<section class="card"><h2>Opvolging</h2>
-<form method="post" action="/admin/berichten/${m.id}/status" class="inline">${csrf}<label>Status <select name="status">${['nieuw', 'gelezen', 'beantwoord', 'afgesloten'].map((s) => `<option${m.status === s ? ' selected' : ''}>${s}</option>`).join('')}</select></label> <button type="submit" class="small">Opslaan</button></form>
-<form method="post" action="/admin/berichten/${m.id}/toewijzen" class="inline">${csrf}<label>Toegewezen aan <select name="gebruiker"><option value="">niemand</option>${gebruikers.map((u) => `<option value="${u.id}"${m.toegewezen_aan === u.id ? ' selected' : ''}>${esc(u.naam)}</option>`).join('')}</select></label> <button type="submit" class="small">Opslaan</button></form>
-<form method="post" action="/admin/berichten/${m.id}/notitie">${csrf}<div class="row"><label for="note">Interne notitie</label><textarea id="note" name="notitie" rows="3" maxlength="5000">${esc(m.notitie)}</textarea></div><button type="submit" class="small">Notitie opslaan</button></form></section>
-<section class="card"><h2>Privacy</h2><p class="hint">${aantalVanAdres} bericht${aantalVanAdres === 1 ? '' : 'en'} van dit e-mailadres. <a href="/admin/berichten/privacy?email=${encodeURIComponent(m.email)}">Alle berichten van dit adres bekijken, exporteren of wissen</a>.</p>
-<form method="post" action="/admin/berichten/${m.id}/verwijderen" data-confirm="Dit bericht definitief verwijderen?">${csrf}<button type="submit" class="danger">Dit bericht verwijderen</button></form></section>` : ''}` });
+	const mail = `mailto:${esc(m.email)}?subject=${subject}&amp;body=${quote}`;
+	const who = gebruikers.find((u) => u.id === m.toegewezen_aan);
+	const flow = ['nieuw', 'gelezen', 'in_behandeling', 'beantwoord', 'afgesloten'];
+	const stepper = canWrite ? `<form method="post" action="/admin/berichten/${m.id}/status" class="stepper" aria-label="Status">${csrf}${flow.map((s) => `<button type="submit" name="status" value="${s}" class="step" aria-pressed="${m.status === s}">${esc(ST[s])}</button>`).join('')}</form>` : statusPill(m.status);
+	const next = m.status === 'nieuw' || m.status === 'gelezen' ? ['in_behandeling', 'Neem in behandeling'] : m.status === 'in_behandeling' ? ['afgesloten', 'Markeer als afgerond'] : m.status === 'beantwoord' ? ['afgesloten', 'Markeer als afgerond'] : null;
+	return shell({ ...ctx, flash }, { title: m.naam, active: 'berichten', body: `<p class="crumb"><a href="/admin/berichten">← Alle berichten</a></p>
+<div class="page-head"><div class="who-head">${avatar(m.naam, 'lg')}<div><h1>${esc(m.naam)}</h1><p class="hint"><a href="${mail}">${esc(m.email)}</a>${m.organisatie ? ' · ' + esc(m.organisatie) : ''} · ${esc(m.rol)} · ${esc(m.taal.toUpperCase())}</p></div></div>${statusPill(m.status)}</div>
+<div class="split">
+<div><section class="card"><p class="meta">${esc(when(m.tijd))}${m.bron && m.bron !== 'direct' ? ' · via ' + esc(m.bron) + (m.campagne ? ' / ' + esc(m.campagne) : '') : ''}</p><p class="msg-text">${esc(m.tekst).replace(/\n/g, '<br>')}</p>
+<div class="actions"><a class="btn-link" href="${mail}">${icon('send')} Beantwoorden per e-mail</a>${canWrite && next ? `<form method="post" action="/admin/berichten/${m.id}/status" class="inline">${csrf}<button type="submit" name="status" value="${next[0]}" class="secondary">${next[1]}</button></form>` : ''}</div>
+${canWrite && m.status !== 'beantwoord' && m.status !== 'afgesloten' ? '<p class="hint">Na het beantwoorden kun je hieronder de status op “Beantwoord” zetten.</p>' : ''}</section>
+${canWrite ? `<section class="card"><h2>Interne notitie</h2><form method="post" action="/admin/berichten/${m.id}/notitie">${csrf}<div class="row"><label for="note" class="sr">Notitie</label><textarea id="note" name="notitie" rows="4" maxlength="5000" placeholder="Alleen zichtbaar voor het team">${esc(m.notitie)}</textarea></div><button type="submit" class="small">Notitie opslaan</button></form></section>` : (m.notitie ? `<section class="card"><h2>Interne notitie</h2><p>${esc(m.notitie)}</p></section>` : '')}</div>
+<aside>${canWrite ? `<section class="card"><h2>Opvolging</h2><p class="label-sm">Status</p>${stepper}
+<p class="label-sm">Toegewezen aan</p><form method="post" action="/admin/berichten/${m.id}/toewijzen" class="inline">${csrf}<select name="gebruiker" aria-label="Toegewezen aan" data-autosubmit><option value="">Niemand</option>${gebruikers.map((u) => `<option value="${u.id}"${m.toegewezen_aan === u.id ? ' selected' : ''}>${esc(u.naam)}${u.id === me.id ? ' (jij)' : ''}</option>`).join('')}</select><noscript><button type="submit" class="small">Opslaan</button></noscript>${m.toegewezen_aan !== me.id ? `<button type="submit" name="gebruiker" value="${me.id}" class="secondary small">Aan mij</button>` : ''}</form>
+${who ? `<p class="meta">Nu bij ${esc(who.naam)}.</p>` : ''}</section>
+<section class="card"><h2>Privacy</h2><p class="hint">${aantalVanAdres} bericht${aantalVanAdres === 1 ? '' : 'en'} van dit e-mailadres. <a href="/admin/berichten/privacy?email=${encodeURIComponent(m.email)}">Bekijken, exporteren of wissen</a>.</p>
+<form method="post" action="/admin/berichten/${m.id}/verwijderen" data-confirm="Dit bericht definitief verwijderen?">${csrf}<button type="submit" class="danger small">Dit bericht verwijderen</button></form></section>` : `<section class="card"><p class="meta">Je hebt alleen leesrechten. Status: ${statusPill(m.status)}</p></section>`}</aside></div>` });
 }
 function privacyRequestPage(ctx, { email, list, flash }) {
 	const csrf = `<input type="hidden" name="csrf" value="${esc(ctx.session.csrf)}">`;
@@ -373,16 +452,31 @@ function redirectsPage(ctx, list) {
 	return shell(ctx, { title: 'Redirects', active: 'redirects', body: `<h1>Redirects</h1><p class="hint">Een oud adres stuurt bezoekers permanent (301) naar het nieuwe adres. Dat gebeurt automatisch als een adres van een gepubliceerde pagina verandert.</p><section class="card">${table}</section>
 ${canWrite ? `<section class="card"><h2>Redirect toevoegen</h2><form method="post" action="/admin/redirects">${csrf}<div class="row"><label for="rv">Van (bijvoorbeeld /nl/oude-pagina)</label><input id="rv" name="van" required></div><div class="row"><label for="rn">Naar (bijvoorbeeld /nl/nieuwe-pagina)</label><input id="rn" name="naar" required></div><button type="submit">Toevoegen</button></form></section>` : ''}` });
 }
-function usersPage(ctx, { list, flash }) {
+const ROLE_INFO = { beheerder: ['Beheerder', 'Alles, ook gebruikers en auditlog.'], editor: ['Editor', 'Teksten, pagina’s, media en berichten.'], lezer: ['Lezer', 'Alleen kijken, niets wijzigen.'] };
+function usersPage(ctx, { list, sessions = {}, flash }) {
+	const me = ctx.session.user;
 	const csrf = `<input type="hidden" name="csrf" value="${esc(ctx.session.csrf)}">`;
-	const roleSel = (value) => `<select name="rol">${['beheerder', 'editor', 'lezer'].map((r) => `<option value="${r}"${value === r ? ' selected' : ''}>${r}</option>`).join('')}</select>`;
-	const rows = list.map((u) => `<tr><td><strong>${esc(u.naam)}</strong><br><span class="meta">${esc(u.email)}</span></td><td>${u.tweestaps ? '2FA aan' : '<span class="meta">geen 2FA</span>'}</td><td>${u.laatste_login ? esc(when(u.laatste_login)) : '-'}</td>
-<td><form method="post" action="/admin/gebruikers/${u.id}" class="inline">${csrf}<input name="naam" value="${esc(u.naam)}" aria-label="Naam" maxlength="80"> ${roleSel(u.rol)} <label class="chk"><input type="checkbox" name="actief" value="1"${u.actief ? ' checked' : ''}> actief</label> <button class="small" type="submit">Opslaan</button></form>
-<form method="post" action="/admin/gebruikers/${u.id}/wachtwoord" class="inline">${csrf}<input name="nieuw" type="password" placeholder="nieuw wachtwoord" minlength="12" autocomplete="new-password" aria-label="Nieuw wachtwoord voor ${esc(u.naam)}"> <input name="huidig" type="password" placeholder="jouw wachtwoord" autocomplete="current-password" aria-label="Jouw wachtwoord ter bevestiging" required> <button class="small" type="submit">Wachtwoord instellen</button></form>
-${u.tweestaps ? `<form method="post" action="/admin/gebruikers/${u.id}/2fa-uit" class="inline" data-confirm="Tweestapsverificatie voor deze gebruiker uitzetten?">${csrf}<input name="huidig" type="password" placeholder="jouw wachtwoord" autocomplete="current-password" required aria-label="Jouw wachtwoord ter bevestiging"> <button class="small danger" type="submit">2FA uitzetten</button></form>` : ''}</td></tr>`).join('');
-	return shell({ ...ctx, flash }, { title: 'Gebruikers', active: 'gebruikers', body: `<h1>Gebruikers</h1><p class="hint"><strong>beheerder</strong>: alles, ook gebruikers en auditlog. <strong>editor</strong>: teksten, pagina’s, media en berichten. <strong>lezer</strong>: alleen kijken.</p>
-<section class="card"><div class="scroll"><table><thead><tr><th>Gebruiker</th><th>Beveiliging</th><th>Laatste login</th><th>Beheer</th></tr></thead><tbody>${rows}</tbody></table></div></section>
-<section class="card"><h2>Gebruiker toevoegen</h2><form method="post" action="/admin/gebruikers">${csrf}<div class="row"><label for="ue">E-mailadres</label><input id="ue" name="email" type="email" required></div><div class="row"><label for="un">Naam</label><input id="un" name="naam" required maxlength="80"></div><div class="row"><label for="ur">Rol</label>${roleSel('editor')}</div><div class="row"><label for="up">Startwachtwoord (minstens 12 tekens; de gebruiker wijzigt het zelf)</label><input id="up" name="wachtwoord" type="password" minlength="12" autocomplete="new-password" required></div><div class="row"><label for="uh">Jouw wachtwoord ter bevestiging</label><input id="uh" name="huidig" type="password" autocomplete="current-password" required></div><button type="submit">Toevoegen</button></form></section>` });
+	const roleSel = (value, id, disabled) => `<select id="${id}" name="rol"${disabled ? ' disabled' : ''}>${Object.keys(ROLE_INFO).map((r) => `<option value="${r}"${value === r ? ' selected' : ''}>${esc(ROLE_INFO[r][0])}</option>`).join('')}</select>`;
+	const legend = `<div class="rolecards">${Object.entries(ROLE_INFO).map(([r, [l, d]]) => `<div class="card mini"><strong>${esc(l)}</strong><span class="meta">${esc(d)}</span><span class="meta">${list.filter((u) => u.rol === r && u.actief).length} actief</span></div>`).join('')}</div>`;
+	const card = (u) => {
+		const self = u.id === me.id;
+		const n = sessions[u.id] || 0;
+		return `<article class="card ucard${u.actief ? '' : ' off'}">
+<div class="u-head">${avatar(u.naam, 'lg')}<div class="u-id"><strong>${esc(u.naam)}${self ? ' <span class="pill st-standaard">Jij</span>' : ''}</strong><span class="meta">${esc(u.email)}</span></div>
+<div class="u-tags"><span class="pill st-role">${esc(ROLE_INFO[u.rol][0])}</span>${u.tweestaps ? '<span class="pill ok">2FA aan</span>' : '<span class="pill st-warn">Geen 2FA</span>'}${u.actief ? '' : '<span class="pill st-leeg">Uitgeschakeld</span>'}</div></div>
+<p class="meta u-meta">Laatste login: ${u.laatste_login ? esc(relTime(u.laatste_login)) : 'nog nooit'} · ${n} actieve sessie${n === 1 ? '' : 's'}</p>
+<details class="manage"><summary class="btn-link secondary small">Beheren</summary><div class="manage-grid">
+<form method="post" action="/admin/gebruikers/${u.id}" class="mbox">${csrf}<h3>Gegevens</h3><div class="row"><label for="n${u.id}">Naam</label><input id="n${u.id}" name="naam" value="${esc(u.naam)}" maxlength="80" required></div><div class="row"><label for="r${u.id}">Rol</label>${roleSel(u.rol, `r${u.id}`, self)}${self ? '<p class="fhint">Je kunt je eigen rol niet wijzigen.</p>' : ''}</div>
+${self ? '<input type="hidden" name="actief" value="1">' : `<label class="chk"><input type="checkbox" name="actief" value="1"${u.actief ? ' checked' : ''}> Account actief</label>`}<button class="small" type="submit">Opslaan</button></form>
+<form method="post" action="/admin/gebruikers/${u.id}/wachtwoord" class="mbox">${csrf}<h3>Wachtwoord</h3><div class="row"><label for="w${u.id}">Nieuw wachtwoord</label><input id="w${u.id}" name="nieuw" type="password" minlength="12" autocomplete="new-password" required><p class="fhint">Minstens 12 tekens. Alle sessies van deze gebruiker worden uitgelogd.</p></div><div class="row"><label for="h${u.id}">Jouw wachtwoord ter bevestiging</label><input id="h${u.id}" name="huidig" type="password" autocomplete="current-password" required></div><button class="small" type="submit">Wachtwoord instellen</button></form>
+<div class="mbox"><h3>Beveiliging</h3>${u.tweestaps ? `<form method="post" action="/admin/gebruikers/${u.id}/2fa-uit" data-confirm="Tweestapsverificatie voor deze gebruiker uitzetten?">${csrf}<div class="row"><label for="t${u.id}">Jouw wachtwoord ter bevestiging</label><input id="t${u.id}" name="huidig" type="password" autocomplete="current-password" required></div><button class="small danger" type="submit">2FA uitzetten</button></form>` : '<p class="hint">Deze gebruiker heeft geen tweestapsverificatie. Dat kan alleen de gebruiker zelf aanzetten onder Mijn account.</p>'}
+${n && !self ? `<form method="post" action="/admin/gebruikers/${u.id}/uitloggen" data-confirm="Alle sessies van ${esc(u.naam)} beëindigen?">${csrf}<button class="small secondary" type="submit">Overal uitloggen (${n})</button></form>` : ''}</div></div></details></article>`;
+	};
+	const open = flash && !flash.ok;
+	return shell({ ...ctx, flash }, { title: 'Gebruikers', active: 'gebruikers', body: `<div class="page-head"><div><h1>Gebruikers</h1><p class="hint">${list.length} account${list.length === 1 ? '' : 's'}. Wie mag wat staat hieronder.</p></div></div>${legend}
+<div class="ulist">${list.map(card).join('')}</div>
+<details class="card fold adduser"${open ? ' open' : ''}><summary>${icon('plus')} Gebruiker toevoegen</summary><form method="post" action="/admin/gebruikers">${csrf}<div class="two"><div class="row"><label for="ue">E-mailadres</label><input id="ue" name="email" type="email" required></div><div class="row"><label for="un">Naam</label><input id="un" name="naam" required maxlength="80"></div></div>
+<div class="row"><label for="ur">Rol</label>${roleSel('editor', 'ur')}</div><div class="row"><label for="up">Startwachtwoord</label><input id="up" name="wachtwoord" type="password" minlength="12" autocomplete="new-password" required><p class="fhint">Minstens 12 tekens. De gebruiker kiest zelf een nieuw wachtwoord en zet 2FA aan.</p></div><div class="row"><label for="uh">Jouw wachtwoord ter bevestiging</label><input id="uh" name="huidig" type="password" autocomplete="current-password" required></div><button type="submit">Toevoegen</button></form></details>` });
 }
 function auditPage(ctx, { rows, total, page, actie }) {
 	const pages = Math.max(1, Math.ceil(total / 100));
@@ -391,18 +485,26 @@ function auditPage(ctx, { rows, total, page, actie }) {
 <section class="card"><div class="scroll"><table><thead><tr><th>Tijd</th><th>Wie</th><th>Actie</th><th>Onderdeel</th><th>Details</th><th>Reden</th></tr></thead><tbody>${rows.map((r) => `<tr><td>${esc(when(r.timestamp))}</td><td>${esc(r.gebruiker || 'systeem')}</td><td>${esc(r.actie)}</td><td><code>${esc(r.entiteit)}</code></td><td class="detail">${esc(String(r.nieuwe_waarde || r.oude_waarde || '').slice(0, 160))}</td><td>${esc(r.override_reden || '')}</td></tr>`).join('')}</tbody></table></div>
 ${pages > 1 ? `<nav class="tabs">${Array.from({ length: Math.min(pages, 30) }, (_, i) => i + 1).map((n) => `<a href="/admin/audit?page=${n}&amp;actie=${encodeURIComponent(actie)}"${n === page ? ' aria-current="page"' : ''}>${n}</a>`).join('')}</nav>` : ''}</section>` });
 }
-function accountPage(ctx, { flash, tf = {} }) {
+const ACTION_NL = { 'login.gelukt': 'Ingelogd', 'login.code_mislukt': 'Foute 2FA-code', logout: 'Uitgelogd', 'gebruiker.wachtwoord': 'Wachtwoord gewijzigd', 'gebruiker.gewijzigd': 'Account gewijzigd', 'gebruiker.uitgelogd': 'Andere apparaten uitgelogd', 'tekst.gepubliceerd': 'Tekst gepubliceerd', 'pagina.gepubliceerd': 'Pagina gepubliceerd', 'media.gewijzigd': 'Foto gewijzigd', 'media.verwijderd': 'Foto verwijderd', 'bericht.status': 'Status van bericht gewijzigd', 'bericht.verwijderd': 'Bericht verwijderd', 'media.geupload': 'Foto geüpload', 'media.plek': 'Foto op de site gewijzigd', 'pagina.aangemaakt': 'Pagina aangemaakt', 'pagina.verwijderd': 'Pagina verwijderd', 'bericht.toegewezen': 'Bericht toegewezen', 'bericht.notitie': 'Notitie bij bericht' };
+function accountPage(ctx, { flash, tf = {}, sessions = [], activity = [] }) {
+	const me = ctx.session.user;
 	const csrf = `<input type="hidden" name="csrf" value="${esc(ctx.session.csrf)}">`;
 	let two;
-	if (tf.codes) two = `<section class="card narrow"><h2>Herstelcodes</h2><p class="hint">Tweestapsverificatie staat aan. Bewaar deze codes veilig (wachtwoordmanager of geprint). Elke code werkt één keer als je je telefoon kwijt bent. Ze worden alleen nu getoond.</p><ul class="codes">${tf.codes.map((c) => `<li><code>${esc(c)}</code></li>`).join('')}</ul></section>`;
-	else if (tf.setup) two = `<section class="card narrow"><h2>Tweestapsverificatie instellen</h2><ol class="hint"><li>Open een authenticator-app op je telefoon en kies om een account toe te voegen.</li><li>Scan deze QR-code.<div class="qr-wrap">${qrSvg(tf.setup.uri, 'QR-code om het Aethra-account toe te voegen aan een authenticator-app')}</div><details class="alt"><summary>Scannen lukt niet?</summary><p>Kies “sleutel invoeren” (tijdgebonden) en typ: <code class="key">${esc(tf.setup.secret.replace(/(.{4})/g, '$1 ').trim())}</code></p></details></li><li>Vul de 6-cijferige code uit de app in.</li></ol>
-<form method="post" action="/admin/2fa/confirm">${csrf}<div class="row"><label for="c2">Code uit de app</label><input id="c2" name="code" inputmode="numeric" autocomplete="one-time-code" required></div><button type="submit">Bevestigen</button></form>
+	if (tf.codes) two = `<section class="card"><h2>Herstelcodes</h2><p class="hint">Tweestapsverificatie staat aan. Bewaar deze codes veilig (wachtwoordmanager of geprint). Elke code werkt één keer als je je telefoon kwijt bent. Ze worden alleen nu getoond.</p><ul class="codes">${tf.codes.map((c) => `<li><code>${esc(c)}</code></li>`).join('')}</ul></section>`;
+	else if (tf.setup) two = `<section class="card"><h2>Tweestapsverificatie instellen</h2><ol class="steps-list"><li>Open een authenticator-app op je telefoon en kies om een account toe te voegen.</li><li>Scan deze QR-code.<div class="qr-wrap">${qrSvg(tf.setup.uri, 'QR-code om het Aethra-account toe te voegen aan een authenticator-app')}</div><details class="alt"><summary>Scannen lukt niet?</summary><p>Kies “sleutel invoeren” (tijdgebonden) en typ: <code class="key">${esc(tf.setup.secret.replace(/(.{4})/g, '$1 ').trim())}</code></p></details></li><li>Vul de 6-cijferige code uit de app in.</li></ol>
+<form method="post" action="/admin/2fa/confirm" class="inline">${csrf}<div class="row"><label for="c2">Code uit de app</label><input id="c2" name="code" inputmode="numeric" autocomplete="one-time-code" required></div><button type="submit">Bevestigen</button></form>
 <form method="post" action="/admin/2fa/restart">${csrf}<button type="submit" class="secondary small">Nieuwe QR-code</button></form></section>`;
-	else if (tf.enabled) two = `<section class="card narrow"><h2>Tweestapsverificatie</h2><p class="ok-text">Aan. Je hebt nog ${tf.left} herstelcode${tf.left === 1 ? '' : 's'}.</p><p class="hint">Uitzetten of nieuwe herstelcodes vragen je wachtwoord en een code uit de app.</p>
-<form method="post" action="/admin/2fa/disable">${csrf}<div class="row"><label for="dp">Huidig wachtwoord</label><input id="dp" name="current" type="password" autocomplete="current-password" required></div><div class="row"><label for="dc">Code uit de app</label><input id="dc" name="code" autocomplete="one-time-code" required></div><div class="actions"><button type="submit">Uitzetten</button> <button type="submit" formaction="/admin/2fa/recovery" class="secondary">Nieuwe herstelcodes</button></div></form></section>`;
-	else two = `<section class="card narrow"><h2>Tweestapsverificatie</h2><p class="hint">Staat uit. Aanzetten is sterk aanbevolen: een gestolen wachtwoord geeft dan geen toegang meer.</p><form method="post" action="/admin/2fa/start">${csrf}<div class="row"><label for="sp">Bevestig met je huidige wachtwoord</label><input id="sp" name="current" type="password" autocomplete="current-password" required></div><button type="submit">Instellen</button></form></section>`;
-	return shell({ ...ctx, flash }, { title: 'Account', active: 'account', body: `<h1>${esc(ctx.session.user.naam)}</h1><p class="hint">${esc(ctx.session.user.email)} · rol: ${esc(ctx.session.user.rol)}</p>
-<form method="post" action="/admin/account" class="card narrow">${csrf}<h2>Wachtwoord wijzigen</h2><div class="row"><label for="cur">Huidig wachtwoord</label><input id="cur" name="current" type="password" autocomplete="current-password" required></div><div class="row"><label for="new">Nieuw wachtwoord (minstens 12 tekens)</label><input id="new" name="password" type="password" autocomplete="new-password" minlength="12" required></div><button type="submit">Wijzigen</button></form>${two}` });
+	else if (tf.enabled) two = `<section class="card"><div class="card-title"><h2>Tweestapsverificatie</h2><span class="pill ok">Aan</span></div><p class="hint">Je hebt nog ${tf.left} herstelcode${tf.left === 1 ? '' : 's'}. Uitzetten of nieuwe herstelcodes vragen je wachtwoord en een code uit de app.</p>
+<form method="post" action="/admin/2fa/disable">${csrf}<div class="two"><div class="row"><label for="dp">Huidig wachtwoord</label><input id="dp" name="current" type="password" autocomplete="current-password" required></div><div class="row"><label for="dc">Code uit de app</label><input id="dc" name="code" autocomplete="one-time-code" required></div></div><div class="actions"><button type="submit" class="danger">Uitzetten</button> <button type="submit" formaction="/admin/2fa/recovery" class="secondary">Nieuwe herstelcodes</button></div></form></section>`;
+	else two = `<section class="card"><div class="card-title"><h2>Tweestapsverificatie</h2><span class="pill st-warn">Uit</span></div><p class="hint">Sterk aanbevolen: een gestolen wachtwoord geeft dan geen toegang meer.</p><form method="post" action="/admin/2fa/start">${csrf}<div class="row"><label for="sp">Bevestig met je huidige wachtwoord</label><input id="sp" name="current" type="password" autocomplete="current-password" required></div><button type="submit">Instellen</button></form></section>`;
+	const sess = `<section class="card"><h2>Ingelogd op</h2><ul class="plain sess">${sessions.map((s) => `<li>${icon('monitor')}<span><strong>${s.huidig ? 'Dit apparaat' : 'Ander apparaat'}</strong><span class="meta"> · ingelogd ${esc(relTime(s.aangemaakt))} · laatst actief ${esc(relTime(s.laatst_gezien))}</span></span></li>`).join('')}</ul>
+${sessions.length > 1 ? `<form method="post" action="/admin/account/sessies-uit" data-confirm="Alle andere apparaten uitloggen?">${csrf}<button type="submit" class="secondary small">Alle andere apparaten uitloggen</button></form>` : '<p class="hint">Je bent alleen hier ingelogd.</p>'}</section>`;
+	const act = activity.length ? `<section class="card"><h2>Jouw recente activiteit</h2><ul class="plain act">${activity.map((a) => `<li><span>${esc(ACTION_NL[a.actie] || a.actie)}</span><time class="meta">${esc(relTime(a.timestamp))}</time></li>`).join('')}</ul></section>` : '';
+	return shell({ ...ctx, flash }, { title: 'Mijn account', active: 'account', body: `<div class="page-head"><div class="who-head">${avatar(me.naam, 'lg')}<div><h1>${esc(me.naam)}</h1><p class="hint">${esc(me.email)} · ${esc(ROLE_INFO[me.rol][0])}: ${esc(ROLE_INFO[me.rol][1].toLowerCase())}</p></div></div></div>
+<div class="acc-grid"><div>
+<section class="card"><h2>Naam</h2><form method="post" action="/admin/account/naam" class="inline">${csrf}<label for="an" class="sr">Naam</label><input id="an" name="naam" value="${esc(me.naam)}" maxlength="80" required><button type="submit" class="small">Opslaan</button></form></section>
+<form method="post" action="/admin/account" class="card">${csrf}<h2>Wachtwoord wijzigen</h2><div class="row"><label for="cur">Huidig wachtwoord</label><input id="cur" name="current" type="password" autocomplete="current-password" required></div><div class="row"><label for="new">Nieuw wachtwoord</label><input id="new" name="password" type="password" autocomplete="new-password" minlength="12" required data-strength><div class="meter" id="meter" hidden><span></span></div><p class="fhint" id="meter-t">Minstens 12 tekens. Een zin van een paar woorden werkt het best.</p></div><div class="actions spread"><label class="chk"><input type="checkbox" data-showpw> Wachtwoorden tonen</label><button type="submit">Wijzigen</button></div></form>
+${sess}</div><div>${two}${act}</div></div>` });
 }
 
 /* statistics (same figures as before) */

@@ -61,9 +61,9 @@ function client(user = 'pim@example.org', password = PW) {
 
 /* ---- schema, audit ---- */
 test('migrations run once from database/migrations and are recorded', () => {
-	assert.deepEqual(db.all('SELECT versie, naam FROM schema_versies').map((r) => r.naam), ['001_init.sql']);
+	assert.deepEqual(db.all('SELECT versie, naam FROM schema_versies').map((r) => r.naam), ['001_init.sql', '002_bericht_status.sql']);
 	db.open();
-	assert.equal(db.all('SELECT versie FROM schema_versies').length, 1, 'opening again does not repeat a migration');
+	assert.equal(db.all('SELECT versie FROM schema_versies').length, 2, 'opening again does not repeat a migration');
 	const unique = db.all("PRAGMA index_list('vertalingen')").filter((i) => i.unique).map((i) => db.all(`PRAGMA index_info('${i.name}')`).map((c) => c.name).join(','));
 	assert.ok(unique.includes('object,veld,taal'), 'unique index on (object, veld, taal)');
 });
@@ -702,4 +702,36 @@ test('backup: a consistent copy of the live database', () => {
 	const copy = new DatabaseSync(target);
 	assert.ok(copy.prepare('SELECT COUNT(*) AS n FROM gebruikers').get().n >= 3);
 	copy.close();
+});
+
+test('messages: status "in behandeling", counts per status, bulk actions, assignee filter', () => {
+	const mk = (name) => messages.add({ lang: 'en', name, email: `${name.toLowerCase()}@example.org`, role: 'Other', message: 'Hello there' });
+	const a = mk('Bulka'); const b = mk('Bulkb'); const c = mk('Bulkc');
+	assert.ok(messages.STATUSES.includes('in_behandeling'));
+	assert.equal(messages.STATUS_LABELS.nieuw, 'Niet gelezen');
+	assert.equal(messages.STATUS_LABELS.afgesloten, 'Afgerond');
+	const user = { id: adminId };
+	assert.equal(messages.bulk([a.id, b.id, 99999], 'status', 'in_behandeling', user), 2);
+	assert.equal(messages.get(a.id).status, 'in_behandeling');
+	assert.equal(messages.statusCounts({ q: 'Bulk' }).in_behandeling, 2);
+	assert.equal(messages.statusCounts({ q: 'Bulk', status: 'nieuw' }).nieuw, 1, 'the status filter itself is ignored in the counts');
+	messages.bulk([a.id], 'toewijzen', String(adminId), user);
+	assert.deepEqual(messages.list({ q: 'Bulk', toegewezen: String(adminId) }).map((m) => m.id), [a.id]);
+	assert.equal(messages.list({ q: 'Bulk', toegewezen: 'niemand' }).length, 2);
+	assert.throws(() => messages.bulk([a.id], 'status', 'bestaatniet', user), (e) => e.status === 400);
+	assert.equal(messages.bulk([a.id, b.id, c.id], 'verwijderen', '', user), 3);
+	assert.equal(messages.count({ q: 'Bulk' }), 0);
+});
+
+test('account: sessions list, own name, sign out other devices', () => {
+	const users = require('../lib/cms/users');
+	const s = users.createSession(adminId, '203.0.113.5', 'ua-one');
+	users.createSession(adminId, '203.0.113.5', 'ua-two');
+	const list = users.sessionList(adminId, s.id);
+	assert.ok(list.length >= 2 && list.filter((x) => x.huidig).length === 1);
+	users.destroyOthers(adminId, s.id);
+	assert.equal(users.sessionList(adminId, s.id).length, 1);
+	users.setName(adminId, 'Nieuwe Naam');
+	assert.equal(users.byId(adminId).naam, 'Nieuwe Naam');
+	assert.throws(() => users.setName(adminId, '  '), (e) => e.status === 400);
 });

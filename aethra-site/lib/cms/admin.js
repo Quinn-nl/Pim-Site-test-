@@ -51,6 +51,7 @@ const FLASH = {
 	opgeslagen: { ok: true, text: 'Opgeslagen.' }, verwijderd: { ok: true, text: 'Verwijderd.' }, wachtwoord: { ok: true, text: 'Wachtwoord gewijzigd. Andere sessies zijn uitgelogd.' },
 	foutwachtwoord: { ok: false, text: 'Het huidige wachtwoord klopt niet.' }, kort: { ok: false, text: 'Gebruik minstens 12 tekens.' }, nofile: { ok: false, text: 'Kies eerst een bestand.' },
 	badimg: { ok: false, text: 'Upload een JPG-, PNG- of WebP-afbeelding van maximaal 5 MB.' }, teruggezet: { ok: true, text: 'Teruggezet. De vorige staat staat in de geschiedenis.' }, gemaakt: { ok: true, text: 'Aangemaakt.' },
+	geenselectie: { ok: false, text: 'Vink eerst een of meer berichten aan.' }, naam: { ok: true, text: 'Naam bijgewerkt.' }, sessies: { ok: true, text: 'Alle andere apparaten zijn uitgelogd.' },
 	geblokkeerd: { ok: false, text: 'Te veel pogingen. Probeer het later opnieuw.' },
 };
 
@@ -292,7 +293,8 @@ async function handleAdmin(req, res, url) {
 	}
 
 	/* ---- media ---- */
-	if (req.method === 'GET' && p === '/admin/media') return out(200, views.mediaPage({ ...ctx }, { items: media.list(), slots: media.slots(), enc: media.encodersAvailable() }));
+	const mediaData = () => { const items = media.list(); return { items, slots: media.slots(), enc: media.encodersAvailable(), usage: Object.fromEntries(items.map((m) => [m.id, media.usage(m.id)])) }; };
+	if (req.method === 'GET' && p === '/admin/media') return out(200, views.mediaPage({ ...ctx }, mediaData()));
 	if (isPost && p === '/admin/media/upload') {
 		if (!can('schrijven')) { res.writeHead(403, headers(nonce, { Connection: 'close' })); res.end(); return true; }
 		let up;
@@ -306,7 +308,7 @@ async function handleAdmin(req, res, url) {
 		if (!up.file) return go('/admin/media?f=nofile');
 		try {
 			await media.saveUpload({ tmpPath: up.file.path, alt: Object.fromEntries(LANGS.map((l) => [l, up.fields[`alt_${l}`]])), rechten: up.fields.rechten, bron: up.fields.bron, user });
-		} catch (e) { return out(e.status || 500, views.mediaPage({ ...ctx, flash: { ok: false, text: e.message } }, { items: media.list(), slots: media.slots(), enc: media.encodersAvailable() })); }
+		} catch (e) { return out(e.status || 500, views.mediaPage({ ...ctx, flash: { ok: false, text: e.message } }, mediaData())); }
 		return go('/admin/media?f=opgeslagen');
 	}
 	if (isPost && p === '/admin/media/plek') {
@@ -326,14 +328,31 @@ async function handleAdmin(req, res, url) {
 	}
 
 	/* ---- messages ---- */
-	const filterOf = (u) => Object.fromEntries(['q', 'status', 'rol', 'taal', 'bron', 'van', 'tot'].map((k) => [k, String(u.searchParams.get(k) || '').slice(0, 200)]));
+	const filterOf = (u) => {
+		const f = Object.fromEntries(['q', 'status', 'rol', 'taal', 'bron', 'van', 'tot', 'toegewezen'].map((k) => [k, String(u.searchParams.get(k) || '').slice(0, 200)]));
+		if (f.toegewezen === 'ik') f.toegewezen = String(user.id);
+		return f;
+	};
 	if (req.method === 'GET' && p === '/admin/berichten') {
 		const filter = filterOf(url);
 		const per = 50;
 		const total = messages.count(filter);
 		const pagesN = Math.max(1, Math.ceil(total / per));
 		const page = Math.min(pagesN, Math.max(1, parseInt(url.searchParams.get('page'), 10) || 1));
-		return out(200, views.messagesPage(ctx, { list: messages.list(filter, { limit: per, offset: (page - 1) * per }), total, page, pages: pagesN, filter, sources: messages.sources(), roles: messages.roles(), retention: cfg.RETENTION_DAYS }));
+		const raw = Object.fromEntries(['q', 'status', 'rol', 'taal', 'bron', 'van', 'tot', 'toegewezen'].map((k) => [k, String(url.searchParams.get(k) || '').slice(0, 200)]));
+		return out(200, views.messagesPage(ctx, { list: messages.list(filter, { limit: per, offset: (page - 1) * per }), total, page, pages: pagesN, filter: raw, counts: messages.statusCounts(filter), people: users.list(), sources: messages.sources(), roles: messages.roles(), retention: cfg.RETENTION_DAYS, queueProblems: messages.alarmCount() }));
+	}
+	if (isPost && p === '/admin/berichten/bulk') {
+		if (!needWrite()) return true;
+		const ids = Object.keys(form).filter((k) => /^sel_\d+$/.test(k)).map((k) => Number(k.slice(4)));
+		const back = String(form.terug || '').startsWith('/admin/berichten') ? form.terug : '/admin/berichten';
+		const sep = back.includes('?') ? '&' : '?';
+		try {
+			if (!ids.length) return go(`${back}${sep}f=geenselectie`);
+			const [actie, waarde] = String(form.actie || '').split(':');
+			const n = messages.bulk(ids, actie, waarde, user);
+			return go(`${back}${sep}f=${actie === 'verwijderen' ? 'verwijderd' : 'opgeslagen'}&n=${n}`);
+		} catch (e) { return fail(e.status || 400, e.message, ctx); }
 	}
 	if (req.method === 'GET' && p === '/admin/berichten.csv') {
 		audit.log({ user, actie: 'bericht.export', entiteit: 'bericht', nieuw: filterOf(url) });
@@ -409,21 +428,26 @@ async function handleAdmin(req, res, url) {
 	/* ---- users (administrators) ---- */
 	if (p.startsWith('/admin/gebruikers')) {
 		if (!needAdmin()) return true;
-		if (req.method === 'GET' && p === '/admin/gebruikers') return out(200, views.usersPage(ctx, { list: users.list() }));
+		if (req.method === 'GET' && p === '/admin/gebruikers') return out(200, views.usersPage(ctx, { list: users.list(), sessions: users.sessionCounts() }));
 		if (isPost && p === '/admin/gebruikers') {
 			const ok = reauth(form.huidig);
 			if (ok !== true) return go('/admin/gebruikers?f=foutwachtwoord');
-			try { users.create({ email: form.email, naam: form.naam, rol: form.rol, wachtwoord: form.wachtwoord }, user); } catch (e) { return out(e.status || 400, views.usersPage({ ...ctx, flash: { ok: false, text: e.message } }, { list: users.list() })); }
+			try { users.create({ email: form.email, naam: form.naam, rol: form.rol, wachtwoord: form.wachtwoord }, user); } catch (e) { return out(e.status || 400, views.usersPage({ ...ctx, flash: { ok: false, text: e.message } }, { list: users.list(), sessions: users.sessionCounts() })); }
 			return rotated('/admin/gebruikers?f=gemaakt');
 		}
 		if (isPost && (m = /^\/admin\/gebruikers\/(\d+)$/.exec(p))) {
-			try { users.update(Number(m[1]), { naam: form.naam, rol: form.rol, actief: form.actief === '1' }, user); } catch (e) { return out(e.status || 400, views.usersPage({ ...ctx, flash: { ok: false, text: e.message } }, { list: users.list() })); }
+			try { users.update(Number(m[1]), { naam: form.naam, rol: form.rol, actief: form.actief === '1' }, user); } catch (e) { return out(e.status || 400, views.usersPage({ ...ctx, flash: { ok: false, text: e.message } }, { list: users.list(), sessions: users.sessionCounts() })); }
 			return go('/admin/gebruikers?f=opgeslagen');
 		}
 		if (isPost && (m = /^\/admin\/gebruikers\/(\d+)\/wachtwoord$/.exec(p))) {
 			if (reauth(form.huidig) !== true) return go('/admin/gebruikers?f=foutwachtwoord');
-			try { users.setPassword(Number(m[1]), form.nieuw, user); users.destroyOthers(Number(m[1]), ''); } catch (e) { return out(e.status || 400, views.usersPage({ ...ctx, flash: { ok: false, text: e.message } }, { list: users.list() })); }
+			try { users.setPassword(Number(m[1]), form.nieuw, user); users.destroyOthers(Number(m[1]), ''); } catch (e) { return out(e.status || 400, views.usersPage({ ...ctx, flash: { ok: false, text: e.message } }, { list: users.list(), sessions: users.sessionCounts() })); }
 			return rotated('/admin/gebruikers?f=opgeslagen');
+		}
+		if (isPost && (m = /^\/admin\/gebruikers\/(\d+)\/uitloggen$/.exec(p))) {
+			users.destroyOthers(Number(m[1]), Number(m[1]) === user.id ? session.id : '');
+			audit.log({ user, actie: 'gebruiker.uitgelogd', entiteit: `gebruiker:${m[1]}` });
+			return go('/admin/gebruikers?f=sessies');
 		}
 		if (isPost && (m = /^\/admin\/gebruikers\/(\d+)\/2fa-uit$/.exec(p))) {
 			if (reauth(form.huidig) !== true) return go('/admin/gebruikers?f=foutwachtwoord');
@@ -434,8 +458,10 @@ async function handleAdmin(req, res, url) {
 	}
 
 	/* ---- own account ---- */
-	const account = (flash2, tf = {}) => out(200, views.accountPage({ ...ctx }, { flash: flash2 || flash, tf: { enabled: !!users.byId(user.id).totp_geheim, left: users.recoveryLeft(user.id), setup: users.pendingTwoFactor(user.id), ...tf } }));
+	const account = (flash2, tf = {}) => out(200, views.accountPage({ ...ctx }, { flash: flash2 || flash, sessions: users.sessionList(user.id, session.id), activity: audit.byUser(user.id, 8), tf: { enabled: !!users.byId(user.id).totp_geheim, left: users.recoveryLeft(user.id), setup: users.pendingTwoFactor(user.id), ...tf } }));
 	if (req.method === 'GET' && p === '/admin/account') return account();
+	if (isPost && p === '/admin/account/naam') { try { users.setName(user.id, form.naam); } catch (e) { return account({ ok: false, text: e.message }); } return go('/admin/account?f=naam'); }
+	if (isPost && p === '/admin/account/sessies-uit') { users.destroyOthers(user.id, session.id); audit.log({ user, actie: 'gebruiker.uitgelogd', entiteit: `gebruiker:${user.id}` }); return go('/admin/account?f=sessies'); }
 	if (isPost && p === '/admin/account') {
 		const ok = reauth(form.current);
 		if (ok !== true) return go('/admin/account?f=foutwachtwoord');
