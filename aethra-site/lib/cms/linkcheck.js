@@ -63,7 +63,7 @@ async function checkExternal(url, fetcher, timeoutMs) {
  * One full run. opts: { fetcher, timeoutMs, maxExternal, concurrency, now }. Results replace the previous run.
  * Returns { intern, extern, kapot }.
  */
-async function run({ fetcher = fetch, timeoutMs = 8000, maxExternal = 200, concurrency = 5 } = {}) {
+async function run({ fetcher = fetch, timeoutMs = 8000, maxExternal = 200, concurrency = 5, now = Date.now() } = {}) {
 	if (running) return null;
 	running = true;
 	try {
@@ -104,19 +104,31 @@ async function run({ fetcher = fetch, timeoutMs = 8000, maxExternal = 200, concu
 				for (const source of [...new Set(external.get(url))]) rows.push({ bron: source, url, soort: 'extern', status: res.status, fout: res.fout || (res.status >= 400 ? 'foutmelding van de andere site' : null) });
 			}
 		}));
-		const stamp = db.iso();
+		const stamp = new Date(now).toISOString();
+		// An external link counts as broken only after it failed in at least two checks that were a day or more apart.
+		const before = new Map(db.all('SELECT url, MIN(reeks) AS reeks, MIN(eerste_fout) AS eerste, MAX(gecontroleerd) AS laatst FROM link_resultaten WHERE soort = \'extern\' GROUP BY url').map((r) => [r.url, r]));
+		for (const r of rows) {
+			const failed = r.status === null ? !!r.fout && r.fout !== 'niet gecontroleerd' : r.status >= 400;
+			if (r.soort === 'intern') { r.reeks = failed ? 2 : 0; r.eerste = failed ? stamp : null; continue; }
+			if (!failed) { r.reeks = 0; r.eerste = null; continue; }
+			const prev = before.get(r.url);
+			if (!prev || !prev.reeks) { r.reeks = 1; r.eerste = stamp; } else { r.eerste = prev.eerste || stamp; r.reeks = now - Date.parse(prev.laatst) >= 20 * 3600 * 1000 ? prev.reeks + 1 : prev.reeks; }
+		}
 		db.tx(() => {
 			db.run('DELETE FROM link_resultaten');
-			for (const r of rows) db.run('INSERT INTO link_resultaten (bron, url, soort, status, fout, gecontroleerd) VALUES (?, ?, ?, ?, ?, ?)', r.bron, r.url, r.soort, r.status, r.fout, stamp);
+			for (const r of rows) db.run('INSERT INTO link_resultaten (bron, url, soort, status, fout, gecontroleerd, reeks, eerste_fout) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', r.bron, r.url, r.soort, r.status, r.fout, stamp, r.reeks, r.eerste);
 			db.run("INSERT INTO instellingen (sleutel, waarde) VALUES ('links_laatst', ?) ON CONFLICT(sleutel) DO UPDATE SET waarde = excluded.waarde", stamp);
 		});
-		const broken = rows.filter((r) => r.status === null ? r.fout && r.fout !== 'niet gecontroleerd' : r.status >= 400).length;
-		return { intern: rows.filter((r) => r.soort === 'intern').length, extern: rows.filter((r) => r.soort === 'extern').length, kapot: broken };
+		return { intern: rows.filter((r) => r.soort === 'intern').length, extern: rows.filter((r) => r.soort === 'extern').length, kapot: rows.filter(isBroken).length, twijfel: rows.filter(isDoubtful).length };
 	} finally { running = false; }
 }
 const results = () => db.all('SELECT * FROM link_resultaten ORDER BY (status IS NULL OR status >= 400) DESC, soort, url');
 const lastRun = () => { const r = db.get("SELECT waarde FROM instellingen WHERE sleutel = 'links_laatst'"); return r ? r.waarde : null; };
-const isBroken = (r) => (r.status === null ? !!r.fout && r.fout !== 'niet gecontroleerd' : r.status >= 400);
+const failedNow = (r) => (r.status === null ? !!r.fout && r.fout !== 'niet gecontroleerd' : r.status >= 400);
+/** Broken: an own address that does not exist, or an external link that failed in two checks a day or more apart. */
+const isBroken = (r) => failedNow(r) && (r.soort === 'intern' || (r.reeks || 0) >= 2);
+/** Failed once: wait for the next check before calling it broken. */
+const isDoubtful = (r) => failedNow(r) && r.soort === 'extern' && (r.reeks || 0) < 2;
 const brokenCount = () => results().filter(isBroken).length;
 
-module.exports = { run, results, lastRun, isRunning, isBroken, brokenCount, internalStatus, safeHost, privateIp };
+module.exports = { run, results, lastRun, isRunning, isBroken, isDoubtful, brokenCount, internalStatus, safeHost, privateIp };

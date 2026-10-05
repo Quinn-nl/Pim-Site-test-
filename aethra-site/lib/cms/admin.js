@@ -246,7 +246,8 @@ async function handleAdmin(req, res, url) {
 	if (req.method === 'GET' && p === '/admin/events') { messages.alarm(); events.broadcast('berichten', { nieuw: messages.unreadCount() }); return events.handle(req, res, headers(nonce)), true; }
 
 	/* ---- pages and texts: lists ---- */
-	if (req.method === 'GET' && p === '/admin/paginas') return out(200, views.pagesPage(ctx, { extra: pages.list(), locks: ws.snapshot(), info: Object.fromEntries(db.all('SELECT o.object, o.gewijzigd_op, g.naam FROM objecten o LEFT JOIN gebruikers g ON g.id = o.gewijzigd_door').map((r) => [r.object, r])) }));
+	const pagesData = () => ({ extra: pages.list(), locks: ws.snapshot(), info: Object.fromEntries(db.all('SELECT o.object, o.gewijzigd_op, g.naam FROM objecten o LEFT JOIN gebruikers g ON g.id = o.gewijzigd_door').map((r) => [r.object, r])) });
+	if (req.method === 'GET' && p === '/admin/paginas') return out(200, views.pagesPage(ctx, pagesData()));
 	if (req.method === 'GET' && p === '/admin/paginas/nieuw') return out(200, views.newPagePage(ctx, { existing: pages.list() }));
 	if (isPost && p === '/admin/paginas/nieuw') {
 		if (!needWrite()) return true;
@@ -368,7 +369,7 @@ async function handleAdmin(req, res, url) {
 	/* ---- history ---- */
 	if (req.method === 'GET' && p === '/admin/historie') {
 		const object = String(url.searchParams.get('object') || '');
-		return out(200, views.historyPage(ctx, { object, entries: content.history(object) }));
+		return out(200, views.historyPage(ctx, { object, entries: content.history(object), huidigeVersie: content.objectVersion(object), canRestore: can('publiceren') }));
 	}
 	if (req.method === 'GET' && (m = /^\/admin\/historie\/(\d+)$/.exec(p))) {
 		const entry = content.historyEntry(Number(m[1]));
@@ -416,7 +417,7 @@ async function handleAdmin(req, res, url) {
 	}
 	if (isPost && (m = /^\/admin\/media\/(\d+)$/.exec(p))) {
 		if (!needPublish()) return true;
-		try { media.update(Number(m[1]), { alt: Object.fromEntries(LANGS.map((l) => [l, form[`alt_${l}`]])), rechten: form.rechten, bron: form.bron, focus_x: form.focus_x, focus_y: form.focus_y }, user); } catch (e) { return fail(e.status || 400, e.message, ctx); }
+		try { await media.update(Number(m[1]), { alt: Object.fromEntries(LANGS.map((l) => [l, form[`alt_${l}`]])), rechten: form.rechten, bron: form.bron, focus_x: form.focus_x, focus_y: form.focus_y }, user); } catch (e) { return fail(e.status || 400, e.message, ctx); }
 		return go('/admin/media?f=opgeslagen');
 	}
 	if (isPost && (m = /^\/admin\/media\/(\d+)\/verwijderen$/.exec(p))) {
@@ -594,6 +595,22 @@ async function handleAdmin(req, res, url) {
 		return out(200, views.mediaPage({ ...ctx, flash: { ok: !blocked.length, text: `${n} foto${n === 1 ? '' : '’s'} naar de prullenbak.${blocked.length ? ` ${blocked.length} niet verwijderd omdat ze nog gebruikt worden.` : ''}` } }, mediaData()));
 	}
 
+	if (isPost && p === '/admin/paginas/bulk') {
+		if (!needPublish()) return true;
+		const ids = Object.keys(form).filter((k) => /^p_\d+$/.test(k)).map((k) => Number(k.slice(2)));
+		if (!ids.length) return go('/admin/paginas?f=geenselectie');
+		const done = []; const skipped = [];
+		for (const id of ids) {
+			const cur = pages.get(id);
+			if (!cur || ws.heldByOther(pages.object(id), user.id)) { skipped.push(id); continue; }
+			try {
+				if (form.actie === 'prullenbak') pages.remove(id, user);
+				else if (cur.meta.status === 'gepubliceerd') publish.publish('pagina', { id, velden: cur.velden, meta: { ...cur.meta, status: 'concept' }, baseVersie: null }, user);
+				done.push(id);
+			} catch (e) { skipped.push(id); }
+		}
+		return out(200, views.pagesPage({ ...ctx, flash: { ok: !skipped.length, text: `${done.length} pagina${done.length === 1 ? '' : '’s'} ${form.actie === 'prullenbak' ? 'naar de prullenbak' : 'offline gehaald'}.${skipped.length ? ` ${skipped.length} overgeslagen (wordt bewerkt, of er ging iets mis).` : ''}` } }, pagesData()));
+	}
 	/* ---- duplicate, trash ---- */
 	if (isPost && (m = /^\/admin\/paginas\/(\d+)\/dupliceren$/.exec(p))) {
 		if (!needWrite()) return true;
@@ -786,7 +803,7 @@ async function handleAdmin(req, res, url) {
 	const account = (flash2, tf = {}) => out(200, views.accountPage({ ...ctx }, { flash: flash2 || flash, sessions: users.sessionList(user.id, session.id), activity: audit.byUser(user.id, 8), tf: { enabled: !!users.byId(user.id).totp_geheim, left: users.recoveryLeft(user.id), setup: users.pendingTwoFactor(user.id), ...tf } }));
 	if (req.method === 'GET' && p === '/admin/account') return account();
 	if (isPost && p === '/admin/account/naam') { try { users.setName(user.id, form.naam); } catch (e) { return account({ ok: false, text: e.message }); } return go('/admin/account?f=naam'); }
-	if (isPost && p === '/admin/account/meldingen') { users.setPrefs(user.id, { meld_nieuw_bericht: form.meld_nieuw_bericht === '1' && user.rol !== 'lezer', weekrapport: form.weekrapport === '1' && user.rol !== 'lezer' }); return go('/admin/account?f=opgeslagen'); }
+	if (isPost && p === '/admin/account/meldingen') { const w = user.rol !== 'lezer'; users.setPrefs(user.id, { meld_nieuw_bericht: form.meld_nieuw_bericht === '1' && w, weekrapport: form.weekrapport === '1' && w, meld_toewijzing: form.meld_toewijzing === '1' && w, meld_werkdagen: form.meld_werkdagen === '1' && w }); return go('/admin/account?f=opgeslagen'); }
 	if (isPost && p === '/admin/account/sessies-uit') { users.destroyOthers(user.id, session.id); audit.log({ user, actie: 'gebruiker.uitgelogd', entiteit: `gebruiker:${user.id}` }); return go('/admin/account?f=sessies'); }
 	if (isPost && p === '/admin/account') {
 		const ok = reauth(form.current);

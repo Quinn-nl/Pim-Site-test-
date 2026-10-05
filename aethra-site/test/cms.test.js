@@ -62,9 +62,9 @@ function client(user = 'pim@example.org', password = PW) {
 
 /* ---- schema, audit ---- */
 test('migrations run once from database/migrations and are recorded', () => {
-	assert.deepEqual(db.all('SELECT versie, naam FROM schema_versies').map((r) => r.naam), ['001_init.sql', '002_bericht_status.sql', '003_beheer_uitbreidingen.sql', '004_planning_details.sql']);
+	assert.deepEqual(db.all('SELECT versie, naam FROM schema_versies').map((r) => r.naam), ['001_init.sql', '002_bericht_status.sql', '003_beheer_uitbreidingen.sql', '004_planning_details.sql', '005_beheer_ronde_2.sql']);
 	db.open();
-	assert.equal(db.all('SELECT versie FROM schema_versies').length, 4, 'opening again does not repeat a migration');
+	assert.equal(db.all('SELECT versie FROM schema_versies').length, 5, 'opening again does not repeat a migration');
 	const unique = db.all("PRAGMA index_list('vertalingen')").filter((i) => i.unique).map((i) => db.all(`PRAGMA index_info('${i.name}')`).map((c) => c.name).join(','));
 	assert.ok(unique.includes('object,veld,taal'), 'unique index on (object, veld, taal)');
 });
@@ -406,9 +406,10 @@ test('media: WebP and AVIF variants (1x and 2x) are made when the encoders exist
 	const id = await media.saveUpload({ tmpPath: tmp, alt: { en: 'Wide' }, user: { id: adminId }, slot: 'hero' });
 	const m = media.get(id);
 	delete process.env.CWEBP_BIN; delete process.env.AVIFENC_BIN;
-	assert.deepEqual(m.varianten.map((v) => [v.type, v.breedte, v.dichtheid]), [['image/webp', 1200, 1], ['image/webp', 2400, 2]], 'avif is skipped above 2400 px');
+	assert.deepEqual(m.varianten.filter((v) => !v.crop).map((v) => [v.type, v.breedte, v.dichtheid]), [['image/webp', 1200, 1], ['image/webp', 2400, 2]], 'avif is skipped above 2400 px');
+	assert.ok(m.varianten.some((v) => v.crop === '16:9'), 'a 16:9 crop around the focus point is made as well');
 	const html = await (await fetch(`${base}/en/`)).text();
-	assert.match(html, /<picture><source type="image\/webp" srcset="\/uploads\/[0-9a-f]+\.webp 1x, \/uploads\/[0-9a-f]+@2x\.webp 2x"><img class="photo hero-photo"/);
+	assert.match(html, /<picture><source type="image\/webp" srcset="\/uploads\/[0-9a-f]+-16x9-50-50\.webp 1x(?:, \/uploads\/[0-9a-f]+-16x9-50-50@2x\.webp 2x)?"><img class="photo hero-photo"/, 'the picture uses the crops');
 	media.setSlot('hero', null, null);
 	media.remove(id, { id: adminId });
 });
@@ -1327,7 +1328,13 @@ test('link check: internal links against the site, external links safely (no pri
 	assert.equal(linkcheck.isBroken(find('/en/does-not-exist')), true);
 	assert.equal(find('https://example.org/ok').status, 200);
 	assert.equal(find('https://example.org/gone').status, 404, 'HEAD refused with 405: retried as GET');
-	assert.equal(linkcheck.isBroken(find('https://example.org/gone')), true);
+	assert.equal(linkcheck.isBroken(find('https://example.org/gone')), false, 'failed once: only doubtful');
+	assert.equal(linkcheck.isDoubtful(find('https://example.org/gone')), true);
+	await linkcheck.run({ fetcher, timeoutMs: 500, now: Date.now() + 3600 * 1000 });
+	assert.equal(linkcheck.isBroken(linkcheck.results().find((x) => x.url === 'https://example.org/gone')), false, 'a second failure within a day is the same bad moment');
+	await linkcheck.run({ fetcher, timeoutMs: 500, now: Date.now() + 25 * 3600 * 1000 });
+	assert.equal(linkcheck.isBroken(linkcheck.results().find((x) => x.url === 'https://example.org/gone')), true, 'failed again a day later: broken');
+	assert.equal(linkcheck.isBroken(linkcheck.results().find((x) => x.url === '/en/does-not-exist')), true, 'an own address that does not exist is broken at once');
 	assert.equal(find('https://example.org/moved').status, 301);
 	assert.equal(linkcheck.isBroken(find('https://example.org/moved')), false, 'a redirect is not broken');
 	assert.equal(find('http://127.0.0.1:9/secret').status, null);
@@ -1583,4 +1590,92 @@ test('two-step verification follows RFC 6238 (SHA-1 test vectors) and a QR code 
 	const uri = totp.uri(secret, 'pim@example.org', 'Aethra');
 	assert.match(uri, /^otpauth:\/\/totp\/Aethra:pim%40example\.org\?secret=[A-Z2-7]+&issuer=Aethra/);
 	assert.match(uri, /algorithm=SHA1|digits=6|period=30|^otpauth/);
+});
+
+test('16:9 crops with the real tools: right size, new focus point = new files and the old ones are removed', { skip: !(hasBin('cwebp') && hasBin('avifenc') && hasBin('dwebp')) && 'cwebp, dwebp and avifenc are not installed' }, async () => {
+	const media = require('../lib/cms/media');
+	const c = client(); await c.login();
+	const tmp = path.join(cfg.DATA_DIR, `crop-${Date.now()}.png`);
+	fs.writeFileSync(tmp, png(1600, 1200));                          // 4:3: needs a crop
+	const id = await media.saveUpload({ tmpPath: tmp, alt: { en: 'Crop test' }, user: { id: adminId }, slot: 'hero' });
+	const crops = () => media.get(id).varianten.filter((v) => v.crop);
+	assert.deepEqual(crops().map((v) => `${v.type}@${v.dichtheid}`).sort(), ['image/avif@1', 'image/webp@1', 'image/webp@2']);
+	const dims = (file) => { const b = fs.readFileSync(path.join(media.uploadsDir(), file)); return [b.readUInt16LE(26) & 0x3fff, b.readUInt16LE(28) & 0x3fff]; };
+	const w1 = crops().find((v) => v.type === 'image/webp' && v.dichtheid === 1);
+	assert.deepEqual(dims(w1.bestand), [1200, 675], 'the crop is 16:9');
+	assert.ok(/-16x9-50-50\.webp$/.test(w1.bestand));
+	const html = await (await fetch(`${base}/en/`)).text();
+	assert.match(html, /<source type="image\/avif" srcset="\/uploads\/[0-9a-f]+-16x9-50-50\.avif 1x"><source type="image\/webp"/);
+	const before = crops().map((v) => v.bestand);
+	await c.post(`/admin/media/${id}`, { alt_en: 'Crop test', rechten: 'eigen', focus_x: '10', focus_y: '90' });
+	const after = crops().map((v) => v.bestand);
+	assert.ok(after.every((f) => /-16x9-10-90/.test(f)), 'new files for the new focus point');
+	assert.ok(before.every((f) => !fs.existsSync(path.join(media.uploadsDir(), f))), 'the old crops are removed');
+	assert.ok(after.every((f) => fs.existsSync(path.join(media.uploadsDir(), f))));
+	assert.match(await (await fetch(`${base}/en/`)).text(), /-16x9-10-90\.webp/);
+	media.setSlot('hero', null, null); media.remove(id, { id: adminId }); media.purge(id, { id: adminId });
+	assert.ok(after.every((f) => !fs.existsSync(path.join(media.uploadsDir(), f))), 'purging removes the crops too');
+});
+
+/* ---- round 2, block A ---- */
+
+test('bulk pages: take several offline or to the trash; locked pages are skipped; redacteurs cannot', async () => {
+	const c = client(); await c.login();
+	const red = client('red@example.org'); await red.login();
+	const mk = (slug) => { const id = pages.create({ sjabloon: 'standaard', user: { id: adminId } }); const pr = pages.prepare(id, { velden: { en: { titel: slug, slug, seo_description: 'A page for the bulk test that is long enough.', 's.s1.body': '<p>x</p>' } }, meta: { status: 'gepubliceerd' } }); pages.save(id, pr, { user: { id: adminId }, baseVersie: 0 }); return id; };
+	const a = mk('bulk-a'); const b = mk('bulk-b'); const d = mk('bulk-c');
+	const html = await (await c.req('/admin/paginas')).text();
+	assert.ok(html.includes(`name="p_${a}"`) && html.includes('data-bulk-all'));
+	assert.equal((await red.post('/admin/paginas/bulk', { [`p_${a}`]: '1', actie: 'prullenbak' })).status, 403);
+	assert.equal((await c.post('/admin/paginas/bulk', { actie: 'offline' })).status, 303, 'nothing selected: back with a message');
+	let r = await c.post('/admin/paginas/bulk', { [`p_${a}`]: '1', [`p_${b}`]: '1', actie: 'offline' });
+	assert.equal(r.status, 200);
+	assert.match(await r.text(), /2 pagina’s offline gehaald/);
+	assert.equal(pages.get(a).meta.status, 'concept');
+	assert.equal((await fetch(`${base}/en/bulk-a`)).status, 404);
+	r = await c.post('/admin/paginas/bulk', { [`p_${a}`]: '1', [`p_${b}`]: '1', [`p_${d}`]: '1', actie: 'prullenbak' });
+	assert.match(await r.text(), /3 pagina’s naar de prullenbak/);
+	assert.equal(pages.get(d), null);
+	for (const id of [a, b, d]) pages.purge(id, { id: adminId });
+});
+
+test('history list: restore a version straight from the list', async () => {
+	const c = client(); await c.login();
+	content.writeFields('tekst:contact', { en: { contact_title: 'Restore one' } }, { user: { id: adminId } });
+	content.writeFields('tekst:contact', { en: { contact_title: 'Restore two' } }, { user: { id: adminId } });
+	const html = await (await c.req('/admin/historie?object=tekst:contact')).text();
+	const m = /action="\/admin\/historie\/(\d+)\/terugzetten"[^>]*>[\s\S]*?name="basis" value="(\d+)"/.exec(html);
+	assert.ok(m, 'the list has a restore button per version');
+	assert.equal((await c.post(`/admin/historie/${m[1]}/terugzetten`, { basis: m[2] })).status, 303);
+	assert.equal(content.readObject('tekst:contact').en.contact_title, 'Restore one');
+	const rd = client('rob@example.org'); await rd.login();
+	assert.ok(!(await (await rd.req('/admin/historie?object=tekst:contact')).text()).includes('/terugzetten'), 'a reader sees no restore buttons');
+});
+
+test('notification preferences: assignment mails and working days only', () => {
+	const outbox = require('../lib/cms/outbox');
+	const pid = users.create({ email: 'pref@example.org', naam: 'Pref', rol: 'editor', wachtwoord: PW });
+	users.setPrefs(pid, { meld_nieuw_bericht: true, weekrapport: false, meld_toewijzing: true, meld_werkdagen: true });
+	assert.equal(users.byId(pid).meld_werkdagen, 1);
+	const sat = new Date(2031, 0, 4, 12, 0); const wed = new Date(2031, 0, 8, 12, 0);
+	assert.equal(outbox.workdaySlot(wed), 0, 'on a working day: no delay');
+	const slot = new Date(outbox.workdaySlot(sat));
+	assert.deepEqual([slot.getDay(), slot.getHours()], [1, 7], 'Saturday waits until Monday 07:00');
+	assert.equal(new Date(outbox.workdaySlot(new Date(2031, 0, 5, 9, 0))).getDay(), 1, 'also from Sunday');
+	// a delayed mail is not sent before its time
+	const id = outbox.send({ aan: 'pref@example.org', onderwerp: 'Later', tekst: 'x', na: Date.now() + 3600000 });
+	return outbox.tick(Date.now(), async () => ({ sent: true })).then(async (n) => {
+		assert.equal(db.get('SELECT status FROM mail_uit WHERE id = ?', id).status, 'wacht', 'not yet');
+		await outbox.tick(Date.now() + 2 * 3600000, async () => ({ sent: true }));
+		assert.equal(db.get('SELECT status FROM mail_uit WHERE id = ?', id).status, 'verzonden');
+		const m = messages.add({ lang: 'en', name: 'Assign Me', email: 'am@example.org', role: 'Other', message: 'Hi' });
+		const before = db.get("SELECT COUNT(*) AS c FROM mail_uit WHERE aan = 'pref@example.org' AND onderwerp = 'Een bericht is aan je toegewezen'").c;
+		messages.assign(m.id, pid, { id: adminId });
+		assert.equal(db.get("SELECT COUNT(*) AS c FROM mail_uit WHERE aan = 'pref@example.org' AND onderwerp = 'Een bericht is aan je toegewezen'").c, before + 1);
+		messages.assign(m.id, pid, { id: adminId });
+		assert.equal(db.get("SELECT COUNT(*) AS c FROM mail_uit WHERE aan = 'pref@example.org' AND onderwerp = 'Een bericht is aan je toegewezen'").c, before + 1, 'assigning the same person again does not mail again');
+		messages.assign(m.id, pid, { id: pid });
+		messages.remove(m.id, { id: adminId });
+		void n;
+	});
 });

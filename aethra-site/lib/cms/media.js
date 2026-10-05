@@ -156,6 +156,43 @@ async function makeVariants(srcPath, base, ext, width) {
 	return out;
 }
 
+/**
+ * Crops of 16:9 around the focus point (the shape every photo on the site is shown in), as WebP at 1x and 2x and AVIF at 1x.
+ * Smaller files on phones, and the part you marked stays in the picture. Needs cwebp; AVIF also needs dwebp and avifenc.
+ * The file name carries the focus point, because uploads are cached for a year and a new focus must get a new address.
+ */
+async function makeCrops(srcPath, base, ext, width, height, fx = 50, fy = 50) {
+	const out = [];
+	const enc = encodersAvailable();
+	if (!enc.webp || ext === 'webp' || !width || !height) return out;
+	const target = 16 / 9;
+	if (Math.abs(width / height - target) < 0.02) return out;          // already 16:9: the normal variants do the job
+	const cw = width / height > target ? Math.round(height * target) : width;
+	const ch = width / height > target ? height : Math.round(width / target);
+	const x = Math.round(Math.max(0, Math.min(width - cw, ((width - cw) * fx) / 100)));
+	const y = Math.round(Math.max(0, Math.min(height - ch, ((height - ch) * fy) / 100)));
+	const tag = `${base}-16x9-${fx}-${fy}`;
+	const crop = ['-crop', String(x), String(y), String(cw), String(ch)];
+	const x1 = Math.min(cw, 1200); const x2 = Math.min(cw, 2400);
+	const f1 = `${tag}.webp`;
+	if (await run(bin('cwebp', 'CWEBP_BIN'), ['-quiet', '-q', '80', ...crop, ...(cw > x1 ? ['-resize', String(x1), '0'] : []), srcPath, '-o', path.join(uploadsDir(), f1)])) out.push({ bestand: f1, breedte: x1, type: 'image/webp', dichtheid: 1, crop: '16:9' });
+	if (x2 > x1) {
+		const f2 = `${tag}@2x.webp`;
+		if (await run(bin('cwebp', 'CWEBP_BIN'), ['-quiet', '-q', '78', ...crop, ...(cw > x2 ? ['-resize', String(x2), '0'] : []), srcPath, '-o', path.join(uploadsDir(), f2)])) out.push({ bestand: f2, breedte: x2, type: 'image/webp', dichtheid: 2, crop: '16:9' });
+	}
+	if (enc.avif && available('dwebp', 'DWEBP_BIN', ['-version']) && x1 <= 2400) {
+		const png = path.join(tmpDir(), `${tag}.png`);
+		fs.mkdirSync(tmpDir(), { recursive: true, mode: 0o700 });
+		try {
+			if (await run(bin('dwebp', 'DWEBP_BIN'), ['-quiet', path.join(uploadsDir(), f1), '-o', png])) {
+				const fa = `${tag}.avif`;
+				if (await run(bin('avifenc', 'AVIFENC_BIN'), ['--min', '20', '--max', '40', '--speed', '8', png, path.join(uploadsDir(), fa)])) out.push({ bestand: fa, breedte: x1, type: 'image/avif', dichtheid: 1, crop: '16:9' });
+			}
+		} finally { fs.rmSync(png, { force: true }); }
+	}
+	return out;
+}
+
 /* ---- saving ---- */
 const cleanAlt = (alt) => {
 	const out = {};
@@ -182,7 +219,7 @@ async function saveUpload({ tmpPath, alt, rechten = 'eigen', bron = '', user, sl
 	try {
 		await fs.promises.rename(stage, path.join(uploadsDir(), file)); // atomic: a crash never leaves half a file in uploads
 		written.push(file);
-		const variants = await makeVariants(path.join(uploadsDir(), file), base, img.ext, img.width);
+		const variants = [...await makeVariants(path.join(uploadsDir(), file), base, img.ext, img.width), ...await makeCrops(path.join(uploadsDir(), file), base, img.ext, img.width, img.height)];
 		for (const v of variants) written.push(v.bestand);
 		const id = db.tx(() => {
 			const r = db.run('INSERT INTO media (bestand, varianten, breedte, hoogte, grootte, mime, rechten, bron, gebruiker_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', file, JSON.stringify(variants), img.width, img.height, img.data.length, img.type, rechten, String(bron).slice(0, 200), user ? user.id : null);
@@ -235,7 +272,7 @@ function usage(id) {
 /** The shape the page templates use: { url, w, h, alt, variants } in one language. */
 function forView(m, lang) {
 	if (!m) return null;
-	return { file: m.bestand, url: `/uploads/${m.bestand}`, w: m.breedte, h: m.hoogte, focus: [Math.round((m.focus_x == null ? 50 : m.focus_x) / 10) * 10, Math.round((m.focus_y == null ? 50 : m.focus_y) / 10) * 10], alt: m.alt[lang] || m.alt.en || '', illustratie: m.rechten === 'ai_sfeer', variants: m.varianten.map((v) => ({ url: `/uploads/${v.bestand}`, w: v.breedte, type: v.type, d: v.dichtheid })) };
+	return { file: m.bestand, url: `/uploads/${m.bestand}`, w: m.breedte, h: m.hoogte, focus: [Math.round((m.focus_x == null ? 50 : m.focus_x) / 10) * 10, Math.round((m.focus_y == null ? 50 : m.focus_y) / 10) * 10], alt: m.alt[lang] || m.alt.en || '', illustratie: m.rechten === 'ai_sfeer', variants: m.varianten.map((v) => ({ url: `/uploads/${v.bestand}`, w: v.breedte, type: v.type, d: v.dichtheid, crop: v.crop || null })) };
 }
 function slotImages(lang) {
 	const out = {};
@@ -244,7 +281,7 @@ function slotImages(lang) {
 }
 const imageFor = (id, lang) => forView(get(Number(id)), lang);
 
-function update(id, { alt, rechten, bron, focus_x, focus_y }, user) {
+async function update(id, { alt, rechten, bron, focus_x, focus_y }, user) {
 	const m = get(id);
 	if (!m) throw bad(404, 'Foto niet gevonden.');
 	const nextAlt = cleanAlt(alt || m.alt);
@@ -257,7 +294,23 @@ function update(id, { alt, rechten, bron, focus_x, focus_y }, user) {
 		for (const [taal, tekst] of Object.entries(nextAlt)) db.run("INSERT INTO vertalingen (object, veld, taal, waarde, status) VALUES (?, 'alt', ?, ?, 'eerste_versie')", `media:${id}`, taal, tekst);
 	});
 	audit.log({ user, actie: 'media.gewijzigd', entiteit: `media:${id}`, oud: { alt: m.alt, rechten: m.rechten }, nieuw: { alt: nextAlt, rechten: rechten || m.rechten } });
+	const after = db.get('SELECT focus_x, focus_y FROM media WHERE id = ?', id);
+	if (after.focus_x !== m.focus_x || after.focus_y !== m.focus_y) await recrop(id, after.focus_x, after.focus_y);
 	require('./content').invalidate(`media:${id}`);
+}
+
+/** New focus point: the 16:9 crops are made again (and the old ones removed). */
+async function recrop(id, fx, fy) {
+	const m = get(id);
+	if (!m) return;
+	const ext = path.extname(m.bestand).slice(1);
+	const base = path.basename(m.bestand, `.${ext}`);
+	const fresh = await makeCrops(path.join(uploadsDir(), m.bestand), base, ext, m.breedte, m.hoogte, Math.round(fx / 10) * 10, Math.round(fy / 10) * 10);
+	const old = m.varianten.filter((v) => v.crop);
+	const keep = m.varianten.filter((v) => !v.crop);
+	db.run('UPDATE media SET varianten = ? WHERE id = ?', JSON.stringify([...keep, ...fresh]), id);
+	const still = new Set(fresh.map((v) => v.bestand));
+	for (const v of old) if (!still.has(v.bestand)) fs.rmSync(path.join(uploadsDir(), path.basename(v.bestand)), { force: true });
 }
 
 /** To the trash (files stay for 30 days). A photo that is still in use cannot be deleted. */

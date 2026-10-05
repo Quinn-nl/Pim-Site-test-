@@ -162,7 +162,10 @@ function photo(images, slot, cls, { priority = false } = {}) {
 	const fp = img.focus && (img.focus[0] !== 50 || img.focus[1] !== 50) ? ` fp-${img.focus[0]}-${img.focus[1]}` : '';
 	const tag = `<img class="${cls}${fp}" src="${src}" alt="${esc(img.alt || '')}"${size}${load}>`;
 	// Modern formats made by the upload pipeline (cwebp / avifenc), 1x and 2x; the original stays the fallback.
-	const by = (type) => (img.variants || []).filter((v) => v.type === type).sort((a, b) => a.d - b.d);
+	// every photo is shown in 16:9: when crops around the focus point exist they replace the full-size variants
+	const all = img.variants || [];
+	const pool = all.some((v) => v.crop) ? all.filter((v) => v.crop) : all;
+	const by = (type) => pool.filter((v) => v.type === type).sort((a, b) => a.d - b.d);
 	const sources = ['image/avif', 'image/webp'].map((type) => {
 		const list = by(type);
 		return list.length ? `<source type="${type}" srcset="${list.map((v) => `${esc(v.url)} ${v.d === 2 ? '2x' : '1x'}`).join(', ')}">` : '';

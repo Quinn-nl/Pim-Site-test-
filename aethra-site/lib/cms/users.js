@@ -55,7 +55,7 @@ function unseal(b64) {
 }
 
 /* Users */
-const publicUser = (u) => (u ? { id: u.id, email: u.email, naam: u.naam, rol: u.rol, actief: !!u.actief, tweestaps: !!u.totp_geheim, laatste_login: u.laatste_login, aangemaakt: u.aangemaakt, meld_nieuw_bericht: !!u.meld_nieuw_bericht, weekrapport: !!u.weekrapport } : null);
+const publicUser = (u) => (u ? { id: u.id, email: u.email, naam: u.naam, rol: u.rol, actief: !!u.actief, tweestaps: !!u.totp_geheim, laatste_login: u.laatste_login, aangemaakt: u.aangemaakt, meld_nieuw_bericht: !!u.meld_nieuw_bericht, weekrapport: !!u.weekrapport, meld_toewijzing: !!u.meld_toewijzing, meld_werkdagen: !!u.meld_werkdagen } : null);
 const byId = (id) => db.get('SELECT * FROM gebruikers WHERE id = ?', id);
 const byEmail = (email) => db.get('SELECT * FROM gebruikers WHERE email = ?', String(email || '').trim().toLowerCase());
 const list = () => db.all('SELECT * FROM gebruikers ORDER BY naam').map(publicUser);
@@ -272,11 +272,11 @@ const destroySession = (req) => { const id = parseCookies(req.headers.cookie)[CO
 function sessionList(userId, currentId) {
 	return db.all('SELECT id_hash, aangemaakt, laatst_gezien FROM sessies WHERE gebruiker_id = ? ORDER BY laatst_gezien DESC', userId).map((r) => ({ aangemaakt: r.aangemaakt, laatst_gezien: r.laatst_gezien, huidig: r.id_hash === sha(currentId || '') }));
 }
-function setPrefs(id, { meld_nieuw_bericht, weekrapport }) {
-	db.run('UPDATE gebruikers SET meld_nieuw_bericht = ?, weekrapport = ? WHERE id = ?', meld_nieuw_bericht ? 1 : 0, weekrapport ? 1 : 0, id);
+function setPrefs(id, { meld_nieuw_bericht, weekrapport, meld_toewijzing = false, meld_werkdagen = false }) {
+	db.run('UPDATE gebruikers SET meld_nieuw_bericht = ?, weekrapport = ?, meld_toewijzing = ?, meld_werkdagen = ? WHERE id = ?', meld_nieuw_bericht ? 1 : 0, weekrapport ? 1 : 0, meld_toewijzing ? 1 : 0, meld_werkdagen ? 1 : 0, id);
 }
 /** Active people who want mail about new messages / the weekly report (never readers: they have no access to messages). */
-const subscribers = (pref) => db.all(`SELECT id, email, naam, rol FROM gebruikers WHERE actief = 1 AND ${pref === 'weekrapport' ? 'weekrapport' : 'meld_nieuw_bericht'} = 1 AND rol != 'lezer'`);
+const subscribers = (pref) => db.all(`SELECT id, email, naam, rol, meld_werkdagen FROM gebruikers WHERE actief = 1 AND ${pref === 'weekrapport' ? 'weekrapport' : pref === 'toewijzing' ? 'meld_toewijzing' : 'meld_nieuw_bericht'} = 1 AND rol != 'lezer'`);
 /* One-time links: invitation (72 hours) and password reset (1 hour). Only the hash of the token is stored; a new link replaces the old one. */
 const TOKEN_TTL = { uitnodiging: 72 * 3600 * 1000, herstel: 3600 * 1000 };
 function createToken(userId, soort, ttl = TOKEN_TTL[soort]) {

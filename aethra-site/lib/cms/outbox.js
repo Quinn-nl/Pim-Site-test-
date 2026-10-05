@@ -14,10 +14,19 @@ let ticking = false;
 let timer = null;
 let kicked = null;
 
-function send({ aan, onderwerp, tekst, soort = 'melding' }) {
+/** Monday 07:00 (server time) when `now` falls on a weekend, otherwise `now`. For people who want mail on working days only. */
+function workdaySlot(now = new Date()) {
+	const d = new Date(now);
+	const day = d.getDay();
+	if (day >= 1 && day <= 5) return 0;
+	d.setDate(d.getDate() + (day === 6 ? 2 : 1));
+	d.setHours(7, 0, 0, 0);
+	return d.getTime();
+}
+function send({ aan, onderwerp, tekst, soort = 'melding', na = 0 }) {
 	const to = String(aan || '').trim();
 	if (!/^[^\s@<>(),;:\\"]+@[^\s@<>(),;:\\"]+\.[^\s@<>(),;:\\"]+$/.test(to)) return null;
-	const r = db.run('INSERT INTO mail_uit (aan, onderwerp, tekst, soort, status, pogingen, volgende_poging, aangemaakt) VALUES (?, ?, ?, ?, ?, 0, 0, ?)', to, String(onderwerp).slice(0, 200), String(tekst).slice(0, 20000), soort, 'wacht', Date.now());
+	const r = db.run('INSERT INTO mail_uit (aan, onderwerp, tekst, soort, status, pogingen, volgende_poging, aangemaakt) VALUES (?, ?, ?, ?, ?, 0, ?, ?)', to, String(onderwerp).slice(0, 200), String(tekst).slice(0, 20000), soort, 'wacht', Number(na) || 0, Date.now());
 	kick();
 	return r.id;
 }
@@ -28,7 +37,7 @@ async function tick(now = Date.now(), transport = mail.sendMail) {
 	let handled = 0;
 	try {
 		if (!mail.canSend() && transport === mail.sendMail) return 0;
-		const due = db.all("SELECT * FROM mail_uit WHERE status = 'wacht' OR (status = 'mislukt' AND volgende_poging <= ?) ORDER BY id LIMIT 20", now);
+		const due = db.all("SELECT * FROM mail_uit WHERE (status = 'wacht' AND volgende_poging <= ?) OR (status = 'mislukt' AND volgende_poging <= ?) ORDER BY id LIMIT 20", now, now);
 		for (const row of due) {
 			let result;
 			try { result = await transport({ to: [row.aan], subject: row.onderwerp, text: row.tekst }); } catch (e) { result = { sent: false, reason: e.message }; }
@@ -60,4 +69,4 @@ function start() {
 }
 const stop = () => { if (timer) clearInterval(timer); timer = null; if (kicked) clearTimeout(kicked); kicked = null; };
 
-module.exports = { send, tick, list, stats, retry, purge, start, stop, waitAfter, MAX_ATTEMPTS };
+module.exports = { workdaySlot, send, tick, list, stats, retry, purge, start, stop, waitAfter, MAX_ATTEMPTS };

@@ -33,7 +33,7 @@ function notifyNew(m) {
 	const outbox = require('./outbox');
 	const users = require('./users');
 	const link = cfg.SITE_URL ? `${cfg.SITE_URL}/admin/berichten/${m.id}` : `/admin/berichten/${m.id}`;
-	for (const u of users.subscribers('bericht')) outbox.send({ aan: u.email, soort: 'melding', onderwerp: `Nieuw bericht via de website (${m.rol})`, tekst: `Hallo ${u.naam},\n\nEr is een nieuw bericht binnengekomen via het contactformulier van ${m.naam}${m.organisatie ? ' (' + m.organisatie + ')' : ''}, rol: ${m.rol}.\n\nLezen en opvolgen: ${link}\n\nJe ontvangt dit bericht omdat je meldingen hebt aangezet onder Mijn account.\n` });
+	for (const u of users.subscribers('bericht')) outbox.send({ aan: u.email, soort: 'melding', na: u.meld_werkdagen ? outbox.workdaySlot() : 0, onderwerp: `Nieuw bericht via de website (${m.rol})`, tekst: `Hallo ${u.naam},\n\nEr is een nieuw bericht binnengekomen via het contactformulier van ${m.naam}${m.organisatie ? ' (' + m.organisatie + ')' : ''}, rol: ${m.rol}.\n\nLezen en opvolgen: ${link}\n\nJe ontvangt dit bericht omdat je meldingen hebt aangezet onder Mijn account.\n` });
 }
 function enqueue(berichtId, soort) {
 	db.run('INSERT INTO uitgaande_wachtrij (bericht_id, soort, status, aantal_pogingen, volgende_poging, aangemaakt) VALUES (?, ?, ?, 0, 0, ?)', berichtId, soort, 'wacht', Date.now());
@@ -118,7 +118,17 @@ function setNote(id, notitie, user) {
 	audit.log({ user, actie: 'bericht.notitie', entiteit: `bericht:${id}` });
 }
 function assign(id, userId, user) {
+	const before = get(id);
 	db.run('UPDATE berichten SET toegewezen_aan = ? WHERE id = ?', userId || null, id);
+	if (userId && before && before.toegewezen_aan !== userId && userId !== (user && (user.id || user))) {
+		try {
+			const target = require('./users').subscribers('toewijzing').find((u) => u.id === userId);
+			if (target) {
+				const outbox = require('./outbox');
+				outbox.send({ aan: target.email, soort: 'melding', na: target.meld_werkdagen ? outbox.workdaySlot() : 0, onderwerp: 'Een bericht is aan je toegewezen', tekst: `Hallo ${target.naam},\n\nEen bericht van ${before.naam} (rol: ${before.rol}) is aan jou toegewezen.\n\nOpen het in het beheer: ${cfg.SITE_URL ? cfg.SITE_URL + '/admin/berichten/' + id : '/admin/berichten/' + id}\n` });
+			}
+		} catch (e) { /* a notification problem never blocks the assignment */ }
+	}
 	audit.log({ user, actie: 'bericht.toegewezen', entiteit: `bericht:${id}`, nieuw: userId || null });
 }
 function remove(id, user) {
