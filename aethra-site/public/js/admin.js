@@ -394,6 +394,56 @@
 	const bind = (idn, fn) => { const b = document.getElementById(idn); if (b) b.addEventListener('click', fn); };
 	bind('btn-save', () => save(kind === 'pagina' ? ed.dataset.status : undefined));
 	bind('btn-publish', () => save('gepubliceerd'));
+	// a small modal for the share and plan buttons
+	function modal(title, nodes, buttons) {
+		return new Promise((resolve) => {
+			const d = el('dialog', { class: 'dlg slim', 'aria-labelledby': 'mdl-t' });
+			const done = (v) => { d.close(); d.remove(); resolve(v); };
+			const bar = el('div', { class: 'actions' }, ...buttons.map(([label, value, cls]) => { const b = el('button', { type: 'button', class: cls || '', text: label }); b.addEventListener('click', () => done(value)); return b; }));
+			d.append(el('h2', { id: 'mdl-t', text: title }), ...nodes, bar);
+			d.addEventListener('cancel', () => done(null));
+			document.body.append(d);
+			d.showModal();
+		});
+	}
+	const csrfToken = () => document.body.dataset.csrf;
+	bind('btn-share', async () => {
+		const days = el('select', { id: 'sh-days', 'aria-label': 'Geldig voor' }, ...[[1, '1 dag'], [3, '3 dagen'], [7, '7 dagen'], [14, '14 dagen']].map(([v, t]) => el('option', { value: String(v), text: t, selected: v === 7 })));
+		const out = el('div', { id: 'sh-out' });
+		const dlg = modal('Voorbeeldlink delen', [el('p', { class: 'hint', text: 'Iemand zonder account kan met deze link een voorbeeld van je concept lezen, zoals het nu in de editor staat. Het voorbeeld wordt niet door zoekmachines gevonden. Iedereen met de link kan het zien tot hij verloopt of wordt ingetrokken (Voorbeeldlinks).' }), el('div', { class: 'row' }, el('label', { for: 'sh-days', text: 'Geldig voor' }), days), out], [['Sluiten', null, 'secondary'], ['Link maken', 'make']]);
+		const choice = await dlg;
+		if (choice !== 'make') return;
+		const c = collect();
+		const r = await api('/admin/voorbeeldlink', { ...c, kind, id, lang: pv('lang').value, path: pv('path') ? pv('path').value : '/', days: Number(days.value) });
+		if (r.data && r.data.ok) await modal('Je voorbeeldlink', [el('p', { class: 'hint', text: `Geldig tot ${new Date(r.data.verloopt).toLocaleString('nl-NL', { dateStyle: 'long', timeStyle: 'short' })}. Deel hem alleen met mensen die het concept mogen zien.` }), el('input', { type: 'text', readonly: true, value: r.data.url, 'aria-label': 'Voorbeeldlink', onclick: 'this.select()' })], [['Klaar', null]]);
+		else say('err', (r.data && r.data.melding) || 'De link kon niet worden gemaakt.');
+	});
+	async function plan(reason) {
+		const when = el('input', { type: 'datetime-local', id: 'pl-when', required: true });
+		const t = new Date(Date.now() + 3600 * 1000); t.setMinutes(0, 0, 0);
+		when.value = new Date(t.getTime() - t.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+		const live = kind === 'pagina' && ed.dataset.status === 'gepubliceerd';
+		const acts = kind === 'pagina' ? [['publiceren', 'Publiceren'], ['depubliceren', 'Offline halen']] : [['publiceren', 'Publiceren']];
+		const sel = el('select', { id: 'pl-act', 'aria-label': 'Wat moet er gebeuren' }, ...acts.map(([v, tx]) => el('option', { value: v, text: tx, selected: v === (live ? 'depubliceren' : 'publiceren') })));
+		const choice = await modal('Publicatie plannen', [el('p', { class: 'hint', text: 'Kies wat en wanneer. Publiceren gebruikt wat er nu in de editor staat en gaat dan door dezelfde controles als anders. Het moment is in jouw tijdzone.' }), el('div', { class: 'row' }, el('label', { for: 'pl-act', text: 'Wat' }), sel), el('div', { class: 'row' }, el('label', { for: 'pl-when', text: 'Wanneer' }), when)], [['Annuleren', null, 'secondary'], ['Inplannen', 'go']]);
+		if (choice !== 'go' || !when.value) return;
+		const c = collect();
+		const r = await api('/admin/plannen', { ...c, kind, id, actie: sel.value, wanneer: new Date(when.value).getTime(), baseVersie: version, override_reason: reason || undefined });
+		const d = r.data || {};
+		if (r.status === 200 && d.ok) { toast('Ingepland'); showPlanned(); return; }
+		if (r.status === 409 && d.waarschuwingen) { const why = await dialog('Waarschuwingen bij plannen', 'Deze punten zijn geen harde fout. Je kunt toch plannen met een reden; die wordt vastgelegd.', lines(d.waarschuwingen), true); if (why) return plan(why); return; }
+		say('err', d.melding || 'Plannen is niet gelukt.', lines(d.fouten));
+	}
+	bind('btn-plan', () => plan());
+	async function showPlanned() {
+		const box = $('#plannote');
+		if (!box) return;
+		const r = await fetch(`/admin/api/planning?object=${encodeURIComponent(object)}`, { headers: { accept: 'application/json' } }).then((x) => x.json()).catch(() => null);
+		const items = (r && r.items) || [];
+		box.hidden = !items.length;
+		box.textContent = items.map((i) => `${i.actie === 'publiceren' ? 'Publicatie' : 'Offline halen'} gepland op ${new Date(i.wanneer).toLocaleString('nl-NL', { dateStyle: 'long', timeStyle: 'short' })}`).join(' · ') + (items.length ? ' (zie Planning om te annuleren)' : '');
+	}
+	showPlanned();
 	bind('btn-unpublish', () => { if (window.confirm('Deze pagina offline halen? Hij blijft als concept bewaard.')) save('concept'); });
 	const reviewBtn = $('#review-btn');
 	if (reviewBtn) reviewBtn.addEventListener('click', async () => {
@@ -761,6 +811,26 @@
 				}
 				last = n;
 			} catch (e) { /* ignore */ }
+		});
+	}
+})();
+
+
+/* ---- focus point of a photo ---- */
+(function () {
+	'use strict';
+	for (const box of document.querySelectorAll('[data-focus]')) {
+		const img = box.querySelector('.focus-img');
+		const dot = box.querySelector('.focus-dot');
+		const x = box.querySelector('[name=focus_x]');
+		const y = box.querySelector('[name=focus_y]');
+		const place = (px, py) => { dot.style.left = `${px}%`; dot.style.top = `${py}%`; };
+		place(Number(dot.dataset.x), Number(dot.dataset.y));
+		img.addEventListener('click', (e) => {
+			const r = img.getBoundingClientRect();
+			const px = Math.min(100, Math.max(0, Math.round(((e.clientX - r.left) / r.width) * 100)));
+			const py = Math.min(100, Math.max(0, Math.round(((e.clientY - r.top) / r.height) * 100)));
+			x.value = String(px); y.value = String(py); place(px, py);
 		});
 	}
 })();

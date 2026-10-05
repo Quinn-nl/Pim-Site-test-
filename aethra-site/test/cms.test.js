@@ -62,9 +62,9 @@ function client(user = 'pim@example.org', password = PW) {
 
 /* ---- schema, audit ---- */
 test('migrations run once from database/migrations and are recorded', () => {
-	assert.deepEqual(db.all('SELECT versie, naam FROM schema_versies').map((r) => r.naam), ['001_init.sql', '002_bericht_status.sql', '003_beheer_uitbreidingen.sql']);
+	assert.deepEqual(db.all('SELECT versie, naam FROM schema_versies').map((r) => r.naam), ['001_init.sql', '002_bericht_status.sql', '003_beheer_uitbreidingen.sql', '004_planning_details.sql']);
 	db.open();
-	assert.equal(db.all('SELECT versie FROM schema_versies').length, 3, 'opening again does not repeat a migration');
+	assert.equal(db.all('SELECT versie FROM schema_versies').length, 4, 'opening again does not repeat a migration');
 	const unique = db.all("PRAGMA index_list('vertalingen')").filter((i) => i.unique).map((i) => db.all(`PRAGMA index_info('${i.name}')`).map((c) => c.name).join(','));
 	assert.ok(unique.includes('object,veld,taal'), 'unique index on (object, veld, taal)');
 });
@@ -290,6 +290,10 @@ test('pages: draft is invisible, publish shows it with hreflang, slug change red
 	assert.equal((await fetch(`${base}/en/pilot`)).status, 404);
 	pages.remove(id, { id: adminId });
 	pages.remove(other, { id: adminId });
+	assert.equal(pages.get(id), null, 'in the trash');
+	assert.equal(pages.trash().filter((t) => [id, other].includes(t.id)).length, 2);
+	pages.purge(id, { id: adminId });
+	pages.purge(other, { id: adminId });
 	assert.equal(db.get('SELECT COUNT(*) AS n FROM vertalingen WHERE object LIKE ?', `pagina:${id}`).n, 0);
 });
 
@@ -1073,4 +1077,202 @@ test('weekly report: only on Monday morning, once a week, only for people who as
 	assert.match(row.tekst, /Bezoek: \d+ paginaweergaven/);
 	assert.match(row.tekst, /Te beoordelen voorstellen: 0/);
 	assert.equal(report.sendWeekly(new Date(2031, 0, 13, 9, 0)), 1, 'the next week again');
+});
+
+/* ---- block 3: trash, duplicate, planning, preview links, translations, focus point, side-by-side diff ---- */
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+test('trash: pages and photos are restorable for 30 days, then gone; slug conflicts block a restore', async () => {
+	const media = require('../lib/cms/media');
+	const c = client(); await c.login();
+	const mk = (slug) => { const id = pages.create({ sjabloon: 'standaard', user: { id: adminId } }); const pr = pages.prepare(id, { velden: { en: { titel: slug, slug, 's.s1.body': '<p>x</p>' } }, meta: { status: 'gepubliceerd', indexeren: false } }); pages.save(id, pr, { user: { id: adminId }, baseVersie: 0 }); return id; };
+	const id = mk('trash-me');
+	assert.equal((await fetch(`${base}/en/trash-me`)).status, 200);
+	assert.equal((await c.post(`/admin/paginas/${id}/verwijderen`, {})).status, 303);
+	assert.equal((await fetch(`${base}/en/trash-me`)).status, 404, 'gone from the site at once');
+	assert.equal((await c.req(`/admin/paginas/${id}`)).status, 404, 'and from the editor');
+	assert.match(await (await c.req('/admin/prullenbak')).text(), /trash-me/);
+	// someone takes the address in the meantime
+	const other = mk('trash-me');
+	assert.equal((await c.post(`/admin/prullenbak/pagina/${id}/terugzetten`, {})).status, 409, 'conflict: the address is used by another page');
+	pages.remove(other, { id: adminId }); pages.purge(other, { id: adminId });
+	assert.equal((await c.post(`/admin/prullenbak/pagina/${id}/terugzetten`, {})).status, 303);
+	assert.equal(pages.get(id).meta.status, 'concept', 'comes back as a draft');
+	assert.equal((await fetch(`${base}/en/trash-me`)).status, 404, 'a draft is not public');
+	// 30 days
+	pages.remove(id, { id: adminId });
+	db.run("UPDATE paginas SET verwijderd_op = '2020-01-01T00:00:00.000Z' WHERE id = ?", id);
+	assert.equal(pages.purgeOld(), 1);
+	assert.equal(db.get('SELECT COUNT(*) AS n FROM paginas WHERE id = ?', id).n, 0);
+
+	// photos: in use = cannot be deleted; unused = trash, restore, purge removes the files
+	const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+	const tmp = path.join(cfg.DATA_DIR, 'tmp-trash.png'); fs.writeFileSync(tmp, png);
+	const mid = await media.saveUpload({ tmpPath: tmp, alt: { en: 'tiny' }, user: { id: adminId } });
+	const file = media.get(mid).bestand;
+	media.remove(mid, { id: adminId });
+	assert.equal(media.get(mid), null);
+	assert.ok(fs.existsSync(path.join(media.uploadsDir(), file)), 'the file stays while it is in the trash');
+	media.restore(mid, { id: adminId });
+	assert.ok(media.get(mid));
+	media.remove(mid, { id: adminId });
+	db.run("UPDATE media SET verwijderd_op = '2020-01-01T00:00:00.000Z' WHERE id = ?", mid);
+	assert.equal(media.purgeOld(), 1);
+	assert.ok(!fs.existsSync(path.join(media.uploadsDir(), file)));
+	// permissions: an editor restores but only an administrator deletes for good
+	const ed = client('els@example.org'); await ed.login();
+	const id2 = mk('trash-two'); pages.remove(id2, { id: adminId });
+	assert.equal((await ed.post(`/admin/prullenbak/pagina/${id2}/verwijderen`, {})).status, 403);
+	assert.equal((await ed.post(`/admin/prullenbak/pagina/${id2}/terugzetten`, {})).status, 303);
+});
+
+test('duplicate: same template, layout and texts, a free address, always a draft', async () => {
+	const c = client(); await c.login();
+	const id = pages.create({ sjabloon: 'standaard', user: { id: adminId } });
+	const pr = pages.prepare(id, { velden: { en: { titel: 'Original', slug: 'original', 's.s1.body': '<p>Body text</p>' }, nl: { titel: 'Origineel', slug: 'origineel', 's.s1.body': '<p>Tekst</p>' } }, meta: { status: 'gepubliceerd', in_footer: true } });
+	pages.save(id, pr, { user: { id: adminId }, baseVersie: 0 });
+	const r = await c.post(`/admin/paginas/${id}/dupliceren`, {});
+	assert.equal(r.status, 303);
+	const copy = Number(/paginas\/(\d+)/.exec(r.headers.get('location'))[1]);
+	const a = pages.get(copy);
+	assert.equal(a.meta.status, 'concept');
+	assert.equal(a.meta.in_footer, false);
+	assert.deepEqual(a.meta.indeling, pages.get(id).meta.indeling);
+	assert.equal(a.velden.en.titel, 'Original (kopie)');
+	assert.equal(a.velden.en.slug, 'original-kopie');
+	assert.equal(a.velden.nl['s.s1.body'], '<p>Tekst</p>');
+	const again = pages.duplicate(id, { id: adminId });
+	assert.equal(pages.get(again).velden.en.slug, 'original-kopie-2', 'a free address');
+	// from the "new page" screen
+	const via = await c.post('/admin/paginas/nieuw', { kopie_van: String(id) });
+	assert.equal(via.status, 303);
+	assert.match(await (await c.req('/admin/paginas/nieuw')).text(), /kopie van een bestaande pagina/);
+	assert.equal((await c.post('/admin/paginas/nieuw', { kopie_van: '999999' })).status, 404);
+	for (const x of [id, copy, again, Number(/paginas\/(\d+)/.exec(via.headers.get('location'))[1])]) { pages.remove(x, { id: adminId }); pages.purge(x, { id: adminId }); }
+});
+
+test('planning: validated like a publication, runs at the time as the planner, fails safely, can be cancelled', async () => {
+	const planning = require('../lib/cms/planning');
+	const c = client(); await c.login();
+	const ed = client('els@example.org'); await ed.login();
+	const red = client('red@example.org'); await red.login();
+	const id = pages.create({ sjabloon: 'standaard', user: { id: adminId } });
+	const payload = (title) => ({ kind: 'pagina', id, velden: { en: { titel: title, slug: 'planned', seo_description: 'A page that appears on schedule.', 's.s1.body': '<p>Hi</p>' } }, meta: { status: 'concept' }, baseVersie: content.objectVersion(pages.object(id)) });
+	const soon = Date.now() + 120000;
+	assert.equal((await red.json('/admin/plannen', { ...payload('Planned'), actie: 'publiceren', wanneer: soon })).status, 403, 'a redacteur cannot plan');
+	assert.equal((await c.json('/admin/plannen', { ...payload('Planned'), actie: 'publiceren', wanneer: Date.now() - 1000 })).status, 400, 'not in the past');
+	assert.equal((await c.json('/admin/plannen', { ...payload('Guaranteed returns'), actie: 'publiceren', wanneer: soon })).status, 422, 'hard compliance errors are caught when planning');
+	assert.equal((await c.json('/admin/plannen', { ...payload('Planned'), actie: 'depubliceren', kind: 'tekst', id: 'hero', wanneer: soon })).status, 400, 'only pages can be taken offline');
+	let r = await c.json('/admin/plannen', { ...payload('Planned'), actie: 'publiceren', wanneer: soon });
+	assert.equal(r.status, 200);
+	assert.equal(planning.forObject(pages.object(id)).length, 1);
+	assert.match(await (await c.req('/admin/planning')).text(), /Komende acties \(1\)/);
+	assert.equal((await fetch(`${base}/en/planned`)).status, 404, 'not yet');
+	assert.deepEqual(planning.run(Date.now()), { ran: 0, failed: 0 }, 'not due');
+	assert.deepEqual(planning.run(soon + 1000), { ran: 1, failed: 0 });
+	assert.equal((await fetch(`${base}/en/planned`)).status, 200, 'live at the planned time');
+	assert.equal(planning.list({ status: 'klaar' }).length >= 1, true);
+	assert.ok(db.get("SELECT 1 FROM audit_logs WHERE actie = 'planning.uitgevoerd'"));
+
+	// planned unpublish; cancel works
+	const off = await c.json('/admin/plannen', { kind: 'pagina', id, actie: 'depubliceren', wanneer: soon + 3600000 });
+	assert.equal(off.status, 200);
+	const row = planning.forObject(pages.object(id))[0];
+	assert.equal((await ed.post(`/admin/planning/${row.id}/annuleren`, {})).status, 303);
+	assert.equal(planning.run(soon + 7200000).ran, 0, 'cancelled: nothing happens');
+	// a plan that cannot run is marked failed with a reason and mailed
+	await c.json('/admin/plannen', { ...payload('Second version'), actie: 'publiceren', wanneer: soon + 10000 });
+	content.writeFields(pages.object(id), { en: { titel: 'Edited meanwhile' } }, { user: { id: adminId }, baseVersie: null, vervang: false });
+	assert.deepEqual(planning.run(soon + 20000), { ran: 0, failed: 1 });
+	const failed = planning.list({ status: 'mislukt' })[0];
+	assert.match(failed.fout, /intussen iets anders gewijzigd/);
+	assert.ok(db.get("SELECT 1 FROM mail_uit WHERE soort = 'planning'"));
+	assert.equal((await fetch(`${base}/en/planned`)).status, 200, 'the live page is untouched');
+	// the planner lost the right to publish
+	await c.json('/admin/plannen', { ...payload('Third'), actie: 'publiceren', wanneer: soon + 30000 });
+	db.run("UPDATE gebruikers SET rol = 'lezer' WHERE id = ?", editorId);
+	db.run('UPDATE planning SET door = ? WHERE status = ?', editorId, 'wacht');
+	assert.equal(planning.run(soon + 40000).failed, 1);
+	db.run("UPDATE gebruikers SET rol = 'editor' WHERE id = ?", editorId);
+	pages.remove(id, { id: adminId }); pages.purge(id, { id: adminId });
+});
+
+test('preview links: secret, hashed, expiring, revocable, noindex, never cached', async () => {
+	const sharelinks = require('../lib/cms/sharelinks');
+	const c = client(); await c.login();
+	const red = client('red@example.org'); await red.login();
+	const body = { kind: 'tekst', id: 'contact', lang: 'en', path: '/contact', velden: { en: { contact_title: 'Draft contact title' } }, days: 3 };
+	const r = await red.json('/admin/voorbeeldlink', body);          // a redacteur may share drafts
+	assert.equal(r.status, 200);
+	const { url } = await r.json();
+	const token = url.split('/voorbeeld/')[1];
+	assert.ok(token && token.length === 43);
+	assert.ok(!db.all('SELECT token_hash FROM voorbeeld_links').some((x) => x.token_hash === token), 'only a hash is stored');
+	const page = await fetch(`${base}/voorbeeld/${token}`);
+	assert.equal(page.status, 200);
+	assert.equal(page.headers.get('cache-control'), 'no-store');
+	assert.match(page.headers.get('x-robots-tag'), /noindex/);
+	const html = await page.text();
+	assert.match(html, /Draft contact title/);
+	assert.match(html, /noindex, nofollow/);
+	assert.match(html, /Preview of an unpublished draft/);
+	assert.ok(!html.includes('<script'), 'no scripts in a shared preview');
+	assert.ok(!(await (await fetch(`${base}/en/contact`)).text()).includes('Draft contact title'), 'the live page is unchanged');
+	assert.equal((await fetch(`${base}/voorbeeld/${'a'.repeat(43)}`)).status, 404);
+	assert.equal((await c.json('/admin/voorbeeldlink', { ...body, kind: 'tekst', id: 'nonexistent_group' })).status, 400);
+	assert.match(await (await c.req('/admin/voorbeeldlinks')).text(), /tekst:contact/);
+	// expiry and revocation
+	assert.equal(sharelinks.find(token, Date.now() + 4 * 86400000), null, 'expired after 3 days');
+	const hash = sharelinks.active()[0].token_hash;
+	assert.equal((await c.post(`/admin/voorbeeldlinks/${hash}/intrekken`, {})).status, 303);
+	assert.equal((await fetch(`${base}/voorbeeld/${token}`)).status, 404, 'revoked');
+});
+
+test('translations overview: outdated means English changed after the translation was written or reviewed', async () => {
+	const translations = require('../lib/cms/translations');
+	const obj = 'tekst:contact';
+	content.writeFields(obj, { en: { contact_title: 'Talk to us', contact_lead: 'We read everything.' }, nl: { contact_title: 'Praat met ons' } }, { user: { id: adminId } });
+	const cellOf = (lang) => translations.overview().find((r) => r.kind === 'tekst' && r.href === '/admin/tekst/contact').cells[lang];
+	assert.equal(cellOf('nl').outdated, 0);
+	await sleep(15);
+	content.writeFields(obj, { en: { contact_title: 'Talk with us' } }, { user: { id: adminId } });
+	assert.equal(cellOf('nl').outdated, 1, 'English was changed after the Dutch text');
+	assert.equal(cellOf('de').state, 'standaard');
+	await sleep(15);
+	content.markReviewed(obj, 'nl', { id: adminId });
+	assert.equal(cellOf('nl').outdated, 0, 'reviewing counts as up to date');
+	assert.equal(cellOf('nl').state, 'nagekeken');
+	const c = client(); await c.login();
+	const html = await (await c.req('/admin/vertalingen')).text();
+	assert.match(html, /Vertalingen/);
+	assert.match(html, /Privacyverklaring/);
+});
+
+test('focus point: stored per photo and used by the public page; the side-by-side diff shows old and new', async () => {
+	const media = require('../lib/cms/media');
+	const c = client(); await c.login();
+	const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+	const tmp = path.join(cfg.DATA_DIR, 'tmp-focus.png'); fs.writeFileSync(tmp, png);
+	const mid = await media.saveUpload({ tmpPath: tmp, alt: { en: 'Focus test' }, user: { id: adminId }, slot: 'hero' });
+	assert.deepEqual(media.forView(media.get(mid), 'en').focus, [50, 50]);
+	assert.ok(!(await (await fetch(`${base}/en/`)).text()).includes('fp-'), 'the default focus adds nothing');
+	assert.equal((await c.post(`/admin/media/${mid}`, { alt_en: 'Focus test', rechten: 'eigen', bron: '', focus_x: '23', focus_y: '81' })).status, 303);
+	assert.deepEqual(media.forView(media.get(mid), 'en').focus, [20, 80], 'rounded to steps of 10');
+	assert.match(await (await fetch(`${base}/en/`)).text(), /class="photo hero-photo fp-20-80"/);
+	assert.match(fs.readFileSync(path.join(cfg.ROOT, 'public/css/site.css'), 'utf8'), /\.fp-20-80 \{ object-position: 20% 80%; \}/);
+	await c.post(`/admin/media/${mid}`, { alt_en: 'Focus test', rechten: 'eigen', focus_x: '500', focus_y: '-5' });
+	assert.deepEqual([media.get(mid).focus_x, media.get(mid).focus_y], [100, 0], 'clamped to 0..100');
+	assert.match(await (await c.req('/admin/media')).text(), /data-focus/);
+	media.setSlot('hero', null, null); media.remove(mid, { id: adminId });
+
+	// side-by-side
+	content.writeFields('tekst:contact', { en: { contact_title: 'Version one' } }, { user: { id: adminId } });
+	content.writeFields('tekst:contact', { en: { contact_title: 'Version two' } }, { user: { id: adminId } });
+	const entry = content.history('tekst:contact')[0];
+	const html = await (await c.req(`/admin/historie/${entry.id}`)).text();
+	assert.match(html, /class="sbs"/);
+	assert.match(html, /Toen \(versie \d+\)/);
+	assert.match(html, /sbs-l[^"]*del[^>]*>[^<]*Version one/);
+	assert.match(html, /sbs-r[^"]*add[^>]*>[^<]*Version two/);
 });

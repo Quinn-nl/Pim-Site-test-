@@ -17,6 +17,9 @@ const settings = require('./settings');
 const backup = require('./backup');
 const outbox = require('./outbox');
 const reviews = require('./reviews');
+const planning = require('./planning');
+const sharelinks = require('./sharelinks');
+const translations = require('./translations');
 const fs = require('fs');
 const path = require('path');
 const mail = require('../mail');
@@ -101,7 +104,7 @@ const FLASH = {
 	opgeslagen: { ok: true, text: 'Opgeslagen.' }, verwijderd: { ok: true, text: 'Verwijderd.' }, wachtwoord: { ok: true, text: 'Wachtwoord gewijzigd. Andere sessies zijn uitgelogd.' },
 	foutwachtwoord: { ok: false, text: 'Het huidige wachtwoord klopt niet.' }, kort: { ok: false, text: 'Gebruik minstens 12 tekens.' }, nofile: { ok: false, text: 'Kies eerst een bestand.' },
 	badimg: { ok: false, text: 'Upload een JPG-, PNG- of WebP-afbeelding van maximaal 5 MB.' }, teruggezet: { ok: true, text: 'Teruggezet. De vorige staat staat in de geschiedenis.' }, gemaakt: { ok: true, text: 'Aangemaakt.' },
-	backup: { ok: true, text: 'Back-up gemaakt.' }, goedgekeurd: { ok: true, text: 'Goedgekeurd en gepubliceerd.' }, geenselectie: { ok: false, text: 'Vink eerst een of meer berichten aan.' }, naam: { ok: true, text: 'Naam bijgewerkt.' }, sessies: { ok: true, text: 'Alle andere apparaten zijn uitgelogd.' },
+	backup: { ok: true, text: 'Back-up gemaakt.' }, goedgekeurd: { ok: true, text: 'Goedgekeurd en gepubliceerd.' }, teruggezet: { ok: true, text: 'Teruggezet. Een pagina komt terug als concept.' }, geenselectie: { ok: false, text: 'Vink eerst een of meer berichten aan.' }, naam: { ok: true, text: 'Naam bijgewerkt.' }, sessies: { ok: true, text: 'Alle andere apparaten zijn uitgelogd.' },
 	geblokkeerd: { ok: false, text: 'Te veel pogingen. Probeer het later opnieuw.' },
 };
 
@@ -236,9 +239,10 @@ async function handleAdmin(req, res, url) {
 
 	/* ---- pages and texts: lists ---- */
 	if (req.method === 'GET' && p === '/admin/paginas') return out(200, views.pagesPage(ctx, { extra: pages.list(), locks: ws.snapshot(), info: Object.fromEntries(db.all('SELECT o.object, o.gewijzigd_op, g.naam FROM objecten o LEFT JOIN gebruikers g ON g.id = o.gewijzigd_door').map((r) => [r.object, r])) }));
-	if (req.method === 'GET' && p === '/admin/paginas/nieuw') return out(200, views.newPagePage(ctx));
+	if (req.method === 'GET' && p === '/admin/paginas/nieuw') return out(200, views.newPagePage(ctx, { existing: pages.list() }));
 	if (isPost && p === '/admin/paginas/nieuw') {
 		if (!needWrite()) return true;
+		if (/^\d+$/.test(String(form.kopie_van || ''))) { try { return go(`/admin/paginas/${pages.duplicate(Number(form.kopie_van), user)}`); } catch (e) { return fail(e.status || 400, e.errors ? e.errors[0] : e.message, ctx); } }
 		if (!TEMPLATES[form.sjabloon]) return go('/admin/paginas/nieuw');
 		const id = pages.create({ sjabloon: form.sjabloon, user });
 		return go(`/admin/paginas/${id}`);
@@ -345,16 +349,11 @@ async function handleAdmin(req, res, url) {
 		try { payload = JSON.parse(String(form.payload || '{}')); } catch (e) { return out(400, '<p>Ongeldig voorbeeld.</p>'); }
 		const lang = LANGS.includes(payload.lang) ? payload.lang : 'en';
 		const siteUrl = cfg.SITE_URL || `${cfg.SECURE ? 'https' : 'http'}://${req.headers.host || 'localhost'}`;
-		let html = null;
-		try {
-			if (payload.kind === 'pagina') html = render.previewPage({ lang, velden: payload.velden, meta: payload.meta, siteUrl });
-			else if (payload.kind === 'privacy') html = render.previewText({ lang, path: '/privacy', velden: {}, privacy: payload.velden && payload.velden[lang] && payload.velden[lang].text, siteUrl });
-			else html = render.previewText({ lang, path: String(payload.path || '/'), velden: payload.velden, siteUrl });
-		} catch (e) { html = null; }
+		const html = render.previewAny({ kind: payload.kind, lang, velden: payload.velden, meta: payload.meta, path: payload.path, siteUrl });
 		if (!html) return out(200, '<!doctype html><meta charset="utf-8"><p style="font:16px system-ui;padding:2rem">Voor deze pagina is geen voorbeeld beschikbaar.</p>', { 'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'", 'X-Frame-Options': 'SAMEORIGIN' });
-		html = html.replace('<head>', '<head>\n<base target="_blank">').replace(/<script[\s\S]*?<\/script>/g, '');
+		const shown = html.replace('<head>', '<head>\n<base target="_blank">').replace(/<script[\s\S]*?<\/script>/g, '');
 		res.writeHead(200, headers(nonce, { 'Content-Type': 'text/html; charset=utf-8', 'Content-Security-Policy': "default-src 'none'; style-src 'self'; img-src 'self'; font-src 'self'; script-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'", 'X-Frame-Options': 'SAMEORIGIN' }));
-		res.end(html);
+		res.end(shown);
 		return true;
 	}
 
@@ -409,7 +408,7 @@ async function handleAdmin(req, res, url) {
 	}
 	if (isPost && (m = /^\/admin\/media\/(\d+)$/.exec(p))) {
 		if (!needPublish()) return true;
-		try { media.update(Number(m[1]), { alt: Object.fromEntries(LANGS.map((l) => [l, form[`alt_${l}`]])), rechten: form.rechten, bron: form.bron }, user); } catch (e) { return fail(e.status || 400, e.message, ctx); }
+		try { media.update(Number(m[1]), { alt: Object.fromEntries(LANGS.map((l) => [l, form[`alt_${l}`]])), rechten: form.rechten, bron: form.bron, focus_x: form.focus_x, focus_y: form.focus_y }, user); } catch (e) { return fail(e.status || 400, e.message, ctx); }
 		return go('/admin/media?f=opgeslagen');
 	}
 	if (isPost && (m = /^\/admin\/media\/(\d+)\/verwijderen$/.exec(p))) {
@@ -538,6 +537,63 @@ async function handleAdmin(req, res, url) {
 	};
 	/** After a critical action the session id changes. */
 	const rotated = (to, extra = {}) => { const s = users.rotateSession(session, req, ip); return go(to, { 'Set-Cookie': users.cookieHeader(s.id, 8 * 3600), ...extra }); };
+
+	/* ---- duplicate, trash ---- */
+	if (isPost && (m = /^\/admin\/paginas\/(\d+)\/dupliceren$/.exec(p))) {
+		if (!needWrite()) return true;
+		try { return go(`/admin/paginas/${pages.duplicate(Number(m[1]), user)}`); } catch (e) { return fail(e.status || 400, e.errors ? e.errors[0] : e.message, ctx); }
+	}
+	if (req.method === 'GET' && p === '/admin/prullenbak') return out(200, views.trashPage(ctx, { pages: pages.trash(), media: media.trash(), canRestore: can('publiceren') }));
+	if (isPost && (m = /^\/admin\/prullenbak\/(pagina|media)\/(\d+)\/(terugzetten|verwijderen)$/.exec(p))) {
+		if (!needPublish()) return true;
+		const id = Number(m[2]);
+		try {
+			if (m[3] === 'terugzetten') { if (m[1] === 'pagina') pages.restore(id, user); else media.restore(id, user); return go('/admin/prullenbak?f=teruggezet'); }
+			if (!can('beheer')) return fail(403, 'Alleen een beheerder verwijdert definitief.', ctx);
+			if (m[1] === 'pagina') pages.purge(id, user); else media.purge(id, user);
+			return go('/admin/prullenbak?f=verwijderd');
+		} catch (e) { return fail(e.status || 400, e.errors ? e.errors[0] : e.message, ctx); }
+	}
+
+	/* ---- translations overview ---- */
+	if (req.method === 'GET' && p === '/admin/vertalingen') { const rows = translations.overview(); return out(200, views.translationsPage(ctx, { rows, totals: translations.totals(rows) })); }
+
+	/* ---- scheduled publishing ---- */
+	if (req.method === 'GET' && p === '/admin/planning') return out(200, views.planningPage(ctx, { items: planning.list({ limit: 100 }), canPlan: can('publiceren') }));
+	if (req.method === 'GET' && p === '/admin/api/planning') return jsonOut(200, { ok: true, items: planning.forObject(String(url.searchParams.get('object') || '')).map((r) => ({ id: r.id, actie: r.actie, wanneer: r.wanneer, door: r.naam })) });
+	if (isPost && p === '/admin/plannen') {
+		if (!can('publiceren')) return jsonOut(403, { ok: false, melding: 'Alleen een editor of beheerder kan een publicatie plannen.' });
+		if (!body) return jsonOut(400, { ok: false, melding: 'Ongeldige gegevens.' });
+		try {
+			const id = planning.schedule({ kind: body.kind, id: body.id, actie: body.actie, wanneer: Number(body.wanneer), payload: body, reden: body.override_reason, user });
+			return jsonOut(200, { ok: true, id });
+		} catch (e) { return jsonOut([400, 404, 409, 422].includes(e.status) ? e.status : 500, { ok: false, melding: e.message, fouten: e.fouten || null, waarschuwingen: e.waarschuwingen || null }); }
+	}
+	if (isPost && (m = /^\/admin\/planning\/(\d+)\/annuleren$/.exec(p))) {
+		if (!needPublish()) return true;
+		try { planning.cancel(Number(m[1]), user); } catch (e) { return fail(e.status || 400, e.message, ctx); }
+		return go('/admin/planning?f=opgeslagen');
+	}
+
+	/* ---- preview links ---- */
+	if (req.method === 'GET' && p === '/admin/voorbeeldlinks') return out(200, views.shareLinksPage(ctx, { links: sharelinks.active(), canRevoke: can('schrijven') }));
+	if (isPost && p === '/admin/voorbeeldlink') {
+		if (!can('schrijven')) return jsonOut(403, { ok: false });
+		if (!body) return jsonOut(400, { ok: false });
+		const object = objectOf({ kind: body.kind, id: body.id });
+		const exists = body.kind === 'tekst' ? GROUPS.some((g) => g.id === String(body.id)) : body.kind === 'pagina' ? !!pages.get(Number(body.id)) : body.kind === 'privacy';
+		if (!object || !exists || !LANGS.includes(body.lang)) return jsonOut(400, { ok: false, melding: 'Onbekend onderdeel.' });
+		try {
+			const l = sharelinks.create({ object, soort: body.kind, taal: body.lang, pad: body.path, payload: { velden: body.velden, meta: body.meta }, days: body.days }, user);
+			const base = cfg.SITE_URL || `${cfg.SECURE ? 'https' : 'http'}://${req.headers.host || 'localhost'}`;
+			return jsonOut(200, { ok: true, url: `${base}/voorbeeld/${l.token}`, verloopt: l.verloopt });
+		} catch (e) { return jsonOut(e.status || 500, { ok: false, melding: e.message }); }
+	}
+	if (isPost && (m = /^\/admin\/voorbeeldlinks\/([0-9a-f]{64})\/intrekken$/.exec(p))) {
+		if (!needWrite()) return true;
+		sharelinks.revoke(m[1], user);
+		return go('/admin/voorbeeldlinks?f=opgeslagen');
+	}
 
 	/* ---- review flow ---- */
 	if (req.method === 'GET' && p === '/admin/reviews') return out(200, views.reviewsPage(ctx, { pending: reviews.list({ status: 'wacht' }), recent: reviews.list({ limit: 30 }).filter((r) => r.status !== 'wacht'), mine: reviews.list({ mine: user.id, limit: 20 }), canJudge: can('publiceren') }));

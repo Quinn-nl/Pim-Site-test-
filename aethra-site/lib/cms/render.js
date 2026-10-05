@@ -61,4 +61,13 @@ function previewPage({ lang, velden, meta, siteUrl }) {
 	return views.renderPage(content, { siteUrl }, page, { [lang]: page.slug });
 }
 
-module.exports = { FIXED, renderFixed, previewText, previewPage, LANGS };
+/** Any preview from an editor state: { kind, lang, velden, meta, path, siteUrl }. Returns HTML or null. */
+function previewAny({ kind, lang, velden, meta, path, siteUrl }) {
+	try {
+		if (kind === 'pagina') return previewPage({ lang, velden, meta, siteUrl });
+		if (kind === 'privacy') return previewText({ lang, path: '/privacy', velden: {}, privacy: velden && velden[lang] && velden[lang].text, siteUrl });
+		return previewText({ lang, path: String(path || '/'), velden, siteUrl });
+	} catch (e) { return null; }
+}
+
+module.exports = { previewAny, FIXED, renderFixed, previewText, previewPage, LANGS };

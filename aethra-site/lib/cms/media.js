@@ -206,7 +206,7 @@ function setSlotRow(slot, mediaId) {
 	else db.run('INSERT INTO instellingen (sleutel, waarde) VALUES (?, ?) ON CONFLICT(sleutel) DO UPDATE SET waarde = excluded.waarde', `foto.${slot}`, String(mediaId));
 }
 function setSlot(slot, mediaId, user) {
-	if (mediaId != null && !db.get('SELECT 1 FROM media WHERE id = ?', mediaId)) throw bad(404, 'Foto niet gevonden.');
+	if (mediaId != null && !db.get('SELECT 1 FROM media WHERE id = ? AND verwijderd_op IS NULL', mediaId)) throw bad(404, 'Foto niet gevonden.');
 	setSlotRow(slot, mediaId);
 	audit.log({ user, actie: 'media.plek', entiteit: `foto.${slot}`, nieuw: mediaId });
 	require('./content').invalidate(`foto.${slot}`);
@@ -219,8 +219,8 @@ function altOf(id) {
 	for (const r of db.all("SELECT taal, waarde FROM vertalingen WHERE object = ? AND veld = 'alt'", `media:${id}`)) out[r.taal] = r.waarde;
 	return out;
 }
-const get = (id) => { const r = db.get('SELECT * FROM media WHERE id = ?', id); return r ? { ...parse(r), alt: altOf(id) } : null; };
-const list = () => db.all('SELECT * FROM media ORDER BY id DESC').map((r) => ({ ...parse(r), alt: altOf(r.id) }));
+const get = (id) => { const r = db.get('SELECT * FROM media WHERE id = ? AND verwijderd_op IS NULL', id); return r ? { ...parse(r), alt: altOf(id) } : null; };
+const list = () => db.all('SELECT * FROM media WHERE verwijderd_op IS NULL ORDER BY id DESC').map((r) => ({ ...parse(r), alt: altOf(r.id) }));
 function slots() {
 	const out = {};
 	for (const r of db.all("SELECT sleutel, waarde FROM instellingen WHERE sleutel LIKE 'foto.%'")) out[r.sleutel.slice(5)] = Number(r.waarde);
@@ -235,7 +235,7 @@ function usage(id) {
 /** The shape the page templates use: { url, w, h, alt, variants } in one language. */
 function forView(m, lang) {
 	if (!m) return null;
-	return { file: m.bestand, url: `/uploads/${m.bestand}`, w: m.breedte, h: m.hoogte, alt: m.alt[lang] || m.alt.en || '', illustratie: m.rechten === 'ai_sfeer', variants: m.varianten.map((v) => ({ url: `/uploads/${v.bestand}`, w: v.breedte, type: v.type, d: v.dichtheid })) };
+	return { file: m.bestand, url: `/uploads/${m.bestand}`, w: m.breedte, h: m.hoogte, focus: [Math.round((m.focus_x == null ? 50 : m.focus_x) / 10) * 10, Math.round((m.focus_y == null ? 50 : m.focus_y) / 10) * 10], alt: m.alt[lang] || m.alt.en || '', illustratie: m.rechten === 'ai_sfeer', variants: m.varianten.map((v) => ({ url: `/uploads/${v.bestand}`, w: v.breedte, type: v.type, d: v.dichtheid })) };
 }
 function slotImages(lang) {
 	const out = {};
@@ -244,14 +244,15 @@ function slotImages(lang) {
 }
 const imageFor = (id, lang) => forView(get(Number(id)), lang);
 
-function update(id, { alt, rechten, bron }, user) {
+function update(id, { alt, rechten, bron, focus_x, focus_y }, user) {
 	const m = get(id);
 	if (!m) throw bad(404, 'Foto niet gevonden.');
 	const nextAlt = cleanAlt(alt || m.alt);
 	if (!nextAlt.en) throw bad(422, 'Een omschrijving van de foto is verplicht (minstens in het Engels).');
 	if (rechten && !RIGHTS.includes(rechten)) throw bad(422, 'Onbekend type rechten.');
 	db.tx(() => {
-		db.run('UPDATE media SET rechten = ?, bron = ? WHERE id = ?', rechten || m.rechten, bron == null ? m.bron : String(bron).slice(0, 200), id);
+		const clamp = (v, old) => (v == null || v === '' || !Number.isFinite(Number(v)) ? old : Math.min(100, Math.max(0, Math.round(Number(v)))));
+		db.run('UPDATE media SET rechten = ?, bron = ?, focus_x = ?, focus_y = ? WHERE id = ?', rechten || m.rechten, bron == null ? m.bron : String(bron).slice(0, 200), clamp(focus_x, m.focus_x), clamp(focus_y, m.focus_y), id);
 		db.run("DELETE FROM vertalingen WHERE object = ? AND veld = 'alt'", `media:${id}`);
 		for (const [taal, tekst] of Object.entries(nextAlt)) db.run("INSERT INTO vertalingen (object, veld, taal, waarde, status) VALUES (?, 'alt', ?, ?, 'eerste_versie')", `media:${id}`, taal, tekst);
 	});
@@ -259,18 +260,41 @@ function update(id, { alt, rechten, bron }, user) {
 	require('./content').invalidate(`media:${id}`);
 }
 
+/** To the trash (files stay for 30 days). A photo that is still in use cannot be deleted. */
 function remove(id, user) {
 	const m = get(id);
 	if (!m) return false;
 	const used = usage(id);
 	if (used.length) throw bad(409, `Deze foto wordt nog gebruikt (${used.map((u) => u.naam).join(', ')}). Vervang hem eerst daar.`, { gebruikt: used });
+	db.run('UPDATE media SET verwijderd_op = ? WHERE id = ?', db.iso(), id);
+	audit.log({ user, actie: 'media.verwijderd', entiteit: `media:${id}`, oud: { bestand: m.bestand } });
+	return true;
+}
+function trash() {
+	return db.all('SELECT * FROM media WHERE verwijderd_op IS NOT NULL ORDER BY verwijderd_op DESC').map((r) => ({ ...parse(r), alt: altOf(r.id) }));
+}
+function restore(id, user) {
+	const r = db.run('UPDATE media SET verwijderd_op = NULL WHERE id = ? AND verwijderd_op IS NOT NULL', id);
+	if (!r.changes) throw bad(404, 'Foto niet gevonden in de prullenbak.');
+	audit.log({ user, actie: 'media.teruggezet', entiteit: `media:${id}` });
+}
+/** Gone for good, files included. */
+function purge(id, user) {
+	const row = db.get('SELECT * FROM media WHERE id = ?', id);
+	if (!row) return false;
+	const m = parse(row);
 	db.tx(() => {
 		db.run('DELETE FROM media WHERE id = ?', id);
 		db.run('DELETE FROM vertalingen WHERE object = ?', `media:${id}`);
 	});
 	for (const f of [m.bestand, ...m.varianten.map((v) => v.bestand)]) fs.rmSync(path.join(uploadsDir(), path.basename(f)), { force: true });
-	audit.log({ user, actie: 'media.verwijderd', entiteit: `media:${id}`, oud: { bestand: m.bestand } });
+	audit.log({ user, actie: 'media.definitief_verwijderd', entiteit: `media:${id}`, oud: { bestand: m.bestand } });
 	return true;
 }
+function purgeOld(days = 30, now = Date.now()) {
+	let n = 0;
+	for (const r of db.all('SELECT id FROM media WHERE verwijderd_op IS NOT NULL AND verwijderd_op < ?', new Date(now - days * 86400000).toISOString())) if (purge(r.id, null)) n += 1;
+	return n;
+}
 
-module.exports = { RIGHTS, streamUpload, saveUpload, setSlot, get, list, slots, usage, slotImages, imageFor, forView, update, remove, encodersAvailable, uploadsDir, tmpDir };
+module.exports = { trash, restore, purge, purgeOld, RIGHTS, streamUpload, saveUpload, setSlot, get, list, slots, usage, slotImages, imageFor, forView, update, remove, encodersAvailable, uploadsDir, tmpDir };

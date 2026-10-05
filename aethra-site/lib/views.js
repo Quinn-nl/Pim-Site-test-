@@ -159,7 +159,8 @@ function photo(images, slot, cls, { priority = false } = {}) {
 	const size = img.w && img.h ? ` width="${Number(img.w)}" height="${Number(img.h)}"` : '';
 	const load = priority ? ' fetchpriority="high" decoding="async"' : ' loading="lazy" decoding="async"';
 	const src = img.url ? esc(img.url) : '/uploads/' + esc(img.file);
-	const tag = `<img class="${cls}" src="${src}" alt="${esc(img.alt || '')}"${size}${load}>`;
+	const fp = img.focus && (img.focus[0] !== 50 || img.focus[1] !== 50) ? ` fp-${img.focus[0]}-${img.focus[1]}` : '';
+	const tag = `<img class="${cls}${fp}" src="${src}" alt="${esc(img.alt || '')}"${size}${load}>`;
 	// Modern formats made by the upload pipeline (cwebp / avifenc), 1x and 2x; the original stays the fallback.
 	const by = (type) => (img.variants || []).filter((v) => v.type === type).sort((a, b) => a.d - b.d);
 	const sources = ['image/avif', 'image/webp'].map((type) => {

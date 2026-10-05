@@ -30,7 +30,7 @@ function readObject(object) {
 }
 function readStatus(object) {
 	const out = {};
-	for (const r of db.all('SELECT taal, veld, status, nagekeken_door, gewijzigd_op, versie_nummer FROM vertalingen WHERE object = ?', object)) (out[r.taal] = out[r.taal] || {})[r.veld] = r;
+	for (const r of db.all('SELECT taal, veld, status, nagekeken_door, gewijzigd_op, nagekeken_op, versie_nummer FROM vertalingen WHERE object = ?', object)) (out[r.taal] = out[r.taal] || {})[r.veld] = r;
 	return out;
 }
 
@@ -107,7 +107,7 @@ function writeFields(object, fieldsByLang, opts = {}) {
 			const status = String(p.waarde || '').trim() ? 'eerste_versie' : 'leeg';
 			if (p.type === 'ins') db.run('INSERT INTO vertalingen (object, veld, taal, waarde, status, gewijzigd_op, versie_nummer) VALUES (?, ?, ?, ?, ?, ?, 1)', object, p.veld, p.taal, p.waarde, status, now);
 			else if (p.type === 'upd') {
-				const r = db.run('UPDATE vertalingen SET waarde = ?, status = ?, nagekeken_door = NULL, gewijzigd_op = ?, versie_nummer = versie_nummer + 1 WHERE object = ? AND veld = ? AND taal = ? AND versie_nummer = ?', p.waarde, status, now, object, p.veld, p.taal, p.versie);
+				const r = db.run('UPDATE vertalingen SET waarde = ?, status = ?, nagekeken_door = NULL, nagekeken_op = NULL, gewijzigd_op = ?, versie_nummer = versie_nummer + 1 WHERE object = ? AND veld = ? AND taal = ? AND versie_nummer = ?', p.waarde, status, now, object, p.veld, p.taal, p.versie);
 				if (r.changes !== 1) throw conflict('Een veld is tijdens het opslaan gewijzigd. Laad de pagina opnieuw en probeer het nog eens.', { veld: p.veld });
 			} else db.run('DELETE FROM vertalingen WHERE object = ? AND veld = ? AND taal = ? AND versie_nummer = ?', object, p.veld, p.taal, p.versie);
 		}
@@ -126,7 +126,7 @@ function writeFields(object, fieldsByLang, opts = {}) {
 
 /** Marks every filled field of a language as reviewed by a native speaker. */
 function markReviewed(object, taal, user) {
-	const r = db.run("UPDATE vertalingen SET status = 'nagekeken', nagekeken_door = ?, gewijzigd_op = gewijzigd_op WHERE object = ? AND taal = ? AND waarde != ''", user.id, object, taal);
+	const r = db.run("UPDATE vertalingen SET status = 'nagekeken', nagekeken_door = ?, nagekeken_op = ?, gewijzigd_op = gewijzigd_op WHERE object = ? AND taal = ? AND waarde != ''", user.id, db.iso(), object, taal);
 	audit.log({ user, actie: 'inhoud.nagekeken', entiteit: object, nieuw: { taal, velden: r.changes } });
 	return r.changes;
 }

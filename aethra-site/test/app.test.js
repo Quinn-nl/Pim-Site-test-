@@ -233,6 +233,9 @@ test('uploaded photos: slots show on the site with size, alt text and metadata r
 	assert.equal((await fetch(base + '/js/../../data/secret.key')).status, 404);
 	media.setSlot('hero', null, null);
 	media.remove(id, null);
+	assert.equal(media.get(id), null, 'in the trash it is gone from the library');
+	assert.equal((await fetch(base + src)).status, 200, 'the file stays for 30 days');
+	media.purge(id, null);
 	assert.equal((await fetch(base + src)).status, 404);
 });
 

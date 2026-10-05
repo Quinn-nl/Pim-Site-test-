@@ -54,12 +54,12 @@ function create({ sjabloon, user }) {
 }
 
 function get(id) {
-	const r = db.get('SELECT * FROM paginas WHERE id = ?', id);
+	const r = db.get('SELECT * FROM paginas WHERE id = ? AND verwijderd_op IS NULL', id);
 	if (!r) return null;
 	return { meta: rowToMeta(r), velden: content.readObject(object(id)), status: content.readStatus(object(id)), versie: content.objectVersion(object(id)) };
 }
 function list() {
-	return db.all('SELECT * FROM paginas ORDER BY volgorde, id').map((r) => {
+	return db.all('SELECT * FROM paginas WHERE verwijderd_op IS NULL ORDER BY volgorde, id').map((r) => {
 		const f = content.readObject(object(r.id));
 		return { ...rowToMeta(r), titels: Object.fromEntries(LANGS.filter((l) => f[l] && f[l].titel).map((l) => [l, f[l].titel])), slugs: Object.fromEntries(LANGS.filter((l) => f[l] && f[l].slug).map((l) => [l, f[l].slug])), versie: content.objectVersion(object(r.id)) };
 	});
@@ -70,7 +70,7 @@ function list() {
  * input: { velden: { taal: { veld: waarde } }, meta: { indeling, in_footer, indexeren, volgorde, status } }
  */
 function prepare(id, input) {
-	const row = db.get('SELECT * FROM paginas WHERE id = ?', id);
+	const row = db.get('SELECT * FROM paginas WHERE id = ? AND verwijderd_op IS NULL', id);
 	if (!row) throw invalid(['Pagina niet gevonden.'], 404);
 	const meta = input.meta || {};
 	const indeling = Array.isArray(meta.indeling) ? meta.indeling.map((s) => ({ id: String(s.id), type: String(s.type) })) : parseLayout(row);
@@ -90,7 +90,7 @@ function prepare(id, input) {
 		}
 	}
 	// per language: a page exists in a language when it has a heading; then it needs an address
-	const others = db.all("SELECT p.id, v.taal, v.waarde FROM paginas p JOIN vertalingen v ON v.object = 'pagina:' || p.id AND v.veld = 'slug' WHERE p.id != ?", id);
+	const others = db.all("SELECT p.id, v.taal, v.waarde FROM paginas p JOIN vertalingen v ON v.object = 'pagina:' || p.id AND v.veld = 'slug' WHERE p.id != ? AND p.verwijderd_op IS NULL", id);
 	for (const taal of LANGS) {
 		const f = velden[taal];
 		if (!f.titel && !f.slug) continue;
@@ -101,7 +101,7 @@ function prepare(id, input) {
 			else if (others.some((o) => o.taal === taal && o.waarde === f.slug)) errors.push(`${taal.toUpperCase()}: een andere pagina gebruikt het adres "${f.slug}" al.`);
 			if (!f.titel) errors.push(`${taal.toUpperCase()}: de pagina heeft een kop nodig.`);
 		}
-		for (const s of indeling) if (s.type === 'foto' && f[`s.${s.id}.media`] && !db.get('SELECT 1 FROM media WHERE id = ?', Number(f[`s.${s.id}.media`]))) errors.push(`${taal.toUpperCase()}: een gekozen foto bestaat niet meer.`);
+		for (const s of indeling) if (s.type === 'foto' && f[`s.${s.id}.media`] && !db.get('SELECT 1 FROM media WHERE id = ? AND verwijderd_op IS NULL', Number(f[`s.${s.id}.media`]))) errors.push(`${taal.toUpperCase()}: een gekozen foto bestaat niet meer.`);
 	}
 	if (status === 'gepubliceerd' && !LANGS.some((l) => velden[l].titel)) errors.push('Vul vóór het publiceren in minstens één taal een kop in.');
 	if (errors.length) throw invalid(errors);
@@ -135,20 +135,75 @@ function save(id, prepared, { user, baseVersie, reden = null }) {
 	return result;
 }
 
+/** To the trash: gone from the site and the lists, restorable for 30 days. */
 function remove(id, user) {
-	const row = db.get('SELECT * FROM paginas WHERE id = ?', id);
+	const row = db.get('SELECT * FROM paginas WHERE id = ? AND verwijderd_op IS NULL', id);
 	if (!row) return false;
 	const fields = content.readObject(object(id));
 	db.tx(() => {
 		if (row.status === 'gepubliceerd') for (const taal of LANGS) if (fields[taal] && fields[taal].slug) db.run('DELETE FROM redirects WHERE naar = ?', `/${taal}/${fields[taal].slug}`);
+		db.run("UPDATE paginas SET verwijderd_op = ?, status = 'concept' WHERE id = ?", db.iso(), id);
+	});
+	audit.log({ user, actie: 'pagina.verwijderd', entiteit: object(id), oud: { sjabloon: row.sjabloon, status: row.status } });
+	content.invalidate(object(id));
+	return true;
+}
+function trash() {
+	return db.all('SELECT * FROM paginas WHERE verwijderd_op IS NOT NULL ORDER BY verwijderd_op DESC').map((r) => {
+		const f = content.readObject(object(r.id));
+		return { id: r.id, sjabloon: r.sjabloon, verwijderd_op: r.verwijderd_op, titel: (f.nl && f.nl.titel) || (f.en && f.en.titel) || Object.values(f).map((x) => x.titel).find(Boolean) || `Pagina ${r.id}` };
+	});
+}
+/** Back from the trash, as a draft. A web address that another page has taken in the meantime is a conflict the editor must solve first. */
+function restore(id, user) {
+	const row = db.get('SELECT * FROM paginas WHERE id = ? AND verwijderd_op IS NOT NULL', id);
+	if (!row) throw invalid(['Pagina niet gevonden in de prullenbak.'], 404);
+	const mine = content.readObject(object(id));
+	const taken = db.all("SELECT v.taal, v.waarde FROM paginas p JOIN vertalingen v ON v.object = 'pagina:' || p.id AND v.veld = 'slug' WHERE p.id != ? AND p.verwijderd_op IS NULL", id);
+	for (const l of LANGS) if (mine[l] && mine[l].slug && taken.some((t) => t.taal === l && t.waarde === mine[l].slug)) throw invalid([`Het adres “${mine[l].slug}” (${l.toUpperCase()}) wordt intussen door een andere pagina gebruikt. Pas dat adres eerst aan of verwijder de andere pagina.`], 409);
+	db.run('UPDATE paginas SET verwijderd_op = NULL WHERE id = ?', id);
+	audit.log({ user, actie: 'pagina.teruggezet', entiteit: object(id) });
+	content.invalidate(object(id));
+}
+/** Gone for good (the old delete). */
+function purge(id, user) {
+	const row = db.get('SELECT * FROM paginas WHERE id = ?', id);
+	if (!row) return false;
+	const fields = content.readObject(object(id));
+	db.tx(() => {
 		db.run('DELETE FROM vertalingen WHERE object = ?', object(id));
 		db.run('DELETE FROM concepten WHERE object = ?', object(id));
 		db.run('DELETE FROM objecten WHERE object = ?', object(id));
+		db.run('DELETE FROM planning WHERE soort = ? AND ref = ?', 'pagina', String(id));
 		db.run('DELETE FROM paginas WHERE id = ?', id);
 	});
-	audit.log({ user, actie: 'pagina.verwijderd', entiteit: object(id), oud: { sjabloon: row.sjabloon, velden: fields } });
+	audit.log({ user, actie: 'pagina.definitief_verwijderd', entiteit: object(id), oud: { sjabloon: row.sjabloon, velden: fields } });
 	content.invalidate(object(id));
 	return true;
+}
+function purgeOld(days = 30, now = Date.now()) {
+	let n = 0;
+	for (const r of db.all('SELECT id FROM paginas WHERE verwijderd_op IS NOT NULL AND verwijderd_op < ?', new Date(now - days * 86400000).toISOString())) if (purge(r.id, null)) n += 1;
+	return n;
+}
+
+/** A copy as a new draft: same template, layout and texts; the heading gets “(kopie)” and the web address a free “-kopie” variant. */
+function duplicate(id, user) {
+	const src = get(id);
+	if (!src) throw invalid(['Pagina niet gevonden.'], 404);
+	const newId = create({ sjabloon: src.meta.sjabloon, user });
+	const taken = new Set(db.all("SELECT v.taal || '|' || v.waarde AS k FROM vertalingen v WHERE v.object LIKE 'pagina:%' AND v.veld = 'slug'").map((r) => r.k));
+	const velden = {};
+	for (const l of LANGS) {
+		const f = { ...(src.velden[l] || {}) };
+		if (f.titel) f.titel = `${f.titel} (kopie)`;
+		if (f.slug) { let slug = `${f.slug}-kopie`; let n = 2; while (taken.has(`${l}|${slug}`)) slug = `${f.slug}-kopie-${n++}`; f.slug = slug; }
+		velden[l] = f;
+	}
+	const prepared = prepare(newId, { velden, meta: { indeling: src.meta.indeling, status: 'concept', in_footer: false, indexeren: src.meta.indexeren } });
+	save(newId, prepared, { user, baseVersie: content.objectVersion(object(newId)) });
+	audit.log({ user, actie: 'pagina.gedupliceerd', entiteit: object(newId), nieuw: { van: id } });
+	return newId;
 }
 
 /** Restores a page from a history entry (fields and layout). */
@@ -173,7 +228,7 @@ function publishedPages() {
 	if (publicCache) return publicCache;
 	const out = [];
 	try {
-		for (const r of db.all("SELECT * FROM paginas WHERE status = 'gepubliceerd' ORDER BY id")) {
+		for (const r of db.all("SELECT * FROM paginas WHERE status = 'gepubliceerd' AND verwijderd_op IS NULL ORDER BY id")) {
 			const f = content.readObject(object(r.id));
 			const indeling = parseLayout(r);
 			for (const taal of LANGS) {
@@ -200,4 +255,4 @@ function pageVersions(page) {
 }
 const footerPages = (lang) => publishedPages().filter((p) => p.footer && p.language === lang).sort((a, b) => a.volgorde - b.volgorde || a.id - b.id);
 
-module.exports = { RESERVED, BASE, cleanValue, object, create, get, list, prepare, save, remove, rollback, allowedFields, publishedPages, findPage, pageVersions, footerPages, parseLayout };
+module.exports = { trash, restore, purge, purgeOld, duplicate, RESERVED, BASE, cleanValue, object, create, get, list, prepare, save, remove, rollback, allowedFields, publishedPages, findPage, pageVersions, footerPages, parseLayout };

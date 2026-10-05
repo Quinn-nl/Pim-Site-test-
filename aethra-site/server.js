@@ -24,6 +24,7 @@ const ws = require('./lib/cms/ws');
 const events = require('./lib/cms/events');
 const jobs = require('./lib/cms/jobs');
 const settings = require('./lib/cms/settings');
+const sharelinks = require('./lib/cms/sharelinks');
 const legacy = require('./lib/cms/legacy');
 
 const contactLimiter = createLimiter(5, 60 * 60 * 1000);
@@ -78,6 +79,17 @@ async function handlePublic(req, res, url) {
 	if (get && url.pathname === '/.well-known/security.txt' && process.env.SECURITY_CONTACT) {
 		const expires = new Date(Date.now() + 365 * 86400000).toISOString();
 		return send(res, 200, `Contact: ${process.env.SECURITY_CONTACT}\nExpires: ${expires}\nPreferred-Languages: en, nl\nCanonical: ${siteUrl}/.well-known/security.txt\n`, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'public, max-age=3600' });
+	}
+	let sm;
+	if (get && (sm = /^\/voorbeeld\/([A-Za-z0-9_-]{43})$/.exec(url.pathname))) {
+		const link = sharelinks.find(sm[1]);
+		if (!link) return send(res, 404, 'Deze voorbeeldlink bestaat niet of is verlopen.', { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex' });
+		const p = link.payload || {};
+		let html = render.previewAny({ kind: link.soort, lang: link.taal, velden: p.velden, meta: p.meta, path: link.pad, siteUrl });
+		if (!html) return send(res, 404, 'Voor dit onderdeel is geen voorbeeld beschikbaar.', { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' });
+		const note = { en: 'Preview of an unpublished draft. Only visible with this link.', nl: 'Voorbeeld van een concept dat nog niet gepubliceerd is. Alleen zichtbaar met deze link.', de: 'Vorschau eines unveröffentlichten Entwurfs. Nur mit diesem Link sichtbar.', fr: 'Aperçu d’un brouillon non publié. Visible uniquement avec ce lien.' }[link.taal];
+		html = html.replace('content="index, follow, max-image-preview:large"', 'content="noindex, nofollow"').replace(/<link rel="canonical"[^>]*>\n?/, '').replace(/<script[\s\S]*?<\/script>/g, '').replace('<body>', `<body><div class="site-banner" role="status">${views.esc(note)}</div>`);
+		return send(res, 200, html, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex, nofollow', 'Referrer-Policy': 'no-referrer' });
 	}
 	if (get && url.pathname === '/favicon.ico') return redirect(res, '/img/favicon.svg', { 'Cache-Control': 'public, max-age=86400' }, 301);
 	const indexNowKey = String(process.env.INDEXNOW_KEY || '');

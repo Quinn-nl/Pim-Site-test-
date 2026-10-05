@@ -9,6 +9,8 @@ const settings = require('./settings');
 const backup = require('./backup');
 const outbox = require('./outbox');
 const report = require('./report');
+const planning = require('./planning');
+const sharelinks = require('./sharelinks');
 const { GROUPS, OPTIONAL } = require('../fields');
 const { LANGS, defaultsFor } = require('../i18n');
 
@@ -57,6 +59,9 @@ function dailyChores() {
 	try {
 		messages.purge(settings.retentionDays());
 		outbox.purge();
+		sharelinks.purgeExpired();
+		require('./pages').purgeOld();
+		require('./media').purgeOld();
 		backup.ensureDaily();
 		db.run('DELETE FROM sessies WHERE laatst_gezien < ?', Date.now() - 2 * 3600 * 1000);
 		db.run('DELETE FROM inlog_pogingen WHERE vergrendeld_tot < ? AND venster_start < ?', Date.now(), Date.now() - DAY);
@@ -73,6 +78,7 @@ function start() {
 	if (timers.length) return;
 	setTimeout(() => { try { healthCheck(); } catch (e) { console.error(`Health check failed: ${e.message}`); } }, 500).unref();
 	timers.push(setInterval(dailyChores, DAY));
+	timers.push(setInterval(() => { try { planning.run(); } catch (e) { console.error(`Planning failed: ${e.message}`); } }, 60000));
 	timers.push(setInterval(() => { try { report.sendWeekly(); } catch (e) { console.error(`Weekly report failed: ${e.message}`); } }, 3600 * 1000));
 	timers.push(setInterval(() => { if (db.degraded()) db.ping(); }, 30000)); // watchdog: leaves read-only survivability as soon as the database answers again
 	for (const t of timers) t.unref();

@@ -63,6 +63,10 @@ const ICON_PATHS = {
 	tablet: '<rect x="5" y="2" width="14" height="20" rx="2"/><path d="M11 18h2"/>',
 	phone: '<rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/>',
 	search: '<circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/>',
+	clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+	globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/>',
+	trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
+	share: '<circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="6" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="M8.2 11l7.6-4M8.2 13l7.6 4"/>',
 	cog: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
 	server: '<rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/>',
 	eye: '<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
@@ -83,7 +87,7 @@ function shell(ctx, { title, active = '', body, wide = false, script = true }) {
 	}
 	const item = (key, href, label, ic, badge) => `<a href="${href}"${active === key ? ' aria-current="page"' : ''}>${icon(ic)}<span>${label}</span>${key === 'berichten' || key === 'reviews' ? `<span class="badge" data-badge="${key}"${badge ? '' : ' hidden'}>${badge || ''}</span>` : ''}</a>`;
 	const groups = [
-		['Inhoud', [['dash', '/admin', 'Dashboard', 'dash'], ['paginas', '/admin/paginas', 'Pagina’s en teksten', 'pages'], ['media', '/admin/media', 'Media', 'media'], ['reviews', '/admin/reviews', session.user.rol === 'redacteur' ? 'Mijn voorstellen' : 'Te beoordelen', 'check', badges.reviews]]],
+		['Inhoud', [['dash', '/admin', 'Dashboard', 'dash'], ['paginas', '/admin/paginas', 'Pagina’s en teksten', 'pages'], ['media', '/admin/media', 'Media', 'media'], ['reviews', '/admin/reviews', session.user.rol === 'redacteur' ? 'Mijn voorstellen' : 'Te beoordelen', 'check', badges.reviews], ['planning', '/admin/planning', 'Planning', 'clock'], ['vertalingen', '/admin/vertalingen', 'Vertalingen', 'globe'], ['prullenbak', '/admin/prullenbak', 'Prullenbak', 'trash']]],
 		['Inbox', [['berichten', '/admin/berichten', 'Berichten', 'mail', badges.berichten], ['wachtrij', '/admin/wachtrij', 'Mailwachtrij', 'send']]],
 		['Site', [['menu', '/admin/menu', 'Menu', 'menu'], ['redirects', '/admin/redirects', 'Redirects', 'redirect'], ['stats', '/admin/stats', 'Statistieken', 'stats']]],
 		...(session.user.rol === 'beheerder' ? [['Beheer', [['gebruikers', '/admin/gebruikers', 'Gebruikers', 'users'], ['instellingen', '/admin/instellingen', 'Instellingen', 'cog'], ['systeem', '/admin/systeem', 'Systeem', 'server'], ['audit', '/admin/audit', 'Auditlog', 'shield']]]] : []),
@@ -175,10 +179,11 @@ function pagesPage(ctx, { extra, locks, info = {} }) {
 <h2 class="sub">Vaste pagina’s van de website</h2>
 <div class="cols">${fixed}</div><p class="empty hidden" id="nofilter">Niets gevonden.</p>` });
 }
-function newPagePage(ctx) {
+function newPagePage(ctx, { existing = [] } = {}) {
 	return shell(ctx, { title: 'Nieuwe pagina', active: 'paginas', body: `<h1>Nieuwe pagina</h1><p class="hint">Kies eerst een sjabloon. Het sjabloon bepaalt welke bouwstenen de pagina heeft en in welke volgorde.</p>
 <form method="post" action="/admin/paginas/nieuw"><input type="hidden" name="csrf" value="${esc(ctx.session.csrf)}">
 <div class="cols3">${Object.entries(TEMPLATES).map(([id, t], i) => `<label class="card tpl"><span class="tpl-top"><input type="radio" name="sjabloon" value="${esc(id)}"${i === 0 ? ' checked' : ''}> <strong>${esc(t.label)}</strong></span><span class="hint">${esc(t.uitleg)}</span><span class="meta">${t.standaard.map((x) => esc(SECTIONS[x].label)).join(' → ')}</span></label>`).join('')}</div>
+${existing.length ? `<details class="card fold"><summary>Of begin met een kopie van een bestaande pagina</summary><div class="row"><label for="kv">Kopieer</label><select id="kv" name="kopie_van"><option value="">(geen kopie, gebruik het gekozen sjabloon)</option>${existing.map((p) => `<option value="${p.id}">${esc(p.titels.nl || p.titels.en || `Pagina ${p.id}`)}</option>`).join('')}</select><p class="fhint">Je krijgt een concept met dezelfde indeling en teksten. De kop krijgt “(kopie)” erbij en het adres een eigen variant.</p></div></details>` : ''}
 <div class="actions"><button type="submit">Pagina maken</button><a class="btn-link secondary" href="/admin/paginas">Annuleren</a></div></form>` });
 }
 
@@ -225,8 +230,9 @@ ${kind === 'tekst' ? `<label class="pv-path"><span class="sr">Pagina</span><sele
 
 function editorHead(ctx, { titel, uitleg, object, canWrite, extraButtons = '', status = '' }) {
 	return `<div class="ed-head"><div class="ed-title"><h1>${esc(titel)} ${status}</h1>${uitleg ? `<p class="hint">${esc(uitleg)}</p>` : ''}</div>
-<div class="ed-actions"><span id="savestate" class="savestate" data-state="saved" role="status">Alles opgeslagen</span>${canWrite ? extraButtons : ''}<a class="secondary btn-link icon-only" href="/admin/historie?object=${encodeURIComponent(object)}" title="Geschiedenis" aria-label="Geschiedenis">${icon('history')}</a></div></div>
+<div class="ed-actions"><span id="savestate" class="savestate" data-state="saved" role="status">Alles opgeslagen</span>${canWrite ? `<button type="button" class="secondary btn-link icon-only" id="btn-share" title="Voorbeeldlink delen" aria-label="Voorbeeldlink delen">${icon('share')}</button>${['beheerder', 'editor'].includes(ctx.session.user.rol) ? `<button type="button" class="secondary btn-link icon-only" id="btn-plan" title="Publicatie plannen" aria-label="Publicatie plannen">${icon('clock')}</button>` : ''}` : ''}${canWrite ? extraButtons : ''}<a class="secondary btn-link icon-only" href="/admin/historie?object=${encodeURIComponent(object)}" title="Geschiedenis" aria-label="Geschiedenis">${icon('history')}</a></div></div>
 <div id="lockbanner" class="flash err" role="status" hidden></div>
+<div id="plannote" class="flash" role="status" hidden></div>
 <div id="draftbanner" class="flash" role="status" hidden><span>Niet-opgeslagen concept van <span id="draftwhen"></span> gevonden.</span> <button type="button" class="secondary small" id="draftrestore">Terugzetten</button> <button type="button" class="secondary small" id="draftdiscard">Weggooien</button></div>
 <div id="result" role="status" aria-live="polite"></div>`;
 }
@@ -302,11 +308,12 @@ ${langTabs(p.status, canWrite)}
 <section class="card fgroup"><h2>Basis</h2>${baseOf(['titel', 'slug', 'lead'])}</section>
 <details class="card fold"><summary>Zoekmachines (SEO)</summary>${baseOf(['seo_title', 'seo_description'])}</details>
 <details class="card fold"><summary>Instellingen van de pagina</summary><div class="opts"><label class="chk"><input type="checkbox" data-meta="in_footer"${p.meta.in_footer ? ' checked' : ''}> Link in de footer</label><label class="chk"><input type="checkbox" data-meta="indexeren"${p.meta.indexeren ? ' checked' : ''}> Zichtbaar voor zoekmachines</label><label class="chk">Volgorde in de footer <input type="number" data-meta="volgorde" min="0" max="9999" value="${p.meta.volgorde}" class="narrow-num"></label></div></details>
+${canWrite ? `<div class="page-tools"><form method="post" action="/admin/paginas/${id}/dupliceren"><input type="hidden" name="csrf" value="${esc(ctx.session.csrf)}"><button type="submit" class="secondary small">Pagina dupliceren</button></form></div>` : ''}
 <div class="sec-title"><h2>Inhoud van de pagina</h2><div class="actions"><button type="button" class="secondary small" id="collapse-all">Alles inklappen</button><button type="button" class="secondary small" id="expand-all">Alles uitklappen</button></div></div>
 <div id="sections">${sections}</div>
 ${canWrite ? `<div class="addbar"><label for="addtype">Bouwsteen toevoegen</label><select id="addtype">${addOptions}</select><button type="button" class="secondary" id="addsec">${icon('plus')} Toevoegen</button></div>` : ''}
 </form>${previewPane(`/${(p.velden.nl && p.velden.nl.slug) || (p.velden.en && p.velden.en.slug) || 'voorbeeld'}`, 'pagina')}</div>${templates}
-${canWrite && ['beheerder', 'editor'].includes(ctx.session.user.rol) ? `<form method="post" action="/admin/paginas/${id}/verwijderen" class="card danger-zone" data-confirm="Deze pagina definitief verwijderen?"><input type="hidden" name="csrf" value="${esc(ctx.session.csrf)}"><button class="danger" type="submit">Pagina verwijderen</button></form>` : ''}` });
+${canWrite && ['beheerder', 'editor'].includes(ctx.session.user.rol) ? `<form method="post" action="/admin/paginas/${id}/verwijderen" class="card danger-zone" data-confirm="Deze pagina naar de prullenbak? Je kunt hem 30 dagen terugzetten."><input type="hidden" name="csrf" value="${esc(ctx.session.csrf)}"><button class="danger" type="submit">Pagina naar de prullenbak</button></form>` : ''}` });
 }
 
 /* ---- history ---- */
@@ -316,8 +323,18 @@ function historyPage(ctx, { object, entries }) {
 }
 function diffPage(ctx, { entry, diff, object, huidigeVersie, kind, pageId }) {
 	const canWrite = ctx.session.user.rol !== 'lezer';
-	const blocks = diff.length ? diff.map((d) => `<section class="card"><h2>${esc(d.taal.toUpperCase())}: <code>${esc(d.veld)}</code></h2><pre class="diff">${d.regels.map((r) => `<span class="d${r.t === '+' ? 'add' : r.t === '-' ? 'del' : 'eq'}">${r.t === '=' ? '  ' : r.t + ' '}${esc(r.tekst)}</span>`).join('\n')}</pre></section>`).join('') : '<p class="hint">Deze versie is gelijk aan de huidige.</p>';
-	return shell(ctx, { title: 'Vergelijken', active: 'paginas', body: `<h1>Versie ${entry.versie_nummer} tegenover nu</h1><p class="hint"><code>${esc(object)}</code>, vastgelegd ${esc(when(entry.tijdstip))}. <span class="dadd">+ regels</span> staan er nu, <span class="ddel">- regels</span> stonden er toen.</p>
+	const sideBySide = (regels) => {
+		const rows = [];
+		for (let i = 0; i < regels.length;) {
+			if (regels[i].t === '=') { rows.push([regels[i].tekst, regels[i].tekst, 'eq']); i += 1; continue; }
+			const del = []; const add = [];
+			while (i < regels.length && regels[i].t !== '=') { (regels[i].t === '-' ? del : add).push(regels[i].tekst); i += 1; }
+			for (let k = 0; k < Math.max(del.length, add.length); k += 1) rows.push([del[k], add[k], 'chg']);
+		}
+		return `<div class="sbs" role="table" aria-label="Verschillen"><div class="sbs-head" role="row"><span role="columnheader">Toen (versie ${entry.versie_nummer})</span><span role="columnheader">Nu</span></div>${rows.map(([a, b, k]) => `<div class="sbs-row ${k}" role="row"><span class="sbs-l${a == null ? ' none' : ''}${k === 'chg' && a != null ? ' del' : ''}" role="cell">${a == null ? '' : esc(a) || '&nbsp;'}</span><span class="sbs-r${b == null ? ' none' : ''}${k === 'chg' && b != null ? ' add' : ''}" role="cell">${b == null ? '' : esc(b) || '&nbsp;'}</span></div>`).join('')}</div>`;
+	};
+	const blocks = diff.length ? diff.map((d) => `<section class="card"><h2>${esc(d.taal.toUpperCase())}: <code>${esc(d.veld)}</code></h2>${sideBySide(d.regels)}</section>`).join('') : '<p class="hint">Deze versie is gelijk aan de huidige.</p>';
+	return shell(ctx, { title: 'Vergelijken', active: 'paginas', body: `<h1>Versie ${entry.versie_nummer} tegenover nu</h1><p class="hint"><code>${esc(object)}</code>, vastgelegd ${esc(when(entry.tijdstip))}. Links wat er toen stond, rechts wat er nu staat. <span class="ddel">Rood</span> is weggehaald, <span class="dadd">groen</span> is erbij gekomen.</p>
 ${canWrite && ['beheerder', 'editor'].includes(ctx.session.user.rol) ? `<form method="post" action="/admin/historie/${entry.id}/terugzetten" data-confirm="Deze versie terugzetten? De huidige staat blijft in de geschiedenis."><input type="hidden" name="csrf" value="${esc(ctx.session.csrf)}"><input type="hidden" name="basis" value="${huidigeVersie}"><button type="submit">Eén klik: terugzetten naar versie ${entry.versie_nummer}</button></form>` : ''}${blocks}
 <p><a href="/admin/historie?object=${encodeURIComponent(object)}">← terug naar de geschiedenis</a></p>` });
 }
@@ -366,7 +383,8 @@ ${canPublish ? '<noscript><button type="submit" class="small">Opslaan</button></
 		const used = usage[m.id] || [];
 		return `<dialog id="m${m.id}" class="dlg" aria-label="Foto ${m.id}"><div class="dlg-head"><h2>Foto #${m.id}</h2><button type="button" class="secondary small" data-close aria-label="Sluiten">Sluiten</button></div>
 <div class="dlg-body"><div class="dlg-img">${thumb(m)}<p class="meta">${esc(m.bestand)} · ${m.breedte}×${m.hoogte} · ${fmtSize(m.grootte)}</p>${used.length ? `<p class="meta">In gebruik als: ${esc(used.map((u) => (u.soort === 'plek' ? SLOTS[u.naam] || u.naam : 'Pagina')).join(', '))}</p>` : '<p class="meta">Wordt nergens gebruikt.</p>'}</div>
-${canPublish ? `<div><form method="post" action="/admin/media/${m.id}">${csrf}${altFields(m.alt, `e${m.id}-`)}<div class="row"><label for="e${m.id}-r">Rechten</label>${rightsSel(m.rechten, `e${m.id}-r`)}</div><div class="row"><label for="e${m.id}-b">Bron of licentie</label><input id="e${m.id}-b" name="bron" maxlength="200" value="${esc(m.bron)}"></div><button type="submit">Opslaan</button></form>
+${canPublish ? `<div><form method="post" action="/admin/media/${m.id}">${csrf}${altFields(m.alt, `e${m.id}-`)}<div class="row"><span class="flabel">Waar moet de foto scherp blijven als hij wordt bijgesneden?</span><div class="focus" data-focus><div class="focus-img"><img src="/uploads/${esc(m.bestand)}" alt="" width="${m.breedte}" height="${m.hoogte}"><span class="focus-dot" data-x="${m.focus_x == null ? 50 : m.focus_x}" data-y="${m.focus_y == null ? 50 : m.focus_y}"></span></div><input type="hidden" name="focus_x" value="${m.focus_x == null ? 50 : m.focus_x}"><input type="hidden" name="focus_y" value="${m.focus_y == null ? 50 : m.focus_y}"><p class="fhint">Klik op het belangrijkste deel (een gezicht, het voertuig). Op smalle of brede plekken blijft dat deel in beeld.</p></div></div>
+<div class="row"><label for="e${m.id}-r">Rechten</label>${rightsSel(m.rechten, `e${m.id}-r`)}</div><div class="row"><label for="e${m.id}-b">Bron of licentie</label><input id="e${m.id}-b" name="bron" maxlength="200" value="${esc(m.bron)}"></div><button type="submit">Opslaan</button></form>
 <form method="post" action="/admin/media/${m.id}/verwijderen" data-confirm="Deze foto definitief verwijderen?" class="dz">${csrf}<button type="submit" class="danger small"${used.length ? ' disabled title="Haal de foto eerst weg waar hij gebruikt wordt"' : ''}>Verwijderen</button>${used.length ? '<span class="meta"> Eerst vervangen waar hij gebruikt wordt.</span>' : ''}</form></div>` : ''}</div></dialog>`;
 	};
 	const library = items.length ? `<div class="toolbar"><div class="searchbar">${icon('search')}<input type="search" id="mq" placeholder="Zoek in omschrijving of bron" aria-label="Zoek foto’s"></div>
@@ -553,7 +571,7 @@ function statsPage(ctx, sum, days) {
 
 const errorPage = (ctx, status, text) => shell({ ...ctx, session: ctx.session || null }, { title: 'Fout', body: `<section class="card narrow"><h1>${esc(String(status))}</h1><p>${esc(text)}</p><p><a href="/admin">Terug naar het begin</a></p></section>`, script: false });
 
-module.exports = { forgotPage, resetPage, reviewsPage, reviewPage, settingsPage, systemPage, menuPage, PLACE, ORDER, loginPage, codePage, dashboardPage, pagesPage, newPagePage, textEditorPage, privacyEditorPage, pageEditorPage, sectionCard, historyPage, diffPage, mediaPage, messagesPage, messagePage, privacyRequestPage, queuePage, redirectsPage, usersPage, auditPage, accountPage, statsPage, errorPage, CONTACT_ROLES };
+module.exports = { trashPage, translationsPage, planningPage, shareLinksPage, forgotPage, resetPage, reviewsPage, reviewPage, settingsPage, systemPage, menuPage, PLACE, ORDER, loginPage, codePage, dashboardPage, pagesPage, newPagePage, textEditorPage, privacyEditorPage, pageEditorPage, sectionCard, historyPage, diffPage, mediaPage, messagesPage, messagePage, privacyRequestPage, queuePage, redirectsPage, usersPage, auditPage, accountPage, statsPage, errorPage, CONTACT_ROLES };
 
 /* ---- menu editor ---- */
 function menuPage(ctx, data) {
@@ -630,4 +648,42 @@ ${open && canJudge ? `<section class="card"><h2>Beoordelen</h2>
 <form method="post" action="/admin/reviews/${r.id}/goedkeuren">${csrf}<label class="chk"><input type="checkbox" name="force" value="1"> Toch publiceren als er intussen iets anders is gewijzigd (die wijziging wordt vervangen)</label><div class="row"><label for="ov">Reden bij waarschuwingen (alleen nodig als de controle om een reden vraagt)</label><input id="ov" name="override_reden" maxlength="300"></div><button type="submit">Goedkeuren en publiceren</button></form>
 <form method="post" action="/admin/reviews/${r.id}/afwijzen" class="dz">${csrf}<div class="row"><label for="op">Waarom wijs je dit af?</label><textarea id="op" name="opmerking" rows="3" maxlength="1000" required></textarea></div><button type="submit" class="danger small">Afwijzen</button></form></section>` : ''}
 ${open && !canJudge ? `<form method="post" action="/admin/reviews/${r.id}/intrekken" data-confirm="Dit voorstel intrekken?">${csrf}<button type="submit" class="secondary small">Voorstel intrekken</button></form>` : ''}` });
+}
+
+/* ---- trash, translations, planning, preview links ---- */
+function trashPage(ctx, { pages, media: files, canRestore }) {
+	const csrf = `<input type="hidden" name="csrf" value="${esc(ctx.session.csrf)}">`;
+	const isAdmin = ctx.session.user.rol === 'beheerder';
+	const left = (iso) => Math.max(0, 30 - Math.floor((Date.now() - Date.parse(iso)) / 86400000));
+	const actions = (kind, id) => (canRestore ? `<form method="post" action="/admin/prullenbak/${kind}/${id}/terugzetten" class="inline">${csrf}<button class="small secondary" type="submit">Terugzetten</button></form>${isAdmin ? `<form method="post" action="/admin/prullenbak/${kind}/${id}/verwijderen" class="inline" data-confirm="Definitief verwijderen? Dit kan niet worden teruggedraaid.">${csrf}<button class="small danger" type="submit">Definitief verwijderen</button></form>` : ''}` : '');
+	const pageRows = pages.map((p) => `<li class="msg-row"><span class="msg-main"><span class="msg-top"><strong>${esc(p.titel)}</strong><span class="meta"> · ${esc(TEMPLATES[p.sjabloon] ? TEMPLATES[p.sjabloon].label : p.sjabloon)}</span></span><span class="msg-snip">Verwijderd ${esc(when(p.verwijderd_op))}, nog ${left(p.verwijderd_op)} dagen te herstellen</span></span><span class="msg-side">${actions('pagina', p.id)}</span></li>`).join('');
+	const mediaRows = files.map((m) => `<li class="msg-row"><span class="msg-main"><span class="msg-top"><strong>${esc(m.alt.en || m.bestand)}</strong><span class="meta"> · ${m.breedte}×${m.hoogte}</span></span><span class="msg-snip">Verwijderd ${esc(when(m.verwijderd_op))}, nog ${left(m.verwijderd_op)} dagen te herstellen</span></span><span class="msg-side">${actions('media', m.id)}</span></li>`).join('');
+	return shell(ctx, { title: 'Prullenbak', active: 'prullenbak', body: `<div class="page-head"><div><h1>Prullenbak</h1><p class="hint">Verwijderde pagina’s en foto’s blijven 30 dagen bewaard en kunnen worden teruggezet. Daarna verdwijnen ze definitief.${canRestore ? '' : ' Terugzetten kan een editor of beheerder.'}</p></div></div>
+<section class="card flush"><h2 class="pad">Pagina’s (${pages.length})</h2>${pages.length ? `<ul class="msglist">${pageRows}</ul>` : '<p class="hint pad">Geen verwijderde pagina’s.</p>'}</section>
+<section class="card flush"><h2 class="pad">Foto’s (${files.length})</h2>${files.length ? `<ul class="msglist">${mediaRows}</ul>` : '<p class="hint pad">Geen verwijderde foto’s.</p>'}</section>` });
+}
+function translationsPage(ctx, { rows, totals }) {
+	const label = { nagekeken: 'nagekeken', eerste_versie: 'eerste versie', standaard: 'standaardtekst', leeg: 'leeg' };
+	const cls = { nagekeken: 'ok', eerste_versie: 'st-in_behandeling', standaard: 'st-standaard', leeg: 'st-warn' };
+	const cellHtml = (c) => `<span class="pill ${cls[c.state]}">${label[c.state]}</span>${c.outdated ? ` <span class="pill st-warn" title="De Engelse tekst is later gewijzigd dan deze vertaling">${c.outdated} verouderd</span>` : ''}`;
+	const kinds = [['tekst', 'Teksten van de site'], ['privacy', 'Privacyverklaring'], ['pagina', 'Eigen pagina’s']];
+	const body = kinds.map(([k, title]) => { const items = rows.filter((r) => r.kind === k); return items.length ? `<section class="card flush"><h2 class="pad">${title}</h2><div class="scroll"><table data-sortable><thead><tr><th>Onderdeel</th>${LANGS.map((l) => `<th>${esc(LANG_NAMES[l])}</th>`).join('')}</tr></thead><tbody>${items.map((r) => `<tr><th scope="row"><a href="${esc(r.href)}">${esc(r.label)}</a></th>${LANGS.map((l) => `<td>${cellHtml(r.cells[l])}</td>`).join('')}</tr>`).join('')}</tbody></table></div></section>` : ''; }).join('');
+	return shell(ctx, { title: 'Vertalingen', active: 'vertalingen', body: `<div class="page-head"><div><h1>Vertalingen</h1><p class="hint">Per onderdeel de stand van elke taal. “Verouderd” betekent dat de Engelse tekst is aangepast nadat de vertaling is geschreven of nagekeken. “Standaardtekst” is de tekst die met de site meekomt. Laat vertalingen altijd nakijken door een moedertaalspreker.</p></div></div>
+<div class="rolecards">${LANGS.map((l) => `<div class="card mini"><strong>${esc(LANG_NAMES[l])}</strong><span class="meta">${totals[l].nagekeken} nagekeken · ${totals[l].open} open · ${totals[l].outdated} met verouderde delen</span></div>`).join('')}</div>${body}` });
+}
+function planningPage(ctx, { items, canPlan }) {
+	const csrf = `<input type="hidden" name="csrf" value="${esc(ctx.session.csrf)}">`;
+	const state = { wacht: ['st-in_behandeling', 'Gepland'], klaar: ['ok', 'Uitgevoerd'], mislukt: ['st-warn', 'Mislukt'], geannuleerd: ['st-standaard', 'Geannuleerd'] };
+	const what = (r) => `${r.actie === 'publiceren' ? 'Publiceren' : 'Offline halen'}: ${r.soort === 'pagina' ? `pagina ${r.ref}` : r.ref === 'privacy' ? 'privacyverklaring' : `tekst ${r.ref}`}`;
+	const row = (r) => `<li class="msg-row"><span class="msg-main"><span class="msg-top"><strong>${esc(what(r))}</strong><span class="meta"> · gepland door ${esc(r.naam || 'onbekend')}</span></span><span class="msg-snip">${esc(new Date(r.wanneer).toLocaleString('nl-NL', { dateStyle: 'full', timeStyle: 'short' }))}${r.fout ? ` · ${esc(r.fout)}` : ''}</span></span><span class="msg-side"><span class="pill ${state[r.status][0]}">${state[r.status][1]}</span>${r.status === 'wacht' && canPlan ? `<form method="post" action="/admin/planning/${r.id}/annuleren" class="inline">${csrf}<button class="small secondary" type="submit">Annuleren</button></form>` : ''}</span></li>`;
+	const up = items.filter((r) => r.status === 'wacht');
+	const past = items.filter((r) => r.status !== 'wacht');
+	return shell(ctx, { title: 'Planning', active: 'planning', body: `<div class="page-head"><div><h1>Planning</h1><p class="hint">Gepland publiceren of offline halen. Plannen doe je in de editor met de klok-knop. Op het gekozen moment gaat het door dezelfde controles als een gewone publicatie; lukt dat niet, dan krijg je een mail.</p></div></div>
+<section class="card flush"><h2 class="pad">Komende acties (${up.length})</h2>${up.length ? `<ul class="msglist">${up.map(row).join('')}</ul>` : '<p class="hint pad">Er is niets gepland.</p>'}</section>
+<section class="card flush"><h2 class="pad">Eerder</h2>${past.length ? `<ul class="msglist">${past.map(row).join('')}</ul>` : '<p class="hint pad">Nog niets uitgevoerd.</p>'}</section>` });
+}
+function shareLinksPage(ctx, { links, canRevoke }) {
+	const csrf = `<input type="hidden" name="csrf" value="${esc(ctx.session.csrf)}">`;
+	const rows = links.map((l) => `<li class="msg-row"><span class="msg-main"><span class="msg-top"><strong>${esc(l.object)}</strong><span class="meta"> · ${esc(LANG_NAMES[l.taal] || l.taal)} · gemaakt door ${esc(l.naam || 'onbekend')}</span></span><span class="msg-snip">Verloopt ${esc(when(new Date(l.verloopt).toISOString()))}</span></span><span class="msg-side">${canRevoke ? `<form method="post" action="/admin/voorbeeldlinks/${esc(l.token_hash)}/intrekken" class="inline" data-confirm="Deze link intrekken?">${csrf}<button class="small danger" type="submit">Intrekken</button></form>` : ''}</span></li>`).join('');
+	return shell(ctx, { title: 'Voorbeeldlinks', active: 'paginas', body: `<div class="page-head"><div><h1>Voorbeeldlinks</h1><p class="hint">Een geheime link naar een concept, voor iemand zonder account. Iedereen met de link kan het voorbeeld lezen tot hij verloopt of wordt ingetrokken. Maken doe je in de editor met de deel-knop.</p></div></div><section class="card flush">${links.length ? `<ul class="msglist">${rows}</ul>` : '<p class="hint pad">Er zijn geen actieve voorbeeldlinks.</p>'}</section>` });
 }
