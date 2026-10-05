@@ -512,3 +512,45 @@ button.chip { min-height: 34px; }
 }
 .actions.spread { justify-content: space-between; margin-top: .75rem; }
 .adduser > summary { list-style: none; } .adduser > summary::-webkit-details-marker { display: none; }
+
+/* ---- menu editor ---- */
+.mgrid2 { display: grid; gap: 1rem; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
+.mnu { margin: 0 0 1rem; }
+.mgrid2 > .card { margin-bottom: 0; }
+.mlist { list-style: none; margin: .5rem 0; padding: 0; display: grid; gap: .45rem; }
+.mrow { border: 1px solid var(--a-line-strong); border-radius: var(--r-sm); background: var(--a-surface); }
+.mrow.off { opacity: .6; background: var(--a-surface-2); }
+.mrow.dragging { opacity: .4; }
+.mrow.over { outline: 2px solid var(--a-accent); }
+.mrow-top { display: flex; align-items: center; gap: .6rem; padding: .5rem .65rem; }
+.grip { cursor: grab; color: var(--a-muted); letter-spacing: -.15em; font-weight: 700; padding: .25rem .2rem; user-select: none; }
+.mrow-name { flex: 1; min-width: 0; display: grid; }
+.mrow-name strong, .mrow-name .meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mrow-actions { display: flex; align-items: center; gap: .3rem; flex: none; }
+.icon-btn { min-height: 32px; min-width: 32px; padding: 0; background: var(--a-surface); color: var(--a-ink); border: 1px solid var(--a-line-strong); font-size: 1rem; }
+.icon-btn:disabled { opacity: .35; cursor: default; }
+.icon-btn.danger { color: var(--a-danger); border-color: var(--a-line-strong); }
+.mrow-edit { padding: .2rem .8rem .5rem; border-top: 1px solid var(--a-line); background: var(--a-surface-2); border-radius: 0 0 var(--r-sm) var(--r-sm); }
+.mrow-edit .row { margin: .6rem 0 0; }
+.addrow { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; margin-top: .6rem; }
+.addrow select { flex: 1 1 14rem; width: auto; }
+.switch { display: inline-flex; align-items: center; min-height: 32px; margin: 0; }
+.switch input { appearance: none; width: 2.3rem; height: 1.3rem; border-radius: 999px; background: var(--a-line-strong); position: relative; cursor: pointer; border: 0; padding: 0; min-height: 0; transition: background .15s; }
+.switch input::after { content: ""; position: absolute; top: 2px; left: 2px; width: calc(1.3rem - 4px); height: calc(1.3rem - 4px); border-radius: 50%; background: #fff; transition: transform .15s; }
+.switch input:checked { background: var(--a-accent); }
+.switch input:checked::after { transform: translateX(1rem); }
+.switch input:focus-visible { outline: 3px solid color-mix(in srgb, var(--a-accent) 45%, transparent); outline-offset: 2px; }
+.mock { padding: 0; overflow: hidden; margin-bottom: 1rem; }
+.mock-bar { display: flex; justify-content: space-between; align-items: center; gap: .5rem; flex-wrap: wrap; padding: .6rem 1rem; border-bottom: 1px solid var(--a-line); }
+.mock-bar .chips { margin: 0; }
+.mock-site { display: flex; align-items: center; gap: 1.2rem; padding: .9rem 1.2rem; background: #f7f9fc; color: #0b1b33; flex-wrap: wrap; }
+.mock-brand { font: 700 1.05rem var(--font-head); letter-spacing: .06em; margin-right: auto; }
+.mock-nav { display: flex; flex-wrap: wrap; gap: .4rem 1.1rem; font-size: .92rem; }
+.mock-btn { background: #1f5fd1; color: #fff; padding: .35rem .9rem; border-radius: 999px; font-weight: 600; font-size: .88rem; }
+.mock-foot { display: flex; gap: .7rem; align-items: baseline; flex-wrap: wrap; padding: .6rem 1.2rem; background: #0b1b33; color: #c9d5ec; font-size: .85rem; }
+.mock-foot .meta { color: #9eadc8; }
+.savebar { position: sticky; bottom: 0; display: flex; justify-content: flex-end; align-items: center; gap: 1rem; padding: .75rem 1rem; margin-top: 1rem; background: var(--a-surface); border: 1px solid var(--a-line-strong); border-radius: var(--r); box-shadow: var(--a-shadow-lg); z-index: 4; }
+@media (max-width: 860px) { .mgrid2 { grid-template-columns: minmax(0, 1fr); } .mrow-top { flex-wrap: wrap; } .mrow-actions { width: 100%; justify-content: flex-end; } }
+.mgrid2 { grid-template-columns: minmax(0, 1fr); max-width: 52rem; }
+.mgrid2 > div > .card:first-child { margin-bottom: 1rem; }
+#menuform { padding-bottom: 1rem; }

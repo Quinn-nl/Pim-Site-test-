@@ -30,8 +30,10 @@ function previewText({ lang, path, velden, privacy, siteUrl }) {
 		if (v !== null && (v !== '' || /^(about_text|p\d_(name|role|bio|link)|company_details|linkedin_url|today_enabled|status_note|contact_reply|company_line|home_problem_line|status_short|cta_text|meta_description|fact\d_url|fact\d_source)$/.test(key))) values[key] = v;
 	}
 	const merged = { ...content, values, privacy: typeof privacy === 'string' && privacy.trim() ? privacy : content.privacy };
-	views.setToday(path === '/eco-mode-today' || String(values.today_enabled || '').toLowerCase() === 'yes');
+	const todayOn = path === '/eco-mode-today' || String(values.today_enabled || '').toLowerCase() === 'yes';
+	views.setToday(todayOn);
 	views.setFooterPages(store.footerPages(lang));
+	views.setMenu(store.menuFor(lang, todayOn));
 	views.setCarry({});
 	return renderFixed(path, merged, { siteUrl });
 }
@@ -52,6 +54,7 @@ function previewPage({ lang, velden, meta, siteUrl }) {
 	};
 	views.setToday(false);
 	views.setFooterPages(store.footerPages(lang));
+	views.setMenu(store.menuFor(lang, false));
 	views.setCarry({});
 	return views.renderPage(content, { siteUrl }, page, { [lang]: page.slug });
 }

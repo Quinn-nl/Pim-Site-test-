@@ -16,6 +16,8 @@ const asset = (p) => {
 
 let todayOn = false;
 const setToday = (on) => { todayOn = !!on; };
+let menuCfg = null;
+const setMenu = (m) => { menuCfg = m || null; };
 let footerPages = [];
 const setFooterPages = (list) => { footerPages = Array.isArray(list) ? list : []; };
 
@@ -65,6 +67,7 @@ function layout({ lang, page, title, description, body, v, siteUrl, images = {},
 	const t = UI[lang];
 	const name = v.site_name;
 	const navLink = (p, label) => `<a href="${link(lang, p)}"${page === p ? ' aria-current="page"' : ''}>${esc(label)}</a>`;
+	const menuLink = (it, cls = '') => (it.path ? `<a${cls ? ` class="${cls}"` : ''} href="${link(lang, it.path)}"${page === it.path ? ' aria-current="page"' : ''}>${esc(it.label)}</a>` : `<a${cls ? ` class="${cls}"` : ''} href="${esc(it.href)}"${it.newTab ? ' target="_blank" rel="noopener"' : ''}>${esc(it.label)}</a>`);
 	const nav = [['/problem', t.nav_problem], ['/how-it-works', t.nav_how], ['/applications', t.nav_apps]];
 	const canonical = `${siteUrl}${url(lang, page)}`;
 	const social = images.social ? `${siteUrl}${images.social.url || '/uploads/' + images.social.file}` : `${siteUrl}/img/og-default-${lang}.png`;
@@ -119,9 +122,9 @@ ${graph ? `<script type="application/ld+json">${jsonLd(graph)}</script>` : ''}
 		<a class="brand" href="${link(lang)}" aria-label="${esc(name)}">${LOGO}<span class="brand-name">${esc(name.toUpperCase())}</span></a>
 		<button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav">${esc(t.menu)}</button>
 		<nav id="site-nav" class="site-nav" aria-label="${esc(t.primary_nav)}">
-			${nav.map(([p, l]) => navLink(p, l)).join('\n\t\t\t')}
+			${(menuCfg ? menuCfg.header.map(menuLink) : nav.map(([p, l]) => navLink(p, l))).join('\n\t\t\t')}
 			${switcher}
-			<a class="btn btn-small" href="${link(lang, '/contact')}"${page === '/contact' ? ' aria-current="page"' : ''}>${esc(t.nav_contact)}</a>
+			${menuCfg ? (menuCfg.cta ? menuLink(menuCfg.cta, 'btn btn-small') : '') : `<a class="btn btn-small" href="${link(lang, '/contact')}"${page === '/contact' ? ' aria-current="page"' : ''}>${esc(t.nav_contact)}</a>`}
 		</nav>
 	</div>
 </header>
@@ -130,7 +133,7 @@ ${stickyCta && page !== '/contact' ? `<aside aria-label="${esc(t.contact_aside)}
 <footer class="site-footer">
 	<div class="wrap footer-inner">
 		<div><p class="footer-brand">${esc(name.toUpperCase())}</p>${v.company_line ? `<p class="footer-note">${esc(v.company_line)}</p>` : ''}</div>
-		<nav aria-label="${esc(t.footer_nav)}">${nav.map(([p, l]) => navLink(p, l)).join('')}${todayOn ? navLink('/eco-mode-today', t.nav_today) : ''}${footerPages.map((p) => navLink(`/${p.slug}`, p.title)).join('')}${navLink('/contact', t.nav_contact)}${navLink('/privacy', t.privacy)}</nav>
+		<nav aria-label="${esc(t.footer_nav)}">${menuCfg ? menuCfg.footer.map((it) => menuLink(it)).join('') : `${nav.map(([p, l]) => navLink(p, l)).join('')}${todayOn ? navLink('/eco-mode-today', t.nav_today) : ''}${footerPages.map((p) => navLink(`/${p.slug}`, p.title)).join('')}${navLink('/contact', t.nav_contact)}${navLink('/privacy', t.privacy)}`}</nav>
 	</div>
 	<div class="wrap footer-audiences"><nav aria-label="${esc(t.aud_other)}">${AUDIENCES.map((a) => `<a href="${link(lang, '/for/' + a.slug)}"${page === '/for/' + a.slug ? ' aria-current="page"' : ''}>${esc(labelFor(a, lang))}</a>`).join('')}</nav></div>
 	<div class="wrap footer-bottom"><small>&copy; ${new Date().getFullYear()} ${esc(name)}. ${esc(t.disclaimer)}</small></div>
@@ -686,4 +689,4 @@ function renderSitemap(siteUrl, lastmod, extra = [], pages = [], versionsOf = ()
 	return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">\n${entries.join('\n')}\n</urlset>\n`;
 }
 
-module.exports = { renderPage, SECTION_RENDER, setFooterPages, asset, renderToday, setToday, esc, url, setCarry, renderAudience, PAGES, renderHome, renderProblem, renderHow, renderApplications, renderContact, renderPrivacy, renderNotFound, renderSitemap };
+module.exports = { renderPage, SECTION_RENDER, setFooterPages, setMenu, asset, renderToday, setToday, esc, url, setCarry, renderAudience, PAGES, renderHome, renderProblem, renderHow, renderApplications, renderContact, renderPrivacy, renderNotFound, renderSitemap };

@@ -110,6 +110,7 @@ async function handlePublic(req, res, url) {
 	}
 	views.setToday(todayOn());
 	views.setFooterPages(store.footerPages(lang));
+	views.setMenu(store.menuFor(lang, todayOn()));
 	if (page === '/eco-mode-today' && !todayOn()) return false;
 	const attribution = stats.sourceOf(url, req.headers.referer, req.headers.host);
 	const utm = { source: stats.tag(url.searchParams.get('utm_source')), campaign: stats.tag(url.searchParams.get('utm_campaign')) };

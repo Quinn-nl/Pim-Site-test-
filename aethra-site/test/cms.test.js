@@ -735,3 +735,49 @@ test('account: sessions list, own name, sign out other devices', () => {
 	assert.equal(users.byId(adminId).naam, 'Nieuwe Naam');
 	assert.throws(() => users.setName(adminId, '  '), (e) => e.status === 400);
 });
+
+test('menu: default is the original, edits show on the public site, bad input is refused, reset works', async () => {
+	const menu = require('../lib/cms/menu');
+	const c = client(); await c.login();
+	const header = (html) => /<nav id="site-nav"[\s\S]*?<\/nav>/.exec(html)[0];
+	const footer = (html) => /<nav aria-label="(?:Footer|Voettekst)">[\s\S]*?<\/nav>/.exec(html)[0];
+	let html = await (await fetch(`${base}/nl/`)).text();
+	assert.match(header(html), /Het probleem[\s\S]*Hoe het werkt[\s\S]*Toepassingen/, 'default menu is unchanged');
+	assert.equal(menu.isCustom(), false);
+
+	const item = (soort, ref, extra = {}) => ({ soort, ref, labels: {}, zichtbaar: true, ...extra });
+	const data = {
+		header: [item('vast', '/applications'), item('link', 'https://example.org/blog', { labels: { nl: 'Blog', en: 'Blog' }, nieuw_tab: true }), item('vast', '/problem', { labels: { nl: 'Waarom' } }), item('vast', '/how-it-works', { zichtbaar: false })],
+		cta: item('vast', '/contact', { labels: { nl: 'Neem contact op' } }),
+		footer: [item('vast', '/privacy'), item('link', 'mailto:hallo@example.org', { labels: { en: 'Mail us' } })],
+	};
+	let r = await c.post('/admin/menu', { menu: JSON.stringify(data) });
+	assert.equal(r.status, 303);
+	html = await (await fetch(`${base}/nl/`)).text();
+	const h = header(html);
+	assert.ok(h.indexOf('Toepassingen') < h.indexOf('Blog') && h.indexOf('Blog') < h.indexOf('Waarom'), 'order follows the editor');
+	assert.ok(!h.includes('Hoe het werkt'), 'a hidden item is not shown');
+	assert.match(h, /href="https:\/\/example\.org\/blog" target="_blank" rel="noopener"/);
+	assert.match(h, /class="btn btn-small"[^>]*>Neem contact op</);
+	assert.match(footer(html), /Privacyverklaring[\s\S]*Mail us/, 'a link without a Dutch label falls back to the English one');
+	const en = await (await fetch(`${base}/en/`)).text();
+	assert.match(header(en), />The problem</, 'other languages keep the default wording');
+
+	for (const bad of [item('link', 'javascript:alert(1)', { labels: { en: 'x' } }), item('link', '//evil.example', { labels: { en: 'x' } }), item('link', '/ok', { labels: {} }), item('vast', '/nope'), item('pagina', '9999')]) {
+		r = await c.post('/admin/menu', { menu: JSON.stringify({ header: [bad], footer: [], cta: null }) });
+		assert.equal(r.status, 422, JSON.stringify(bad));
+	}
+	assert.equal((await c.post('/admin/menu', { menu: JSON.stringify({ header: Array.from({ length: 9 }, () => item('vast', '/problem')), footer: [], cta: null }) })).status, 422, 'at most 8 header items');
+	assert.equal((await c.post('/admin/menu', { menu: 'not json' })).status, 400);
+	assert.match(await (await c.req('/admin/menu')).text(), /Aangepast menu/);
+
+	users.create({ email: 'lees@example.org', naam: 'Lees', rol: 'lezer', wachtwoord: PW });
+	const rd = client('lees@example.org'); await rd.login();
+	assert.equal((await rd.req('/admin/menu')).status, 200);
+	assert.equal((await rd.post('/admin/menu', { menu: JSON.stringify(data) })).status, 403);
+
+	assert.equal((await c.post('/admin/menu/standaard', {})).status, 303);
+	assert.equal(menu.isCustom(), false);
+	html = await (await fetch(`${base}/nl/`)).text();
+	assert.match(header(html), /Het probleem[\s\S]*Hoe het werkt[\s\S]*Toepassingen/);
+});

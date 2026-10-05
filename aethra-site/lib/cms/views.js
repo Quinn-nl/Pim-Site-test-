@@ -83,7 +83,7 @@ function shell(ctx, { title, active = '', body, wide = false, script = true }) {
 	const groups = [
 		['Inhoud', [['dash', '/admin', 'Dashboard', 'dash'], ['paginas', '/admin/paginas', 'Pagina’s en teksten', 'pages'], ['media', '/admin/media', 'Media', 'media']]],
 		['Inbox', [['berichten', '/admin/berichten', 'Berichten', 'mail', badges.berichten], ['wachtrij', '/admin/wachtrij', 'Mailwachtrij', 'send']]],
-		['Site', [['redirects', '/admin/redirects', 'Redirects', 'redirect'], ['stats', '/admin/stats', 'Statistieken', 'stats']]],
+		['Site', [['menu', '/admin/menu', 'Menu', 'menu'], ['redirects', '/admin/redirects', 'Redirects', 'redirect'], ['stats', '/admin/stats', 'Statistieken', 'stats']]],
 		...(session.user.rol === 'beheerder' ? [['Beheer', [['gebruikers', '/admin/gebruikers', 'Gebruikers', 'users'], ['audit', '/admin/audit', 'Auditlog', 'shield']]]] : []),
 	];
 	const nav = groups.map(([name, items]) => `<div class="nav-group"><h2>${name}</h2>${items.map((i) => item(...i)).join('')}</div>`).join('');
@@ -525,4 +525,22 @@ function statsPage(ctx, sum, days) {
 
 const errorPage = (ctx, status, text) => shell({ ...ctx, session: ctx.session || null }, { title: 'Fout', body: `<section class="card narrow"><h1>${esc(String(status))}</h1><p>${esc(text)}</p><p><a href="/admin">Terug naar het begin</a></p></section>`, script: false });
 
-module.exports = { PLACE, ORDER, loginPage, codePage, dashboardPage, pagesPage, newPagePage, textEditorPage, privacyEditorPage, pageEditorPage, sectionCard, historyPage, diffPage, mediaPage, messagesPage, messagePage, privacyRequestPage, queuePage, redirectsPage, usersPage, auditPage, accountPage, statsPage, errorPage, CONTACT_ROLES };
+module.exports = { menuPage, PLACE, ORDER, loginPage, codePage, dashboardPage, pagesPage, newPagePage, textEditorPage, privacyEditorPage, pageEditorPage, sectionCard, historyPage, diffPage, mediaPage, messagesPage, messagePage, privacyRequestPage, queuePage, redirectsPage, usersPage, auditPage, accountPage, statsPage, errorPage, CONTACT_ROLES };
+
+/* ---- menu editor ---- */
+function menuPage(ctx, data) {
+	const canWrite = ctx.session.user.rol !== 'lezer';
+	const csrf = `<input type="hidden" name="csrf" value="${esc(ctx.session.csrf)}">`;
+	const state = { menu: data.menu, fixed: data.fixed, pages: data.pages, langs: data.langs, names: LANG_NAMES, max: { header: 8, footer: 24 }, canWrite };
+	const list = (id, title, hint, extra = '') => `<section class="card mnu" data-list="${id}"><div class="card-title"><h2>${title}</h2><span class="meta" data-count></span></div><p class="hint">${hint}</p>${extra}<ul class="mlist" data-items aria-label="${title}"></ul><p class="hint" data-empty hidden>Nog niets in dit menu.</p>${canWrite ? '<div class="addrow"><label class="sr" for="add-' + id + '">Toevoegen</label><select id="add-' + id + '" data-add-select></select><button type="button" class="secondary small" data-add>' + icon('plus') + ' Toevoegen</button></div>' : ''}</section>`;
+	return shell({ ...ctx }, { title: 'Menu', active: 'menu', body: `<div class="page-head"><div><h1>Menu</h1><p class="hint">Bepaal welke links in het hoofdmenu en de voettekst staan, in welke volgorde en met welke tekst. Wijzigingen zijn pas zichtbaar na opslaan.</p></div>${data.custom ? '<span class="pill ok">Aangepast menu</span>' : '<span class="pill st-standaard">Standaardmenu</span>'}</div>
+<div class="card mock"><div class="mock-bar"><strong>Zo ziet het eruit</strong><div class="chips" role="group" aria-label="Taal van het voorbeeld">${data.langs.map((l) => `<button type="button" class="chip" data-mlang="${l}" aria-pressed="${l === 'nl'}">${l.toUpperCase()}</button>`).join('')}</div></div>
+<div class="mock-site"><span class="mock-brand">AETHRA</span><nav class="mock-nav" data-mock="header" aria-label="Voorbeeld hoofdmenu"></nav><span class="mock-btn" data-mock="cta"></span></div><div class="mock-foot"><span class="meta">Voettekst:</span><nav class="mock-nav" data-mock="footer" aria-label="Voorbeeld voettekst"></nav></div></div>
+<form method="post" action="/admin/menu" id="menuform" data-state="${esc(JSON.stringify(state))}">${csrf}<input type="hidden" name="menu" id="menuinput">
+<div class="mgrid2">${list('header', 'Hoofdmenu', 'Links bovenaan de site. Houd het kort: drie tot vijf links werkt het best.')}
+<div>${list('footer', 'Voettekst', 'Links onderaan elke pagina.')}
+<section class="card mnu" data-cta><div class="card-title"><h2>Knop rechtsboven</h2></div><p class="hint">Eén opvallende knop naast het hoofdmenu, bijvoorbeeld “Contact”.</p><div data-cta-box></div></section></div></div>
+${canWrite ? `<div class="savebar" id="savebar"><span class="meta" id="menustate">Geen wijzigingen</span><button type="submit" id="menusave">Menu opslaan</button></div>` : '<p class="hint">Je hebt alleen leesrechten.</p>'}</form>
+${canWrite && data.custom ? `<form method="post" action="/admin/menu/standaard" data-confirm="Terug naar het standaardmenu? Je aanpassingen gaan verloren." class="dz">${csrf}<button type="submit" class="secondary small">Terugzetten naar standaardmenu</button></form>` : ''}
+<p class="hint">De rij met doelgroeppagina’s onderaan de voettekst en de taalkeuze staan vast.</p>` });
+}

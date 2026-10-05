@@ -12,6 +12,7 @@ const users = require('./users');
 const content = require('./content');
 const pages = require('./pages');
 const media = require('./media');
+const menu = require('./menu');
 const messages = require('./messages');
 const redirects = require('./redirects');
 const audit = require('./audit');
@@ -395,6 +396,20 @@ async function handleAdmin(req, res, url) {
 	}
 	if (req.method === 'GET' && p === '/admin/wachtrij') return out(200, views.queuePage(ctx, { rows: messages.queueList(), stats: messages.queueStats() }));
 	if (isPost && (m = /^\/admin\/wachtrij\/(\d+)\/opnieuw$/.exec(p))) { if (!needWrite()) return true; messages.retry(Number(m[1]), user); return go('/admin/wachtrij'); }
+
+	/* ---- menu (navigation) ---- */
+	if (req.method === 'GET' && p === '/admin/menu') return out(200, views.menuPage(ctx, menu.editorData(pages.list())));
+	if (isPost && p === '/admin/menu') {
+		if (!needWrite()) return true;
+		let raw = null;
+		try { raw = JSON.parse(String(form.menu || '')); menu.save(raw, pages.list(), user); } catch (e) {
+			const data = menu.editorData(pages.list());
+			if (raw && typeof raw === 'object' && Array.isArray(raw.header) && Array.isArray(raw.footer)) data.menu = raw;
+			return out(e.status || 400, views.menuPage({ ...ctx, flash: { ok: false, text: e instanceof SyntaxError ? 'Het menu kon niet worden gelezen.' : e.message } }, data));
+		}
+		return go('/admin/menu?f=opgeslagen');
+	}
+	if (isPost && p === '/admin/menu/standaard') { if (!needWrite()) return true; menu.reset(user); return go('/admin/menu?f=opgeslagen'); }
 
 	/* ---- redirects ---- */
 	if (req.method === 'GET' && p === '/admin/redirects') return out(200, views.redirectsPage(ctx, redirects.list()));

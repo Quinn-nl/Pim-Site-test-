@@ -527,3 +527,171 @@
 		});
 	}
 })();
+
+/* ---- menu editor ---- */
+(function () {
+	'use strict';
+	const form = document.getElementById('menuform');
+	if (!form) return;
+	const S = JSON.parse(form.dataset.state);
+	const menu = S.menu;
+	let lang = 'nl';
+	let dirty = false;
+	const $ = (s, r = document) => r.querySelector(s);
+	const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
+	const el = (tag, attrs = {}, ...kids) => {
+		const n = document.createElement(tag);
+		for (const [k, v] of Object.entries(attrs)) { if (k === 'class') n.className = v; else if (k === 'text') n.textContent = v; else if (v === true) n.setAttribute(k, ''); else if (v !== false && v != null) n.setAttribute(k, v); }
+		for (const kid of kids.flat()) if (kid != null) n.append(kid);
+		return n;
+	};
+	const live = (t) => { const l = document.getElementById('live'); if (l) l.textContent = t; };
+	const uid = () => Math.random().toString(36).slice(2, 9);
+	const fixed = (ref) => S.fixed.find((f) => f.ref === ref);
+	const page = (ref) => S.pages.find((p) => p.ref === String(ref));
+	const defaultLabel = (it, l) => (it.soort === 'vast' ? ((fixed(it.ref) || { labels: {} }).labels[l] || it.ref) : it.soort === 'pagina' ? (((page(it.ref) || {}).titels || {})[l] || '') : (it.labels.en || Object.values(it.labels)[0] || ''));
+	const effective = (it, l) => (it.labels[l] || defaultLabel(it, l));
+	const missingLang = (it, l) => it.soort === 'pagina' && !effective(it, l);
+	const target = (it) => (it.soort === 'vast' ? `Vaste pagina · ${it.ref === '/' ? 'startpagina' : it.ref}` : it.soort === 'pagina' ? 'Eigen pagina' : it.ref);
+	const nameOf = (it) => effective(it, 'nl') || effective(it, 'en') || defaultLabel(it, 'en') || '(zonder naam)';
+	const touch = () => { dirty = true; const s = $('#menustate'); if (s) s.textContent = 'Niet-opgeslagen wijzigingen'; };
+
+	function mock() {
+		for (const name of ['header', 'footer']) {
+			const box = $(`[data-mock="${name}"]`);
+			box.replaceChildren(...menu[name].filter((i) => i.zichtbaar && !missingLang(i, lang) && effective(i, lang)).map((i) => el('span', { text: effective(i, lang) })));
+		}
+		const c = menu.cta;
+		const b = $('[data-mock="cta"]');
+		b.textContent = c && c.zichtbaar && effective(c, lang) ? effective(c, lang) : '';
+		b.hidden = !b.textContent;
+	}
+
+	function row(it, listName, index, listArr) {
+		const open = it._open;
+		const li = el('li', { class: 'mrow' + (it.zichtbaar ? '' : ' off'), 'data-id': it.id });
+		const isCta = listName === 'cta';
+		const top = el('div', { class: 'mrow-top' });
+		if (!isCta && S.canWrite) top.append(el('span', { class: 'grip', draggable: 'true', 'aria-hidden': 'true', title: 'Sleep om de volgorde te wijzigen', text: '⋮⋮' }));
+		top.append(el('div', { class: 'mrow-name' }, el('strong', { text: effective(it, 'nl') || nameOf(it) }), el('span', { class: 'meta', text: target(it) + (it.soort === 'pagina' && Object.keys((page(it.ref) || {}).titels || {}).length < S.langs.length ? ' · niet in alle talen' : '') })));
+		if (S.canWrite) {
+			const actions = el('div', { class: 'mrow-actions' });
+			const sw = el('label', { class: 'switch', title: it.zichtbaar ? 'Zichtbaar op de site' : 'Verborgen op de site' }, el('input', { type: 'checkbox', checked: it.zichtbaar, 'aria-label': `${nameOf(it)} zichtbaar` }), el('span', { class: 'sr', text: 'Zichtbaar' }));
+			sw.firstChild.addEventListener('change', (e) => { it.zichtbaar = e.target.checked; touch(); render(); });
+			actions.append(sw);
+			if (!isCta) {
+				actions.append(el('button', { type: 'button', class: 'icon-btn', 'aria-label': `${nameOf(it)} omhoog`, text: '↑', disabled: index === 0, 'data-up': it.id }), el('button', { type: 'button', class: 'icon-btn', 'aria-label': `${nameOf(it)} omlaag`, text: '↓', disabled: index === listArr.length - 1, 'data-down': it.id }));
+			}
+			actions.append(el('button', { type: 'button', class: 'secondary small', 'data-edit': it.id, 'aria-expanded': String(!!open), text: open ? 'Klaar' : 'Tekst' }), el('button', { type: 'button', class: 'icon-btn danger', 'aria-label': `${nameOf(it)} verwijderen`, 'data-del': it.id, text: '✕' }));
+			top.append(actions);
+		}
+		li.append(top);
+		if (open && S.canWrite) {
+			const panel = el('div', { class: 'mrow-edit' });
+			if (it.soort === 'link') {
+				const url = el('input', { type: 'text', value: it.ref, id: `u-${it.id}`, maxlength: '500', placeholder: 'https://… of /adres' });
+				url.addEventListener('input', () => { it.ref = url.value.trim(); touch(); mock(); });
+				panel.append(el('div', { class: 'row' }, el('label', { for: `u-${it.id}`, text: 'Link' }), url));
+				const nt = el('input', { type: 'checkbox', checked: it.nieuw_tab });
+				nt.addEventListener('change', () => { it.nieuw_tab = nt.checked; touch(); });
+				panel.append(el('label', { class: 'chk' }, nt, ' Opent in een nieuw tabblad'));
+			}
+			const grid = el('div', { class: 'two' });
+			for (const l of S.langs) {
+				const input = el('input', { type: 'text', value: it.labels[l] || '', id: `l-${it.id}-${l}`, maxlength: '60', lang: l, placeholder: it.soort === 'link' ? (l === 'en' ? 'Tekst van de link' : 'Leeg = Engelse tekst') : (defaultLabel(it, l) || 'Niet beschikbaar in deze taal') });
+				input.addEventListener('input', () => { const v = input.value.trim(); if (v) it.labels[l] = v; else delete it.labels[l]; touch(); mock(); });
+				grid.append(el('div', { class: 'row' }, el('label', { for: input.id, text: `Tekst (${S.names[l]})` }), input));
+			}
+			panel.append(grid);
+			if (it.soort !== 'link') panel.append(el('p', { class: 'fhint', text: 'Laat leeg om de standaardtekst te gebruiken.' }));
+			li.append(panel);
+		}
+		return li;
+	}
+
+	function options(listName) {
+		const used = new Set(menu[listName].map((i) => `${i.soort}:${i.ref}`));
+		const sel = [el('option', { value: '', text: 'Kies wat je wilt toevoegen…' })];
+		const g1 = el('optgroup', { label: 'Vaste pagina’s' });
+		for (const f of S.fixed) g1.append(el('option', { value: `vast:${f.ref}`, text: f.labels.nl, disabled: used.has(`vast:${f.ref}`) }));
+		sel.push(g1);
+		if (S.pages.length) { const g2 = el('optgroup', { label: 'Eigen pagina’s' }); for (const p of S.pages) g2.append(el('option', { value: `pagina:${p.ref}`, text: p.titels.nl || p.titels.en || `Pagina ${p.ref}`, disabled: used.has(`pagina:${p.ref}`) })); sel.push(g2); }
+		sel.push(el('option', { value: 'link:', text: 'Eigen link…' }));
+		return sel;
+	}
+
+	function render() {
+		for (const name of ['header', 'footer']) {
+			const box = $(`[data-list="${name}"]`);
+			const ul = $('[data-items]', box);
+			ul.replaceChildren(...menu[name].map((it, i) => row(it, name, i, menu[name])));
+			$('[data-empty]', box).hidden = menu[name].length > 0;
+			$('[data-count]', box).textContent = `${menu[name].length} van ${S.max[name]}`;
+			const sel = $('[data-add-select]', box);
+			if (sel) { const v = sel.value; sel.replaceChildren(...options(name)); sel.value = v; $('[data-add]', box).disabled = menu[name].length >= S.max[name]; }
+		}
+		const cbox = $('[data-cta-box]');
+		cbox.replaceChildren();
+		if (menu.cta) cbox.append(el('ul', { class: 'mlist' }, row(menu.cta, 'cta', 0, [menu.cta])));
+		else if (S.canWrite) {
+			const sel = el('select', { id: 'add-cta', 'aria-label': 'Doel van de knop' }, ...options('cta'));
+			const btn = el('button', { type: 'button', class: 'secondary small', text: 'Knop instellen' });
+			btn.addEventListener('click', () => { const it = make(sel.value); if (!it) return; menu.cta = it; touch(); render(); });
+			cbox.append(el('div', { class: 'addrow' }, sel, btn));
+		} else cbox.append(el('p', { class: 'hint', text: 'Geen knop.' }));
+		mock();
+	}
+
+	function make(value) {
+		if (!value) return null;
+		const [soort, ...rest] = value.split(':');
+		const ref = rest.join(':');
+		return { id: uid(), soort, ref, labels: {}, zichtbaar: true, nieuw_tab: false, _open: soort === 'link' };
+	}
+	const find = (id) => { for (const name of ['header', 'footer']) { const i = menu[name].findIndex((x) => x.id === id); if (i > -1) return [menu[name], i, name]; } return menu.cta && menu.cta.id === id ? [null, -1, 'cta'] : [null, -1, null]; };
+
+	form.addEventListener('click', (e) => {
+		const t = e.target.closest('button');
+		if (!t) return;
+		if (t.dataset.add !== undefined) {
+			const box = t.closest('[data-list]');
+			const name = box.dataset.list;
+			const it = make($('[data-add-select]', box).value);
+			if (!it) return;
+			menu[name].push(it); $('[data-add-select]', box).value = ''; touch(); render(); live('Toegevoegd');
+			if (it._open) { const inp = $(`#u-${it.id}`); if (inp) inp.focus(); }
+			return;
+		}
+		const id = t.dataset.up || t.dataset.down || t.dataset.edit || t.dataset.del;
+		if (!id) return;
+		const [arr, i, name] = find(id);
+		if (name === null) return;
+		if (t.dataset.up !== undefined && i > 0) { [arr[i - 1], arr[i]] = [arr[i], arr[i - 1]]; touch(); render(); live('Omhoog verplaatst'); const b = $(`[data-up="${id}"]`) || $(`[data-down="${id}"]`); if (b) b.focus(); }
+		else if (t.dataset.down !== undefined && i < arr.length - 1) { [arr[i + 1], arr[i]] = [arr[i], arr[i + 1]]; touch(); render(); live('Omlaag verplaatst'); const b = $(`[data-down="${id}"]`) || $(`[data-up="${id}"]`); if (b) b.focus(); }
+		else if (t.dataset.edit !== undefined) { const it = name === 'cta' ? menu.cta : arr[i]; it._open = !it._open; render(); }
+		else if (t.dataset.del !== undefined) { if (name === 'cta') menu.cta = null; else arr.splice(i, 1); touch(); render(); live('Verwijderd'); }
+	});
+
+	// drag and drop within one list
+	let dragId = null;
+	form.addEventListener('dragstart', (e) => { const li = e.target.closest && e.target.closest('.mrow'); if (!li || !e.target.classList.contains('grip')) return; dragId = li.dataset.id; li.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', dragId); });
+	form.addEventListener('dragend', () => { dragId = null; for (const l of $$('.mrow')) l.classList.remove('dragging', 'over'); });
+	form.addEventListener('dragover', (e) => { const li = e.target.closest && e.target.closest('.mrow'); if (!dragId || !li) return; const [a] = find(dragId); const [b] = find(li.dataset.id); if (a && a === b) { e.preventDefault(); for (const l of $$('.mrow')) l.classList.toggle('over', l === li && l.dataset.id !== dragId); } });
+	form.addEventListener('drop', (e) => {
+		const li = e.target.closest && e.target.closest('.mrow');
+		if (!dragId || !li) return;
+		const [a, from] = find(dragId); const [b, to] = find(li.dataset.id);
+		if (!a || a !== b || from === to) return;
+		e.preventDefault();
+		const [moved] = a.splice(from, 1); a.splice(to, 0, moved); touch(); render(); live('Volgorde gewijzigd');
+	});
+
+	for (const b of $$('[data-mlang]')) b.addEventListener('click', () => { lang = b.dataset.mlang; for (const o of $$('[data-mlang]')) o.setAttribute('aria-pressed', String(o === b)); mock(); });
+	form.addEventListener('submit', () => {
+		const strip = (it) => ({ id: it.id, soort: it.soort, ref: it.ref, labels: it.labels, zichtbaar: it.zichtbaar, nieuw_tab: it.nieuw_tab });
+		$('#menuinput').value = JSON.stringify({ header: menu.header.map(strip), footer: menu.footer.map(strip), cta: menu.cta ? strip(menu.cta) : null });
+		dirty = false;
+	});
+	window.addEventListener('beforeunload', (e) => { if (dirty) { e.preventDefault(); e.returnValue = ''; } });
+	render();
+})();
