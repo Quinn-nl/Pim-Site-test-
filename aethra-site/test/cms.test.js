@@ -760,6 +760,7 @@ test('menu: default is the original, edits show on the public site, bad input is
 	assert.equal(r.status, 303);
 	html = await (await fetch(`${base}/nl/`)).text();
 	const h = header(html);
+	assert.ok(!/<a class="\d+"/.test(h), 'no stray class attributes on header links');
 	assert.ok(h.indexOf('Toepassingen') < h.indexOf('Blog') && h.indexOf('Blog') < h.indexOf('Waarom'), 'order follows the editor');
 	assert.ok(!h.includes('Hoe het werkt'), 'a hidden item is not shown');
 	assert.match(h, /href="https:\/\/example\.org\/blog" target="_blank" rel="noopener"/);
@@ -1544,4 +1545,42 @@ test('media bulk delete: unused photos go to the trash, photos in use stay', asy
 	assert.equal(media.get(a), null); assert.equal(media.get(b), null); assert.ok(media.get(used));
 	assert.equal((await client('red@example.org').post('/admin/media/bulk', {})).status, 303);
 	media.setSlot('hero', null, null); media.remove(used, { id: adminId });
+});
+
+/* ---- block 6: real tools ---- */
+
+const hasBin = (name) => { try { require('child_process').execFileSync(name, ['-version'], { stdio: 'ignore' }); return true; } catch (e) { try { require('child_process').execFileSync(name, ['--version'], { stdio: 'ignore' }); return true; } catch (e2) { return false; } } };
+
+test('media with the real cwebp and avifenc: valid WebP/AVIF files, smaller than the original, served with the right type', { skip: !(hasBin('cwebp') && hasBin('avifenc')) && 'cwebp and avifenc are not installed' }, async () => {
+	const media = require('../lib/cms/media');
+	const tmp = path.join(cfg.DATA_DIR, `real-${Date.now()}.png`);
+	fs.writeFileSync(tmp, png(1600, 900));
+	const id = await media.saveUpload({ tmpPath: tmp, alt: { en: 'Real encoders' }, user: { id: adminId } });
+	const m = media.get(id);
+	const types = m.varianten.map((v) => `${v.type}@${v.dichtheid}x`);
+	assert.ok(types.includes('image/webp@1x') && types.includes('image/webp@2x') === (1600 > 1200), JSON.stringify(types));
+	assert.ok(types.some((t) => t.startsWith('image/avif')), 'AVIF is made as well');
+	const original = fs.statSync(path.join(media.uploadsDir(), m.bestand)).size;
+	for (const v of m.varianten) {
+		const buf = fs.readFileSync(path.join(media.uploadsDir(), v.bestand));
+		if (v.type === 'image/webp') { assert.equal(buf.subarray(0, 4).toString(), 'RIFF'); assert.equal(buf.subarray(8, 12).toString(), 'WEBP'); }
+		if (v.type === 'image/avif') assert.equal(buf.subarray(4, 12).toString(), 'ftypavif');
+		const res = await fetch(`${base}/uploads/${v.bestand}`);
+		assert.equal(res.status, 200);
+		assert.equal(res.headers.get('content-type'), v.type);
+		assert.equal(res.headers.get('x-content-type-options'), 'nosniff');
+	}
+	assert.ok(m.varianten.filter((v) => v.dichtheid === 1).every((v) => fs.statSync(path.join(media.uploadsDir(), v.bestand)).size < original), 'the modern formats are smaller than the PNG');
+	media.remove(id, { id: adminId }); media.purge(id, { id: adminId });
+});
+
+test('two-step verification follows RFC 6238 (SHA-1 test vectors) and a QR code carries the right otpauth address', () => {
+	const totp = require('../lib/totp');
+	const secret = totp.base32(Buffer.from('12345678901234567890'));
+	// RFC 6238 appendix B, SHA-1: the 8-digit codes at these times end in the 6-digit codes below
+	const vectors = [[59, '287082'], [1111111109, '081804'], [1111111111, '050471'], [1234567890, '005924'], [2000000000, '279037'], [20000000000, '353130']];
+	for (const [t, code] of vectors) assert.equal(totp.codeAt(secret, Math.floor(t / totp.STEP)), code, `T=${t}`);
+	const uri = totp.uri(secret, 'pim@example.org', 'Aethra');
+	assert.match(uri, /^otpauth:\/\/totp\/Aethra:pim%40example\.org\?secret=[A-Z2-7]+&issuer=Aethra/);
+	assert.match(uri, /algorithm=SHA1|digits=6|period=30|^otpauth/);
 });

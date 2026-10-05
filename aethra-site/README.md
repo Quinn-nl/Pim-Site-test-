@@ -33,7 +33,9 @@ Start with `DEV_TOGGLE=1` (ignored when `NODE_ENV=production`): a small switch a
 Every page ends in one call to action; segment cards link to the contact form with the right role preselected; the form asks for the minimum, says when you will reply (editable) and what happens with the details; a fixed contact button appears on phones. No analytics are installed on purpose: the admin inbox shows each message with its role and language.
 
 ## The CMS (`/admin`)
-Dutch interface, own accounts with roles (beheerder, editor, lezer), two-step verification. Pages and texts are edited with all four languages side by side and a live preview; new pages are made from seven templates; photos need a description and a rights type; messages have a status, notes and a privacy-request tool; every change is versioned and logged. See [docs/cms.md](../docs/cms.md).
+Dutch interface, own accounts with roles (beheerder, editor, redacteur, lezer), two-step verification, review flow, scheduling, trash, menu editor, SEO and link checks, back-ups. Pages and texts are edited with all four languages side by side and a live preview; new pages are made from seven templates; photos need a description and a rights type; messages have a status, notes and a privacy-request tool; every change is versioned and logged. See [docs/cms.md](../docs/cms.md).
+
+Full manual and technical notes (Dutch): [docs/cms.md](docs/cms.md). Browser tests: `npm run test:e2e`.
 
 ## Getting messages by e-mail
 Set these environment variables and every new message is also e-mailed to your team (it always stays in the admin inbox too):

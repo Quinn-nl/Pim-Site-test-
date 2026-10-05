@@ -15,6 +15,7 @@
     "restore": "node scripts/restore.js",
     "backup": "node scripts/backup.js",
     "test": "node --test test/*.test.js",
+    "test:e2e": "node test/e2e/admin.e2e.cjs",
     "user:create": "node scripts/user.js create",
     "user:password": "node scripts/user.js password",
     "user:reset-2fa": "node scripts/user.js reset-2fa",

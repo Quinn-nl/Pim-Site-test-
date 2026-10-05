@@ -125,7 +125,7 @@ ${bannerCfg ? `<div class="site-banner" role="region" aria-label="${esc(t.announ
 		<a class="brand" href="${link(lang)}" aria-label="${esc(name)}">${LOGO}<span class="brand-name">${esc(name.toUpperCase())}</span></a>
 		<button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav">${esc(t.menu)}</button>
 		<nav id="site-nav" class="site-nav" aria-label="${esc(t.primary_nav)}">
-			${(menuCfg ? menuCfg.header.map(menuLink) : nav.map(([p, l]) => navLink(p, l))).join('\n\t\t\t')}
+			${(menuCfg ? menuCfg.header.map((it) => menuLink(it)) : nav.map(([p, l]) => navLink(p, l))).join('\n\t\t\t')}
 			${switcher}
 			${menuCfg ? (menuCfg.cta ? menuLink(menuCfg.cta, 'btn btn-small') : '') : `<a class="btn btn-small" href="${link(lang, '/contact')}"${page === '/contact' ? ' aria-current="page"' : ''}>${esc(t.nav_contact)}</a>`}
 		</nav>
