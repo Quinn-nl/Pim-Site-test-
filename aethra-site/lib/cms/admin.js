@@ -97,7 +97,8 @@ function afterLogin(userId, req, ip) {
 function rpOf(req) {
 	let host = String(req.headers.host || 'localhost');
 	let secure = cfg.SECURE;
-	if (cfg.SITE_URL) { const u = new URL(cfg.SITE_URL); host = u.host; secure = u.protocol === 'https:'; }
+	// SITE_URL decides, unless the browser is on another address of the same site (then that address is the only one that can work).
+	if (cfg.SITE_URL) { const u = new URL(cfg.SITE_URL); if (!req.headers.host || u.host === req.headers.host) { host = u.host; secure = u.protocol === 'https:'; } else secure = !!req.socket.encrypted || String(req.headers['x-forwarded-proto'] || '') === 'https'; }
 	return { rpId: host.replace(/:\d+$/, '').replace(/^\[|\]$/g, ''), origin: `${secure ? 'https' : 'http'}://${host}` };
 }
 const readJson = async (req) => { try { return JSON.parse((await readBody(req, 60 * 1024)).toString('utf8')); } catch (e) { return null; } };

@@ -16,7 +16,7 @@
 		const cred = await navigator.credentials.get({ publicKey: requestOptions(pk) });
 		return { id: cred.id, response: { clientDataJSON: bufToB64u(cred.response.clientDataJSON), authenticatorData: bufToB64u(cred.response.authenticatorData), signature: bufToB64u(cred.response.signature) } };
 	}
-	const nice = (e) => (e && e.name === 'NotAllowedError' ? 'Geannuleerd of verlopen. Probeer het opnieuw.' : (e && e.message) || 'Er ging iets mis met de beveiligingssleutel.');
+	const nice = (e) => (e && (e.name === 'SecurityError' || /invalid domain/i.test(e.message || '')) ? 'Passkeys werken niet op dit adres. Open het beheer via de echte domeinnaam van de website (met https), niet via een IP-adres of tijdelijk adres.' : e && e.name === 'NotAllowedError' ? 'Geannuleerd of verlopen. Probeer het opnieuw.' : (e && e.message) || 'Er ging iets mis met de beveiligingssleutel.');
 
 	// 1. sign in
 	const login = $('[data-passkey-login]');
