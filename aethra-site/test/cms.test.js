@@ -1017,8 +1017,9 @@ test('invitations and password reset: one-time links, hashed, 2FA code required 
 
 	// forgot password: same answer for known and unknown, a mail is queued only for a real account
 	const mailsBefore = db.get("SELECT COUNT(*) AS n FROM mail_uit WHERE soort = 'herstel'").n;
-	const known = await (await post('/admin/vergeten', { email: 'nieuw@example.org' })).text();
-	const unknown = await (await post('/admin/vergeten', { email: 'niemand@example.org' })).text();
+	const noNonce = (h) => h.replace(/nonce="[^"]*"/g, '');
+	const known = noNonce(await (await post('/admin/vergeten', { email: 'nieuw@example.org' })).text());
+	const unknown = noNonce(await (await post('/admin/vergeten', { email: 'niemand@example.org' })).text());
 	assert.equal(known, unknown, 'no way to learn which accounts exist');
 	assert.equal(db.get("SELECT COUNT(*) AS n FROM mail_uit WHERE soort = 'herstel'").n, mailsBefore, 'no mail server: no mail queued, the administrator can make a link');
 
@@ -1391,4 +1392,156 @@ test('editorial rules: administrators can add terms, the built-in rules stay, on
 	assert.equal((await c.json('/admin/publish', params('A cheap way to talk'))).status, 200, 'removed: allowed again');
 	assert.ok(db.get("SELECT 1 FROM audit_logs WHERE actie = 'regels.toegevoegd'"));
 	assert.equal((await c.json('/admin/publish', params('Guaranteed returns'))).status, 422, 'still blocked after removing an extra term');
+});
+
+/* ---- block 5: tasks, search, reply templates, redirects CSV, statistics, help, privacy overview, bulk ---- */
+
+test('dashboard tasks: assigned messages, drafts, reviews and warnings show up for the right person', async () => {
+	const tasks = require('../lib/cms/tasks');
+	const m = messages.add({ lang: 'nl', name: 'Taak Test', email: 'taak@example.org', role: 'Other', message: 'Bel mij terug' });
+	messages.assign(m.id, adminId, { id: adminId });
+	content.saveDraft('tekst:hero', adminId, { velden: {} }, 0);
+	const mine = tasks.forUser({ id: adminId, rol: 'beheerder' });
+	assert.ok(mine.some((t) => /op jouw naam/.test(t.tekst) && t.href.includes('toegewezen=ik')));
+	assert.ok(mine.some((t) => /onaf concept van hero/.test(t.tekst)));
+	assert.ok(mine.some((t) => /mailserver/.test(t.tekst)), 'an administrator is told when mail cannot be sent');
+	const other = tasks.forUser({ id: editorId, rol: 'editor' });
+	assert.ok(!other.some((t) => /op jouw naam/.test(t.tekst)), 'not someone else\'s tasks');
+	const c = client(); await c.login();
+	assert.match(await (await c.req('/admin')).text(), /Mijn taken[\s\S]*op jouw naam/);
+	assert.match(await (await c.req('/admin/berichten?toegewezen=ik')).text(), /Taak Test/, 'the task link filters on "assigned to me"');
+	messages.remove(m.id, { id: adminId });
+	content.deleteDraft('tekst:hero', adminId);
+});
+
+test('search palette: screens, pages, texts, messages; people only for administrators', async () => {
+	const c = client(); await c.login();
+	const ed = client('els@example.org'); await ed.login();
+	const m = messages.add({ lang: 'en', name: 'Zoek Persoon', email: 'zoek@example.org', organisation: 'Zoekbedrijf', role: 'Other', message: 'Findable text' });
+	const find = async (cl, q) => (await (await cl.req(`/admin/zoeken?q=${encodeURIComponent(q)}`)).json()).items;
+	assert.ok((await find(c, 'berichten')).some((i) => i.groep === 'Schermen' && i.href === '/admin/berichten'));
+	assert.ok((await find(c, 'zoek persoon')).some((i) => i.groep === 'Berichten' && i.href === `/admin/berichten/${m.id}`));
+	assert.ok((await find(c, 'Findable')).some((i) => i.groep === 'Berichten'), 'message text is searched too');
+	assert.ok((await find(c, 'contactpagina')).some((i) => i.groep === 'Teksten'));
+	assert.ok((await find(c, 'Pim')).some((i) => i.groep === 'Gebruikers'));
+	assert.ok(!(await find(ed, 'Pim')).some((i) => i.groep === 'Gebruikers'), 'an editor cannot find people');
+	assert.ok(!(await find(ed, 'instellingen')).some((i) => i.href === '/admin/instellingen'), 'nor admin-only screens');
+	assert.deepEqual(await find(c, ''), []);
+	assert.equal((await fetch(`${base}/admin/zoeken?q=x`, { redirect: 'manual' })).status, 303, 'login required');
+	assert.deepEqual((await find(c, "100%_'\"; DROP TABLE")).length >= 0, true, 'odd characters are harmless');
+	messages.remove(m.id, { id: adminId });
+});
+
+test('reply templates: per language, placeholders filled, shown on the message with previous/next navigation', async () => {
+	const replies = require('../lib/cms/replies');
+	const c = client(); await c.login();
+	const rd = client('rob@example.org'); await rd.login();
+	assert.equal((await rd.post('/admin/sjablonen', { naam: 'x', tekst_nl: 'y' })).status, 403, 'a reader cannot write');
+	assert.equal((await c.post('/admin/sjablonen', { naam: '', tekst_nl: 'y' })).status, 422);
+	assert.equal((await c.post('/admin/sjablonen', { naam: 'Pilot', onderwerp_nl: 'Je vraag over een pilot', tekst_nl: 'Beste {naam} van {organisatie},\n\nBedankt voor je bericht.', onderwerp_en: 'Your pilot question', tekst_en: 'Dear {naam}, thanks.' })).status, 303);
+	const t = replies.list().find((x) => x.naam === 'Pilot');
+	const nl = messages.add({ lang: 'nl', name: 'Anne', email: 'anne@example.org', org: 'Gemeente X', role: 'Municipality', message: 'Wij willen een pilot.' });
+	const de = messages.add({ lang: 'de', name: 'Jörg', email: 'joerg@example.org', role: 'Other', message: 'Hallo' });
+	assert.deepEqual(replies.fill(t, messages.get(nl.id)), { onderwerp: 'Je vraag over een pilot', tekst: 'Beste Anne van Gemeente X,\n\nBedankt voor je bericht.', taal: 'nl' });
+	assert.equal(replies.fill(t, messages.get(de.id)).taal, 'en', 'a language without text falls back to English');
+	const html = await (await c.req(`/admin/berichten/${nl.id}?sjabloon=${t.id}`)).text();
+	assert.match(html, /mailto:anne@example\.org\?subject=Je%20vraag%20over%20een%20pilot&amp;body=Beste%20Anne%20van%20Gemeente%20X/);
+	assert.match(html, /met sjabloon/);
+	assert.match(html, /data-key-prev/);
+	const n = messages.neighbors(nl.id);
+	assert.equal(n.newer, de.id);
+	assert.ok(n.older === null || typeof n.older === 'number');
+	assert.equal((await c.post(`/admin/sjablonen/${t.id}/verwijderen`, {})).status, 303);
+	assert.equal(replies.list().some((x) => x.naam === 'Pilot'), false);
+	messages.remove(nl.id, { id: adminId }); messages.remove(de.id, { id: adminId });
+});
+
+test('redirects: CSV export/import (formula-safe), chain detection and flattening, bulk delete', async () => {
+	const redirects = require('../lib/cms/redirects');
+	const c = client(); await c.login();
+	const r = await c.post('/admin/redirects/importeren', { csv: 'van,naar\n/nl/oud-een,/nl/nieuw-een\n/nl/oud-twee;/nl/nieuw-twee\n/nl/slecht,/nl/slecht\nhttp://evil.example,/nl/x\nonzin' });
+	assert.equal(r.status, 200);
+	const html = await r.text();
+	assert.match(html, /2 toegevoegd, 2 overgeslagen/);
+	assert.match(html, /Regel 4/);
+	assert.equal(redirects.find('/nl/oud-een'), '/nl/nieuw-een');
+	const csv = await (await c.req('/admin/redirects.csv')).text();
+	assert.ok(csv.startsWith('van,naar,gebruikt,aangemaakt'));
+	assert.match(csv, /"\/nl\/oud-een","\/nl\/nieuw-een"/);
+	// a chain made behind the back of add(): flatten fixes it
+	db.run("INSERT INTO redirects (van, naar) VALUES ('/nl/keten-a', '/nl/keten-b')");
+	db.run("INSERT INTO redirects (van, naar) VALUES ('/nl/keten-b', '/nl/keten-c')");
+	db.run("INSERT INTO redirects (van, naar) VALUES ('/nl/lus-a', '/nl/lus-b')");
+	db.run("INSERT INTO redirects (van, naar) VALUES ('/nl/lus-b', '/nl/lus-a')");
+	assert.ok(redirects.chains().length >= 3);
+	assert.match(await (await c.req('/admin/redirects')).text(), /wijs(?:t|en) naar een adres dat zelf weer doorverwijst/);
+	assert.equal((await c.post('/admin/redirects/inkorten', {})).status, 303);
+	assert.equal(redirects.find('/nl/keten-a'), '/nl/keten-c');
+	assert.equal(redirects.find('/nl/lus-a'), null, 'a loop is removed');
+	assert.equal(redirects.chains().length, 0);
+	// bulk
+	const hex = (t) => Buffer.from(t).toString('hex');
+	assert.equal((await c.post('/admin/redirects/bulk', { [`v_${hex('/nl/oud-een')}`]: '1', [`v_${hex('/nl/oud-twee')}`]: '1' })).status, 303);
+	assert.equal(redirects.find('/nl/oud-een'), null);
+	assert.equal((await c.post('/admin/redirects/bulk', {})).status, 303);
+	assert.equal((await client('rob@example.org').post('/admin/redirects/bulk', {})).status, 303, 'no session: login');
+	redirects.removeMany(['/nl/keten-a', '/nl/keten-b']);
+});
+
+test('statistics: comparison with the previous period, messages per source, CSV export', async () => {
+	const stats = require('../lib/stats');
+	const c = client(); await c.login();
+	const cur = stats.summary(7); const prev = stats.summary(7, 7);
+	assert.equal(cur.days.length, 7);
+	assert.equal(prev.days[6] < cur.days[0], true, 'the previous period lies right before the current one');
+	const m = messages.add({ lang: 'en', name: 'Source Test', email: 'src@example.org', role: 'Other', message: 'Hi', source: 'linkedin', campaign: 'launch' });
+	const by = messages.bySource(7);
+	assert.ok(by.some((r) => r.bron === 'linkedin' && r.campagne === 'launch' && r.n >= 1));
+	const html = await (await c.req('/admin/stats?days=7')).text();
+	assert.match(html, /Berichten per bron en campagne/);
+	assert.match(html, /linkedin \/ launch/);
+	const csv = await c.req('/admin/stats.csv?days=7');
+	assert.equal(csv.status, 200);
+	assert.match(csv.headers.get('content-disposition'), /aethra-statistieken-7-dagen\.csv/);
+	assert.ok((await csv.text()).startsWith('onderdeel,naam,waarde'));
+	messages.remove(m.id, { id: adminId });
+});
+
+test('help, privacy overview, theme script and contextual help', async () => {
+	const c = client(); await c.login();
+	const help = await (await c.req('/admin/help')).text();
+	assert.match(help, /Wie mag wat\?/);
+	assert.match(help, /Sneltoetsen/);
+	assert.match(help, /<kbd>Ctrl of ⌘ \+ K<\/kbd>/);
+	const privacy = await (await c.req('/admin/privacy-overzicht')).text();
+	assert.match(privacy, /aethra_lang/);
+	assert.match(privacy, /aethra_sid/);
+	assert.match(privacy, /365 dagen|\d+ dagen, daarna automatisch verwijderd/);
+	const dash = await (await c.req('/admin')).text();
+	assert.match(dash, /data-help="dash"/);
+	assert.match(dash, /localStorage\.getItem\("aethra_theme"\)/, 'the theme is set before the page is painted');
+	assert.match(dash, /id="themebtn"/);
+	assert.match(dash, /id="searchbtn"/);
+	const editor = await (await c.req('/admin/tekst/contact')).text();
+	assert.ok(!/data-help="paginas"/.test(editor), 'editors stay uncluttered');
+	const css = fs.readFileSync(path.join(cfg.ROOT, 'public/css/admin.css'), 'utf8');
+	assert.match(css, /:root\[data-theme="dark"\]/);
+	assert.match(css, /:root:not\(\[data-theme="light"\]\)/);
+});
+
+test('media bulk delete: unused photos go to the trash, photos in use stay', async () => {
+	const media = require('../lib/cms/media');
+	const c = client(); await c.login();
+	const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+	const up = async (slot) => { const f = path.join(cfg.DATA_DIR, `bulk-${Math.random()}.png`); fs.writeFileSync(f, png); return media.saveUpload({ tmpPath: f, alt: { en: 'bulk' }, user: { id: adminId }, slot }); };
+	const a = await up(null); const b = await up(null); const used = await up('hero');
+	const html = await (await c.req('/admin/media')).text();
+	assert.ok(html.includes(`name="m_${a}"`) && html.includes(`name="m_${b}"`));
+	assert.ok(!html.includes(`name="m_${used}"`), 'a photo in use cannot be selected');
+	const r = await c.post('/admin/media/bulk', { [`m_${a}`]: '1', [`m_${b}`]: '1', [`m_${used}`]: '1' });
+	assert.equal(r.status, 200);
+	assert.match(await r.text(), /2 foto’s naar de prullenbak\. 1 niet verwijderd omdat ze nog gebruikt worden/);
+	assert.equal(media.get(a), null); assert.equal(media.get(b), null); assert.ok(media.get(used));
+	assert.equal((await client('red@example.org').post('/admin/media/bulk', {})).status, 303);
+	media.setSlot('hero', null, null); media.remove(used, { id: adminId });
 });

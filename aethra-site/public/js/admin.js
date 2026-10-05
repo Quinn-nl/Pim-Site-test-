@@ -865,3 +865,137 @@
 		for (const tr of $$('tr[data-sev]')) tr.classList.toggle('hidden', c.dataset.sevFilter !== 'all' && tr.dataset.sev !== c.dataset.sevFilter);
 	});
 })();
+
+/* ---- theme, search palette (Ctrl+K), keyboard shortcuts, bulk selection, small helpers ---- */
+(function () {
+	'use strict';
+	const $ = (s, r = document) => r.querySelector(s);
+	const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
+	const store = { get: (k) => { try { return localStorage.getItem(k); } catch (e) { return null; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch (e) { /* blocked */ } } };
+
+	// theme: automatic -> light -> dark
+	const themeBtn = $('#themebtn');
+	if (themeBtn) {
+		const names = { auto: 'automatisch', light: 'licht', dark: 'donker' };
+		const apply = (t) => { if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t); else document.documentElement.removeAttribute('data-theme'); themeBtn.querySelector('span').textContent = `Thema: ${names[t]}`; };
+		let theme = store.get('aethra_theme') || 'auto';
+		if (!names[theme]) theme = 'auto';
+		apply(theme);
+		themeBtn.addEventListener('click', () => { theme = theme === 'auto' ? 'light' : theme === 'light' ? 'dark' : 'auto'; store.set('aethra_theme', theme); apply(theme); });
+	}
+
+	// contextual help: remember what was opened
+	for (const d of $$('details.help')) {
+		const key = `aethra_help_${d.dataset.help}`;
+		if (store.get(key) === '1') d.open = true;
+		d.addEventListener('toggle', () => store.set(key, d.open ? '1' : '0'));
+	}
+
+	// bulk selection (<form data-bulk> with [data-bulk-box] checkboxes, [data-bulk-all], [data-bulk-go], [data-bulk-count])
+	for (const form of $$('form[data-bulk]')) {
+		const boxes = () => $$('[data-bulk-box]', form);
+		const update = () => {
+			const n = boxes().filter((b) => b.checked).length;
+			const c = $('[data-bulk-count]', form); if (c) c.textContent = n ? `${n} geselecteerd` : 'Niets geselecteerd';
+			const go = $('[data-bulk-go]', form); if (go) go.disabled = !n;
+			const all = $('[data-bulk-all]', form); if (all) all.checked = n > 0 && n === boxes().length;
+			const bar = $('.bulkbar', form); if (bar) bar.classList.toggle('active', n > 0);
+		};
+		form.addEventListener('change', (e) => { if (e.target.matches('[data-bulk-box]')) update(); });
+		const all = $('[data-bulk-all]', form);
+		if (all) all.addEventListener('change', () => { for (const b of boxes()) b.checked = all.checked; update(); });
+		form.addEventListener('submit', (e) => { const go = $('[data-bulk-go]', form); if (go && go.dataset.confirmMsg && !window.confirm(go.dataset.confirmMsg)) e.preventDefault(); });
+	}
+
+	// <input type=file data-fill="#textarea">: put the text of a chosen file in a text area
+	for (const f of $$('input[type=file][data-fill]')) f.addEventListener('change', () => {
+		const file = f.files[0];
+		if (!file || file.size > 200000) return;
+		const r = new FileReader();
+		r.onload = () => { $(f.dataset.fill).value = String(r.result); };
+		r.readAsText(file);
+	});
+
+	/* ---- search palette ---- */
+	let palette = null;
+	function openPalette() {
+		if (palette) return;
+		const dlg = document.createElement('dialog');
+		dlg.className = 'dlg palette';
+		dlg.setAttribute('aria-label', 'Zoeken in het beheer');
+		const input = document.createElement('input');
+		input.type = 'search'; input.placeholder = 'Zoek pagina’s, teksten, berichten, foto’s of een scherm…'; input.setAttribute('aria-label', 'Zoeken'); input.autocomplete = 'off';
+		const list = document.createElement('ul'); list.className = 'plain results'; list.setAttribute('role', 'listbox');
+		const hint = document.createElement('p'); hint.className = 'hint'; hint.textContent = 'Typ om te zoeken. ↑ ↓ kiezen, Enter openen, Esc sluiten.';
+		dlg.append(input, list, hint);
+		document.body.append(dlg);
+		palette = dlg;
+		let items = []; let at = 0; let timer = null; let seq = 0;
+		const draw = () => {
+			list.replaceChildren();
+			let group = '';
+			items.forEach((it, i) => {
+				if (it.groep !== group) { group = it.groep; const h = document.createElement('li'); h.className = 'grp'; h.textContent = group; h.setAttribute('role', 'presentation'); list.append(h); }
+				const li = document.createElement('li'); li.setAttribute('role', 'option'); li.setAttribute('aria-selected', String(i === at));
+				const a = document.createElement('a'); a.href = it.href;
+				const t = document.createElement('strong'); t.textContent = it.titel; a.append(t);
+				if (it.sub) { const s = document.createElement('span'); s.className = 'meta'; s.textContent = ` ${it.sub}`; a.append(s); }
+				li.append(a); list.append(li);
+			});
+			if (!items.length && input.value.trim()) { const li = document.createElement('li'); li.className = 'hint'; li.textContent = 'Niets gevonden.'; list.append(li); }
+			const cur = $('[aria-selected=true]', list); if (cur) cur.scrollIntoView({ block: 'nearest' });
+		};
+		const run = async () => {
+			const mine = ++seq;
+			const q = input.value.trim();
+			if (!q) { items = []; draw(); return; }
+			try { const r = await fetch(`/admin/zoeken?q=${encodeURIComponent(q)}`, { headers: { accept: 'application/json' } }); const d = await r.json(); if (mine === seq) { items = d.items || []; at = 0; draw(); } } catch (e) { /* offline */ }
+		};
+		input.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(run, 120); });
+		dlg.addEventListener('keydown', (e) => {
+			if (e.key === 'ArrowDown') { e.preventDefault(); at = Math.min(items.length - 1, at + 1); draw(); }
+			else if (e.key === 'ArrowUp') { e.preventDefault(); at = Math.max(0, at - 1); draw(); }
+			else if (e.key === 'Enter' && items[at]) { e.preventDefault(); location.href = items[at].href; }
+			else if (e.key === 'Escape') { e.preventDefault(); dlg.close(); }
+		});
+		dlg.addEventListener('close', () => { dlg.remove(); palette = null; });
+		dlg.addEventListener('click', (e) => { if (e.target === dlg) dlg.close(); });
+		dlg.showModal();
+		input.focus();
+	}
+	const sb = $('#searchbtn');
+	if (sb) sb.addEventListener('click', openPalette);
+
+	/* ---- keyboard shortcuts ---- */
+	let g = false; let gTimer = null;
+	const typing = (t) => t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName));
+	document.addEventListener('keydown', (e) => {
+		if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); openPalette(); return; }
+		if (e.ctrlKey || e.metaKey || e.altKey || typing(e.target) || document.querySelector('dialog[open]')) return;
+		const k = e.key;
+		if (g) { g = false; clearTimeout(gTimer); if (k === 'b') location.href = '/admin/berichten'; else if (k === 'd') location.href = '/admin'; return; }
+		if (k === 'g') { g = true; gTimer = setTimeout(() => { g = false; }, 900); return; }
+		if (k === '/') { e.preventDefault(); const s = $('input[type=search]'); if (s) s.focus(); else openPalette(); return; }
+		if (k === '?') { location.href = '/admin/help#sneltoetsen'; return; }
+		// message detail
+		const next = $('[data-key-next]'); const prev = $('[data-key-prev]');
+		if (next || prev || $('[data-key-reply]')) {
+			if (k === 'j' && next) location.href = next.href;
+			else if (k === 'k' && prev) location.href = prev.href;
+			else if (k === 'r' && $('[data-key-reply]')) $('[data-key-reply]').click();
+			else if (k === 'e' && $('[data-status-btn="afgesloten"]')) $('[data-status-btn="afgesloten"]').click();
+			else if (k === 'u' && $('[data-status-btn="nieuw"]')) $('[data-status-btn="nieuw"]').click();
+			return;
+		}
+		// message list
+		const rows = $$('.msglist .msg-row');
+		if (rows.length && $('#bulkform')) {
+			let cur = rows.findIndex((r) => r.classList.contains('kb'));
+			const mark = (i) => { rows.forEach((r) => r.classList.remove('kb')); cur = Math.max(0, Math.min(rows.length - 1, i)); rows[cur].classList.add('kb'); rows[cur].scrollIntoView({ block: 'nearest' }); };
+			if (k === 'j') mark(cur + 1);
+			else if (k === 'k') mark(cur < 0 ? 0 : cur - 1);
+			else if (k === 'x' && cur > -1) { const b = $('[data-sel]', rows[cur]); if (b) { b.checked = !b.checked; b.dispatchEvent(new Event('change', { bubbles: true })); } }
+			else if (k === 'Enter' && cur > -1) { const a = $('a.msg-main', rows[cur]); if (a) location.href = a.href; }
+		}
+	});
+})();

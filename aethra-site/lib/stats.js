@@ -58,11 +58,11 @@ function flush() {
 }
 
 /** Aggregates the last `days` days for the dashboard. */
-function summary(days = 30) {
+function summary(days = 30, offset = 0) {
 	flush();
 	const data = store.readJson('stats.json', { days: {} });
 	const list = [];
-	for (let i = days - 1; i >= 0; i--) list.push(new Date(Date.now() - i * 86400000).toISOString().slice(0, 10));
+	for (let i = days - 1 + offset; i >= offset; i--) list.push(new Date(Date.now() - i * 86400000).toISOString().slice(0, 10));
 	const out = { days: list, perDay: list.map(() => 0), views: 0, contactViews: 0, sent: 0, pages: {}, sources: {}, langs: {}, roles: {} };
 	const add = (obj, k, n) => { obj[k] = (obj[k] || 0) + n; };
 	list.forEach((d, idx) => {

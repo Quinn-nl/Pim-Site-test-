@@ -70,6 +70,19 @@ function statusCounts(filter = {}) {
 	return out;
 }
 const unreadCount = () => db.get("SELECT COUNT(*) AS n FROM berichten WHERE status = 'nieuw'").n;
+/** The message that came in just before and just after this one (the list is newest first). */
+function neighbors(id) {
+	const m = get(id);
+	if (!m) return { newer: null, older: null };
+	const newer = db.get('SELECT id FROM berichten WHERE (tijd > ? OR (tijd = ? AND id > ?)) ORDER BY tijd ASC, id ASC LIMIT 1', m.tijd, m.tijd, m.id);
+	const older = db.get('SELECT id FROM berichten WHERE (tijd < ? OR (tijd = ? AND id < ?)) ORDER BY tijd DESC, id DESC LIMIT 1', m.tijd, m.tijd, m.id);
+	return { newer: newer ? newer.id : null, older: older ? older.id : null };
+}
+/** Messages per source and campaign in a period (days back from now, optionally shifted). */
+function bySource(days = 30, now = Date.now()) {
+	const since = new Date(now - days * 86400000).toISOString();
+	return db.all("SELECT bron, campagne, COUNT(*) AS n FROM berichten WHERE tijd >= ? GROUP BY bron, campagne ORDER BY n DESC", since);
+}
 const sources = () => db.all('SELECT DISTINCT bron FROM berichten ORDER BY bron').map((r) => r.bron);
 const roles = () => db.all('SELECT DISTINCT rol FROM berichten ORDER BY rol').map((r) => r.rol);
 
@@ -205,4 +218,4 @@ function start() {
 const stop = () => { if (timer) clearInterval(timer); timer = null; if (kicked) clearTimeout(kicked); kicked = null; };
 const busy = () => ticking;
 
-module.exports = { STATUSES, STATUS_LABELS, statusCounts, bulk, MAX_ATTEMPTS, add, enqueue, get, list, count, unreadCount, sources, roles, setStatus, markRead, setNote, assign, remove, byEmail, removeByEmail, purge, csv, tick, waitAfter, alarmCount, alarm, queueStats, queueList, retry, kick, start, stop, busy };
+module.exports = { neighbors, bySource, STATUSES, STATUS_LABELS, statusCounts, bulk, MAX_ATTEMPTS, add, enqueue, get, list, count, unreadCount, sources, roles, setStatus, markRead, setNote, assign, remove, byEmail, removeByEmail, purge, csv, tick, waitAfter, alarmCount, alarm, queueStats, queueList, retry, kick, start, stop, busy };

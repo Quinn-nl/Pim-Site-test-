@@ -68,6 +68,9 @@ const ICON_PATHS = {
 	trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
 	share: '<circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="6" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="M8.2 11l7.6-4M8.2 13l7.6 4"/>',
 	link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',
+	sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
+	reply: '<path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 6 6v3"/>',
+	help: '<circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.4-1 .9-1 1.7M12 17v.1"/>',
 	cog: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
 	server: '<rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/>',
 	eye: '<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
@@ -75,11 +78,14 @@ const ICON_PATHS = {
 const sprite = `<svg class="sprite" aria-hidden="true" focusable="false">${Object.entries(ICON_PATHS).map(([k, v]) => `<symbol id="i-${k}" viewBox="0 0 24 24">${v}</symbol>`).join('')}</svg>`;
 const icon = (name, cls = '') => `<svg class="i${cls ? ' ' + cls : ''}" aria-hidden="true" focusable="false"><use href="#i-${name}"/></svg>`;
 
+const HELP = require('./help');
+const contextHelp = (key) => (HELP.CONTEXT[key] ? `<details class="help" data-help="${esc(key)}"><summary>${icon('info')} Uitleg bij dit scherm</summary><p>${esc(HELP.CONTEXT[key])} <a href="/admin/help">Alle uitleg</a></p></details>` : '');
 function shell(ctx, { title, active = '', body, wide = false, script = true }) {
 	const { session, nonce, badges = {} } = ctx;
 	const head = `<!doctype html>
 <html lang="nl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex, nofollow"><meta name="color-scheme" content="light dark"><link rel="icon" href="/img/favicon.svg" type="image/svg+xml"><title>${esc(title)} | Aethra beheer</title>
+<script nonce="${esc(nonce)}">try{var t=localStorage.getItem("aethra_theme");if(t==="dark"||t==="light")document.documentElement.setAttribute("data-theme",t)}catch(e){}</script>
 <link rel="stylesheet" href="${asset('/css/admin.css')}"></head>`;
 	const flash = ctx.flash ? `<p class="flash ${ctx.flash.ok ? 'ok' : 'err'}" role="${ctx.flash.ok ? 'status' : 'alert'}">${icon(ctx.flash.ok ? 'check' : 'alert')}<span>${esc(ctx.flash.text)}</span></p>` : '';
 	if (!session) {
@@ -89,7 +95,7 @@ function shell(ctx, { title, active = '', body, wide = false, script = true }) {
 	const item = (key, href, label, ic, badge) => `<a href="${href}"${active === key ? ' aria-current="page"' : ''}>${icon(ic)}<span>${label}</span>${key === 'berichten' || key === 'reviews' ? `<span class="badge" data-badge="${key}"${badge ? '' : ' hidden'}>${badge || ''}</span>` : ''}</a>`;
 	const groups = [
 		['Inhoud', [['dash', '/admin', 'Dashboard', 'dash'], ['paginas', '/admin/paginas', 'Pagina’s en teksten', 'pages'], ['media', '/admin/media', 'Media', 'media'], ['reviews', '/admin/reviews', session.user.rol === 'redacteur' ? 'Mijn voorstellen' : 'Te beoordelen', 'check', badges.reviews], ['planning', '/admin/planning', 'Planning', 'clock'], ['vertalingen', '/admin/vertalingen', 'Vertalingen', 'globe'], ['prullenbak', '/admin/prullenbak', 'Prullenbak', 'trash']]],
-		['Inbox', [['berichten', '/admin/berichten', 'Berichten', 'mail', badges.berichten], ['wachtrij', '/admin/wachtrij', 'Mailwachtrij', 'send']]],
+		['Inbox', [['berichten', '/admin/berichten', 'Berichten', 'mail', badges.berichten], ['sjablonen', '/admin/sjablonen', 'Antwoordsjablonen', 'reply'], ['wachtrij', '/admin/wachtrij', 'Mailwachtrij', 'send']]],
 		['Site', [['menu', '/admin/menu', 'Menu', 'menu'], ['seo', '/admin/seo', 'Zoekmachines', 'search'], ['links', '/admin/links', 'Linkcontrole', 'link'], ['redirects', '/admin/redirects', 'Redirects', 'redirect'], ['stats', '/admin/stats', 'Statistieken', 'stats']]],
 		...(session.user.rol === 'beheerder' ? [['Beheer', [['gebruikers', '/admin/gebruikers', 'Gebruikers', 'users'], ['instellingen', '/admin/instellingen', 'Instellingen', 'cog'], ['regels', '/admin/regels', 'Redactionele regels', 'shield'], ['systeem', '/admin/systeem', 'Systeem', 'server'], ['audit', '/admin/audit', 'Auditlog', 'shield']]]] : []),
 	];
@@ -100,16 +106,19 @@ function shell(ctx, { title, active = '', body, wide = false, script = true }) {
 <div class="app">
 <aside class="side" id="side" data-open="false" aria-label="Beheer">
 <a class="brand" href="/admin"><span class="logo">${icon('orbit')}</span><span>AETHRA<small>Beheer van de website</small></span></a>
+<button type="button" class="searchbtn" id="searchbtn" aria-label="Zoeken in het beheer (Ctrl K)">${icon('search')}<span>Zoeken…</span><kbd>Ctrl K</kbd></button>
 <nav class="nav" aria-label="Hoofdmenu">${nav}</nav>
 <div class="who nav"><strong>${esc(session.user.naam)}</strong><span>${esc(session.user.rol)}</span>
 <a href="/admin/account"${active === 'account' ? ' aria-current="page"' : ''}>${icon('user')}<span>Mijn account</span></a>
+<a href="/admin/help"${active === 'help' ? ' aria-current="page"' : ''}>${icon('help')}<span>Help en sneltoetsen</span></a>
+<button type="button" id="themebtn" class="navbtn" aria-label="Thema wisselen">${icon('sun')}<span>Thema: automatisch</span></button>
 <form method="post" action="/admin/logout"><input type="hidden" name="csrf" value="${esc(session.csrf)}"><button type="submit">${icon('logout')}<span>Uitloggen</span></button></form></div>
 </aside>
 <div class="mainwrap">
 <header class="topbar"><button type="button" id="navtoggle" aria-controls="side" aria-expanded="false" aria-label="Menu openen">${icon('menu')}</button><strong>AETHRA</strong></header>
 ${ctx.maintenance ? `<p class="flash err" role="status">${icon('alert')}<span>De onderhoudsmodus staat aan: bezoekers zien een onderhoudspagina. <a href="/admin/instellingen">Uitzetten</a></span></p>` : ''}
 <p id="alarm" class="flash err" role="alert" hidden></p>
-<main id="main"${wide ? ' class="wide"' : ''}>${flash}${body}</main>
+<main id="main"${wide ? ' class="wide"' : ''}>${flash}${wide ? '' : contextHelp(active)}${body}</main>
 </div></div>
 <span id="live" class="sr" role="status" aria-atomic="true"></span><div id="toasts" role="status" aria-live="polite"></div>
 ${script ? `<script src="${asset('/js/admin.js')}" nonce="${esc(nonce)}" defer></script>` : ''}
@@ -147,6 +156,7 @@ function dashboardPage(ctx, d) {
 	const recent = d.recent.length ? `<div class="scroll"><table><thead><tr><th>Wanneer</th><th>Wie</th><th>Wat</th><th>Onderdeel</th></tr></thead><tbody>${d.recent.map((a) => `<tr><td>${esc(when(a.timestamp))}</td><td>${esc(a.gebruiker || 'systeem')}</td><td>${esc(a.actie)}</td><td><code>${esc(a.entiteit)}</code></td></tr>`).join('')}</tbody></table></div>` : '<p class="empty">Nog geen wijzigingen.</p>';
 	const kpi = (href, ic, value, label, key, alert) => `<a class="kpi kpi-link${alert ? ' alert' : ''}" href="${href}">${icon(ic)}<span class="kpi-v"${key ? ` data-kpi="${key}"` : ''}>${nf(value)}</span><span>${label}</span></a>`;
 	return shell(ctx, { title: 'Dashboard', active: 'dash', body: `<h1>Welkom, ${esc(ctx.session.user.naam.split(' ')[0])}</h1><p class="hint">Dit is de stand van zaken van de website.</p>
+${d.tasks ? `<section class="card tasks"><h2>Mijn taken</h2>${d.tasks.length ? `<ul class="plain">${d.tasks.map((t) => `<li class="sev${t.urgent ? ' urgent' : ''}"><a href="${esc(t.href)}">${icon(t.icon)}<span>${esc(t.tekst)}</span></a></li>`).join('')}</ul>` : `<p class="hint">${icon('check')} Alles is bijgewerkt. Niets wacht op jou.</p>`}</section>` : ''}
 ${canWrite ? `<div class="quick"><a class="btn-link" href="/admin/paginas/nieuw">${icon('plus')} Nieuwe pagina</a><a class="btn-link secondary" href="/admin/media">${icon('media')} Foto uploaden</a><a class="btn-link secondary" href="/admin/berichten?status=nieuw">${icon('mail')} Nieuwe berichten</a></div>` : ''}
 <div class="kpis">
 ${kpi('/admin/berichten?status=nieuw', 'mail', d.nieuw, 'nieuwe berichten', 'berichten', false)}
@@ -375,8 +385,8 @@ ${canPublish ? '<noscript><button type="submit" class="small">Opslaan</button></
 		const used = usage[m.id] || [];
 		const missing = LANGS.filter((l) => !m.alt[l]).length;
 		const useLabel = used.map((u) => (u.soort === 'plek' ? SLOTS[u.naam] || u.naam : 'Pagina')).join(', ');
-		return `<figure class="card mitem" data-media data-search="${esc(`${m.id} ${m.alt.en || ''} ${m.bron || ''}`.toLowerCase())}" data-use="${used.length ? 1 : 0}" data-rights="${esc(m.rechten)}">
-<button type="button" class="thumb" data-dialog="m${m.id}" aria-label="Foto ${m.id} bekijken en bewerken">${thumb(m)}</button>
+		return `<figure class="card mitem${canPublish && !used.length ? ' selectable' : ''}" data-media data-search="${esc(`${m.id} ${m.alt.en || ''} ${m.bron || ''}`.toLowerCase())}" data-use="${used.length ? 1 : 0}" data-rights="${esc(m.rechten)}">
+${canPublish && !used.length ? `<label class="selbox pick"><input type="checkbox" name="m_${m.id}" value="1" data-bulk-box aria-label="Foto ${m.id} selecteren"></label>` : ''}<button type="button" class="thumb" data-dialog="m${m.id}" aria-label="Foto ${m.id} bekijken en bewerken">${thumb(m)}</button>
 <figcaption><strong>${esc(m.alt.en || m.bestand)}</strong><span class="meta">${m.breedte}×${m.hoogte} · ${fmtSize(m.grootte)}${m.varianten.length ? ` · ${m.varianten.length} versies` : ''}</span>
 <span class="tags">${used.length ? `<span class="pill ok" title="${esc(useLabel)}">In gebruik</span>` : '<span class="pill st-standaard">Ongebruikt</span>'}<span class="pill${m.rechten === 'ai_sfeer' ? ' st-warn' : ' st-standaard'}">${esc(rightsLabel[m.rechten])}</span>${missing ? `<span class="pill st-warn" title="Omschrijving ontbreekt in ${missing} taal/talen">${missing} omschr. mist</span>` : ''}</span></figcaption></figure>`;
 	};
@@ -390,7 +400,7 @@ ${canPublish ? `<div><form method="post" action="/admin/media/${m.id}">${csrf}${
 	};
 	const library = items.length ? `<div class="toolbar"><div class="searchbar">${icon('search')}<input type="search" id="mq" placeholder="Zoek in omschrijving of bron" aria-label="Zoek foto’s"></div>
 <div class="chips" role="group" aria-label="Filter"><button type="button" class="chip" data-mfilter="all" aria-pressed="true">Alle <span class="n">${items.length}</span></button><button type="button" class="chip" data-mfilter="used" aria-pressed="false">In gebruik <span class="n">${items.length - unused}</span></button><button type="button" class="chip" data-mfilter="unused" aria-pressed="false">Ongebruikt <span class="n">${unused}</span></button></div></div>
-<div class="mgrid" id="mgrid">${items.map(card).join('')}</div><p class="hint" id="mnone" hidden>Geen foto’s gevonden met deze filter.</p>${items.map(dialog).join('')}` : `<div class="empty">${icon('media')}<p><strong>Nog geen foto’s.</strong></p><p class="hint">Upload hierboven je eerste foto. Gebruik alleen foto’s waarvoor je de rechten hebt.</p></div>`;
+${canPublish ? `<form method="post" action="/admin/media/bulk" data-bulk id="bulkmedia">${csrf}<div class="bulkbar"><span class="meta" data-bulk-count>Niets geselecteerd</span><button type="submit" class="small danger" data-bulk-go disabled data-confirm-msg="De geselecteerde foto’s naar de prullenbak?">Naar de prullenbak</button><span class="meta">Alleen foto’s die nergens gebruikt worden kun je selecteren.</span></div>` : ''}<div class="mgrid" id="mgrid">${items.map(card).join('')}</div>${canPublish ? '</form>' : ''}<p class="hint" id="mnone" hidden>Geen foto’s gevonden met deze filter.</p>${items.map(dialog).join('')}` : `<div class="empty">${icon('media')}<p><strong>Nog geen foto’s.</strong></p><p class="hint">Upload hierboven je eerste foto. Gebruik alleen foto’s waarvoor je de rechten hebt.</p></div>`;
 	return shell(ctx, { title: 'Media', active: 'media', body: `<div class="page-head"><div><h1>Media</h1><p class="hint">${nf(items.length)} foto${items.length === 1 ? '' : '’s'} · ${fmtSize(total)} in totaal${unused ? ` · ${unused} ongebruikt` : ''}. AI-beelden zijn alleen sfeer en nooit het prototype zelf.</p></div>${canWrite ? '<a class="btn-link" href="#upload">' + icon('plus') + ' Foto toevoegen</a>' : ''}</div>
 <section class="card"><h2>Foto’s op de site</h2><p class="hint">Kies welke foto waar op de website komt. Een wijziging is direct zichtbaar.</p><div class="slots">${slotCards}</div></section>${upload}<section class="card"><h2>Bibliotheek</h2>${library}</section>` });
 }
@@ -442,22 +452,23 @@ function messagesPage(ctx, { list, total, page, pages, filter, counts, people, s
 <div class="head-actions"><a class="btn-link secondary small" href="/admin/berichten.csv?${esc(q())}">${icon('send')} Exporteren</a><a class="btn-link secondary small" href="/admin/berichten/privacy">${icon('shield')} Privacyverzoek</a><a class="btn-link secondary small" href="/admin/wachtrij">${icon('mail')} Mailwachtrij${queueProblems ? ` <span class="badge">${queueProblems}</span>` : ''}</a></div></div>
 ${chips}${bar}<section class="card flush">${listHtml}${pager}</section>` });
 }
-function messagePage(ctx, { m, gebruikers, aantalVanAdres, flash }) {
+function messagePage(ctx, { m, gebruikers, aantalVanAdres, flash, templates = [], chosen = null, neighbors = {} }) {
 	const me = ctx.session.user;
 	const canWrite = me.rol !== 'lezer';
-	const subject = encodeURIComponent('Re: je bericht via de website van Aethra');
-	const quote = encodeURIComponent(`\n\n> ${String(m.tekst).split('\n').join('\n> ')}`);
+	const subject = encodeURIComponent(chosen && chosen.onderwerp ? chosen.onderwerp : 'Re: je bericht via de website van Aethra');
+	const quote = encodeURIComponent(`${chosen && chosen.tekst ? chosen.tekst + '\n' : ''}\n\n> ${String(m.tekst).split('\n').join('\n> ')}`);
 	const csrf = `<input type="hidden" name="csrf" value="${esc(ctx.session.csrf)}">`;
 	const mail = `mailto:${esc(m.email)}?subject=${subject}&amp;body=${quote}`;
 	const who = gebruikers.find((u) => u.id === m.toegewezen_aan);
 	const flow = ['nieuw', 'gelezen', 'in_behandeling', 'beantwoord', 'afgesloten'];
-	const stepper = canWrite ? `<form method="post" action="/admin/berichten/${m.id}/status" class="stepper" aria-label="Status">${csrf}${flow.map((s) => `<button type="submit" name="status" value="${s}" class="step" aria-pressed="${m.status === s}">${esc(ST[s])}</button>`).join('')}</form>` : statusPill(m.status);
+	const stepper = canWrite ? `<form method="post" action="/admin/berichten/${m.id}/status" class="stepper" aria-label="Status">${csrf}${flow.map((s) => `<button type="submit" name="status" value="${s}" data-status-btn="${s}" class="step" aria-pressed="${m.status === s}">${esc(ST[s])}</button>`).join('')}</form>` : statusPill(m.status);
 	const next = m.status === 'nieuw' || m.status === 'gelezen' ? ['in_behandeling', 'Neem in behandeling'] : m.status === 'in_behandeling' ? ['afgesloten', 'Markeer als afgerond'] : m.status === 'beantwoord' ? ['afgesloten', 'Markeer als afgerond'] : null;
-	return shell({ ...ctx, flash }, { title: m.naam, active: 'berichten', body: `<p class="crumb"><a href="/admin/berichten">← Alle berichten</a></p>
+	return shell({ ...ctx, flash }, { title: m.naam, active: 'berichten', body: `<p class="crumb crumb-nav"><a href="/admin/berichten">← Alle berichten</a><span class="pager-mini">${neighbors.newer ? `<a href="/admin/berichten/${neighbors.newer}" rel="prev" data-key-prev>↑ Nieuwer (K)</a>` : ''}${neighbors.older ? `<a href="/admin/berichten/${neighbors.older}" rel="next" data-key-next>↓ Ouder (J)</a>` : ''}</span></p>
 <div class="page-head"><div class="who-head">${avatar(m.naam, 'lg')}<div><h1>${esc(m.naam)}</h1><p class="hint"><a href="${mail}">${esc(m.email)}</a>${m.organisatie ? ' · ' + esc(m.organisatie) : ''} · ${esc(m.rol)} · ${esc(m.taal.toUpperCase())}</p></div></div>${statusPill(m.status)}</div>
 <div class="split">
 <div><section class="card"><p class="meta">${esc(when(m.tijd))}${m.bron && m.bron !== 'direct' ? ' · via ' + esc(m.bron) + (m.campagne ? ' / ' + esc(m.campagne) : '') : ''}</p><p class="msg-text">${esc(m.tekst).replace(/\n/g, '<br>')}</p>
-<div class="actions"><a class="btn-link" href="${mail}">${icon('send')} Beantwoorden per e-mail</a>${canWrite && next ? `<form method="post" action="/admin/berichten/${m.id}/status" class="inline">${csrf}<button type="submit" name="status" value="${next[0]}" class="secondary">${next[1]}</button></form>` : ''}</div>
+${canWrite && templates.length ? `<form method="get" action="/admin/berichten/${m.id}" class="inline tpl-pick"><label for="tplsel" class="sr">Antwoordsjabloon</label><select id="tplsel" name="sjabloon" data-autosubmit><option value="">Antwoord met een sjabloon…</option>${templates.map((t) => `<option value="${t.id}"${chosen && chosen.id === t.id ? ' selected' : ''}>${esc(t.naam)}</option>`).join('')}</select><noscript><button class="small" type="submit">Toepassen</button></noscript></form>` : ''}
+<div class="actions"><a class="btn-link" href="${mail}" data-key-reply>${icon('send')} Beantwoorden per e-mail${chosen ? ' met sjabloon' : ''}</a>${canWrite && next ? `<form method="post" action="/admin/berichten/${m.id}/status" class="inline">${csrf}<button type="submit" name="status" value="${next[0]}" class="secondary">${next[1]}</button></form>` : ''}</div>
 ${canWrite && m.status !== 'beantwoord' && m.status !== 'afgesloten' ? '<p class="hint">Na het beantwoorden kun je hieronder de status op “Beantwoord” zetten.</p>' : ''}</section>
 ${canWrite ? `<section class="card"><h2>Interne notitie</h2><form method="post" action="/admin/berichten/${m.id}/notitie">${csrf}<div class="row"><label for="note" class="sr">Notitie</label><textarea id="note" name="notitie" rows="4" maxlength="5000" placeholder="Alleen zichtbaar voor het team">${esc(m.notitie)}</textarea></div><button type="submit" class="small">Notitie opslaan</button></form></section>` : (m.notitie ? `<section class="card"><h2>Interne notitie</h2><p>${esc(m.notitie)}</p></section>` : '')}</div>
 <aside>${canWrite ? `<section class="card"><h2>Opvolging</h2><p class="label-sm">Status</p>${stepper}
@@ -485,12 +496,16 @@ ${smtp ? '' : '<p class="flash err" role="alert">' + icon('alert') + '<span>Er i
 }
 
 /* ---- redirects, users, audit, account, stats ---- */
-function redirectsPage(ctx, list) {
+function redirectsPage(ctx, list, { chains = [] } = {}) {
 	const csrf = `<input type="hidden" name="csrf" value="${esc(ctx.session.csrf)}">`;
 	const canWrite = ['beheerder', 'editor'].includes(ctx.session.user.rol);
-	const table = list.length ? `<div class="scroll"><table><thead><tr><th>Van</th><th>Naar</th><th>Gebruikt</th><th></th></tr></thead><tbody>${list.map((r) => `<tr><td><code>${esc(r.van)}</code></td><td><code>${esc(r.naar)}</code></td><td>${r.hits}</td><td>${canWrite ? `<form method="post" action="/admin/redirects/verwijderen">${csrf}<input type="hidden" name="van" value="${esc(r.van)}"><button class="danger small" type="submit">Verwijderen</button></form>` : ''}</td></tr>`).join('')}</tbody></table></div>` : '<p class="hint">Nog geen redirects. Ze ontstaan vanzelf als je het adres van een gepubliceerde pagina wijzigt.</p>';
-	return shell(ctx, { title: 'Redirects', active: 'redirects', body: `<h1>Redirects</h1><p class="hint">Een oud adres stuurt bezoekers permanent (301) naar het nieuwe adres. Dat gebeurt automatisch als een adres van een gepubliceerde pagina verandert.</p><section class="card">${table}</section>
-${canWrite ? `<section class="card"><h2>Redirect toevoegen</h2><form method="post" action="/admin/redirects">${csrf}<div class="row"><label for="rv">Van (bijvoorbeeld /nl/oude-pagina)</label><input id="rv" name="van" required></div><div class="row"><label for="rn">Naar (bijvoorbeeld /nl/nieuwe-pagina)</label><input id="rn" name="naar" required></div><button type="submit">Toevoegen</button></form></section>` : ''}` });
+	const hex = (t) => Buffer.from(String(t), 'utf8').toString('hex');
+	const table = list.length ? `<form method="post" action="/admin/redirects/bulk" data-bulk>${csrf}${canWrite ? `<div class="bulkbar"><label class="selbox"><input type="checkbox" data-bulk-all aria-label="Alles selecteren"></label><span class="meta" data-bulk-count>Niets geselecteerd</span><button type="submit" class="small danger" data-bulk-go disabled data-confirm-msg="De geselecteerde redirects verwijderen?">Verwijderen</button></div>` : ''}<div class="scroll"><table data-sortable><thead><tr>${canWrite ? '<th></th>' : ''}<th>Van</th><th>Naar</th><th>Gebruikt</th></tr></thead><tbody>${list.map((r) => `<tr>${canWrite ? `<td><label class="selbox"><input type="checkbox" name="v_${hex(r.van)}" value="1" data-bulk-box aria-label="Selecteer ${esc(r.van)}"></label></td>` : ''}<td><code>${esc(r.van)}</code></td><td><code>${esc(r.naar)}</code></td><td>${r.hits}</td></tr>`).join('')}</tbody></table></div></form>` : '<p class="hint">Nog geen redirects. Ze ontstaan vanzelf als je het adres van een gepubliceerde pagina wijzigt.</p>';
+	return shell(ctx, { title: 'Redirects', active: 'redirects', body: `<div class="page-head"><div><h1>Redirects</h1><p class="hint">Een oud adres stuurt bezoekers permanent (301) naar het nieuwe adres. Dat gebeurt automatisch als een adres van een gepubliceerde pagina verandert.</p></div><a class="btn-link secondary small" href="/admin/redirects.csv">${icon('send')} Exporteren (CSV)</a></div>
+${chains.length ? `<section class="flash err">${icon('alert')}<span>${chains.length} redirect${chains.length === 1 ? '' : 's'} wijs${chains.length === 1 ? 't' : 'en'} naar een adres dat zelf weer doorverwijst. Bezoekers en zoekmachines hoppen dan twee keer.${canWrite ? ` <form method="post" action="/admin/redirects/inkorten" class="inline">${csrf}<button class="small" type="submit">Ketens inkorten</button></form>` : ''}</span></section>` : ''}
+<section class="card flush">${table}</section>
+${canWrite ? `<div class="mgrid2"><section class="card"><h2>Redirect toevoegen</h2><form method="post" action="/admin/redirects">${csrf}<div class="row"><label for="rv">Van (bijvoorbeeld /nl/oude-pagina)</label><input id="rv" name="van" required></div><div class="row"><label for="rn">Naar (bijvoorbeeld /nl/nieuwe-pagina)</label><input id="rn" name="naar" required></div><button type="submit">Toevoegen</button></form></section>
+<section class="card"><h2>Veel tegelijk importeren</h2><p class="hint">Eén redirect per regel: <code>/nl/oud,/nl/nieuw</code>. Maximaal 500 regels. Een regel die niet kan, wordt overgeslagen en uitgelegd.</p><form method="post" action="/admin/redirects/importeren">${csrf}<div class="row"><label for="rf">Bestand kiezen (optioneel)</label><input id="rf" type="file" accept=".csv,.txt,text/csv,text/plain" data-fill="#rc"></div><div class="row"><label for="rc">Of plak hier</label><textarea id="rc" name="csv" rows="5" placeholder="/nl/oud,/nl/nieuw"></textarea></div><button type="submit">Importeren</button></form></section></div>` : ''}` });
 }
 const ROLE_INFO = { beheerder: ['Beheerder', 'Alles, ook gebruikers, instellingen en auditlog.'], editor: ['Editor', 'Teksten, pagina’s, media en berichten; mag publiceren en voorstellen beoordelen.'], redacteur: ['Redacteur', 'Schrijft en bewaart concepten; dient wijzigingen in ter beoordeling, publiceert niet zelf.'], lezer: ['Lezer', 'Alleen kijken, niets wijzigen.'] };
 function usersPage(ctx, { list, sessions = {}, flash, link = null }) {
@@ -556,23 +571,26 @@ ${sess}</div><div>${two}${act}</div></div>` });
 
 /* statistics (same figures as before) */
 const table = (headers, rows, empty) => (!rows.length ? `<p class="hint">${esc(empty)}</p>` : `<div class="scroll"><table><thead><tr>${headers.map((h, i) => `<th scope="col"${i ? ' class="num"' : ''}>${esc(h)}</th>`).join('')}</tr></thead><tbody>${rows.map((r) => `<tr>${r.map((c, i) => (i ? `<td class="num">${esc(typeof c === 'number' ? nf(c) : c)}</td>` : `<th scope="row">${esc(c)}</th>`)).join('')}</tr>`).join('')}</tbody></table></div>`);
-function statsPage(ctx, sum, days) {
+function statsPage(ctx, sum, days, { prev = null, bySource = [] } = {}) {
 	const top = (obj, limit = 10) => Object.entries(obj).sort((a, b) => b[1] - a[1]).slice(0, limit);
 	const pct = (a, b) => (b ? `${((a / b) * 100).toFixed(1)}%` : '-');
 	const w = 720, h = 140, max = Math.max(1, ...sum.perDay), n = sum.perDay.length, gap = 2, bw = Math.max(2, (w - gap * (n - 1)) / n);
 	const bars = sum.perDay.map((v, i) => { const bh = Math.round((v / max) * (h - 8)); return `<rect class="bar-rect" x="${(i * (bw + gap)).toFixed(1)}" y="${h - bh}" width="${bw.toFixed(1)}" height="${Math.max(bh, v ? 1 : 0)}"><title>${esc(sum.days[i])}: ${v}</title></rect>`; }).join('');
 	const chart = `<svg class="chart" viewBox="0 0 ${w} ${h + 18}" role="img" aria-label="Paginaweergaven per dag, piek ${max}"><text x="0" y="10" class="axis">${max}</text>${bars}<text x="0" y="${h + 14}" class="axis">${esc(sum.days[0])}</text><text x="${w}" y="${h + 14}" class="axis" text-anchor="end">${esc(sum.days[n - 1])}</text></svg>`;
+	const delta = (a, b2) => { if (!prev) return ''; if (!b2) return a ? '<span class="delta up">nieuw</span>' : ''; const d = Math.round(((a - b2) / b2) * 100); return `<span class="delta ${d > 0 ? 'up' : d < 0 ? 'down' : ''}" title="Tegenover de ${days} dagen ervoor (${nf(b2)})">${d > 0 ? '+' : ''}${d}%</span>`; };
 	const ranges = [7, 30, 90].map((d) => `<a href="/admin/stats?days=${d}"${d === days ? ' aria-current="page"' : ''}>${d} dagen</a>`).join('');
 	return shell(ctx, { title: 'Statistieken', active: 'stats', body: `<h1>Statistieken</h1><p class="hint">Anonieme paginaweergaven, geteld zonder cookies of IP-adressen. Bezoekers met Do Not Track worden niet geteld. Gebruik de cijfers voor trends, niet als exacte aantallen.</p><nav class="tabs" aria-label="Periode">${ranges}</nav>
-<div class="kpis"><div class="kpi"><span class="kpi-v">${nf(sum.views)}</span><span>Paginaweergaven</span></div><div class="kpi"><span class="kpi-v">${nf(sum.contactViews)}</span><span>Weergaven contactpagina</span></div><div class="kpi"><span class="kpi-v">${nf(sum.sent)}</span><span>Berichten verstuurd</span></div><div class="kpi"><span class="kpi-v">${pct(sum.sent, sum.contactViews)}</span><span>Contactpagina naar bericht</span></div></div>
+<div class="kpis"><div class="kpi"><span class="kpi-v">${nf(sum.views)}</span><span>Paginaweergaven ${prev ? delta(sum.views, prev.views) : ''}</span></div><div class="kpi"><span class="kpi-v">${nf(sum.contactViews)}</span><span>Weergaven contactpagina ${prev ? delta(sum.contactViews, prev.contactViews) : ''}</span></div><div class="kpi"><span class="kpi-v">${nf(sum.sent)}</span><span>Berichten verstuurd ${prev ? delta(sum.sent, prev.sent) : ''}</span></div><div class="kpi"><span class="kpi-v">${pct(sum.sent, sum.contactViews)}</span><span>Contactpagina naar bericht</span></div></div>
 <section class="card"><h2>Weergaven per dag</h2>${chart}</section><section class="card"><h2>Populaire pagina’s</h2>${table(['Pagina', 'Weergaven'], top(sum.pages).map(([k, v]) => [k, v]), 'Nog geen weergaven.')}</section>
 <section class="card"><h2>Waar bezoekers vandaan komen</h2>${table(['Bron / campagne', 'Weergaven'], top(sum.sources).map(([k, v]) => [k, v]), 'Nog geen weergaven.')}<p class="hint">Voorzie links van tags om campagnes te zien, bijvoorbeeld <code>https://jouwsite.nl/nl/?utm_source=linkedin&amp;utm_campaign=lancering</code>.</p></section>
-<section class="card"><h2>Taal</h2>${table(['Taal', 'Weergaven'], top(sum.langs).map(([k, v]) => [k.toUpperCase(), v]), 'Nog geen weergaven.')}</section><section class="card"><h2>Berichten per rol</h2>${table(['Rol', 'Berichten'], top(sum.roles).map(([k, v]) => [k, v]), 'Geen berichten in deze periode.')}</section>` });
+<section class="card"><h2>Taal</h2>${table(['Taal', 'Weergaven'], top(sum.langs).map(([k, v]) => [k.toUpperCase(), v]), 'Nog geen weergaven.')}</section><section class="card"><h2>Berichten per rol</h2>${table(['Rol', 'Berichten'], top(sum.roles).map(([k, v]) => [k, v]), 'Geen berichten in deze periode.')}</section>
+<section class="card"><h2>Berichten per bron en campagne</h2>${(() => { if (!bySource.length) return '<p class="hint">Geen berichten in deze periode.</p>'; const views2 = sum.sources; return `<div class="scroll"><table data-sortable><thead><tr><th>Bron / campagne</th><th>Weergaven</th><th>Berichten</th><th>Berichten per 100 weergaven</th></tr></thead><tbody>${bySource.map((r) => { const key = r.campagne ? `${r.bron} / ${r.campagne}` : r.bron; const v = views2[key] || 0; return `<tr><th scope="row">${esc(key)}</th><td class="num">${nf(v)}</td><td class="num">${nf(r.n)}</td><td class="num">${v ? (r.n / v * 100).toFixed(1).replace('.', ',') : '-'}</td></tr>`; }).join('')}</tbody></table></div><p class="hint">Weergaven zijn alle pagina’s die vanuit die bron zijn bezocht, niet alleen de contactpagina.</p>`; })()}</section>
+<p><a class="btn-link secondary small" href="/admin/stats.csv?days=${days}">${icon('send')} Cijfers exporteren (CSV)</a></p>` });
 }
 
 const errorPage = (ctx, status, text) => shell({ ...ctx, session: ctx.session || null }, { title: 'Fout', body: `<section class="card narrow"><h1>${esc(String(status))}</h1><p>${esc(text)}</p><p><a href="/admin">Terug naar het begin</a></p></section>`, script: false });
 
-module.exports = { seoPage, linksPage, rulesPage, trashPage, translationsPage, planningPage, shareLinksPage, forgotPage, resetPage, reviewsPage, reviewPage, settingsPage, systemPage, menuPage, PLACE, ORDER, loginPage, codePage, dashboardPage, pagesPage, newPagePage, textEditorPage, privacyEditorPage, pageEditorPage, sectionCard, historyPage, diffPage, mediaPage, messagesPage, messagePage, privacyRequestPage, queuePage, redirectsPage, usersPage, auditPage, accountPage, statsPage, errorPage, CONTACT_ROLES };
+module.exports = { helpPage, privacyOverviewPage, repliesPage, seoPage, linksPage, rulesPage, trashPage, translationsPage, planningPage, shareLinksPage, forgotPage, resetPage, reviewsPage, reviewPage, settingsPage, systemPage, menuPage, PLACE, ORDER, loginPage, codePage, dashboardPage, pagesPage, newPagePage, textEditorPage, privacyEditorPage, pageEditorPage, sectionCard, historyPage, diffPage, mediaPage, messagesPage, messagePage, privacyRequestPage, queuePage, redirectsPage, usersPage, auditPage, accountPage, statsPage, errorPage, CONTACT_ROLES };
 
 /* ---- menu editor ---- */
 function menuPage(ctx, data) {
@@ -722,4 +740,45 @@ function rulesPage(ctx, { builtin, extra }) {
 <section class="card"><h2>Vaste regels</h2><h3>Niet toegestaan (blokkeert publiceren)</h3>${chips(builtin.verboden)}<p class="hint">Een zin die zegt dat iets <em>niet</em> wordt aangeboden (“geen aanbod van aandelen”) mag wel: dat is de disclaimer zelf.</p><h3>Waarschuwing (publiceren kan met een reden)</h3>${chips(builtin.waarschuwing)}<h3>Technisch detail (waarschuwing: het “hoe” bespreken we in een gesprek)</h3>${chips(builtin.technisch)}<p class="hint">Verder altijd: een getal heeft een bron nodig, investeerdersmateriaal vermeldt dat het geen aanbod is, en een publicatie zonder omschrijving voor zoekresultaten geeft een waarschuwing.</p></section>
 <div class="mgrid2"><section class="card"><h2>Eigen termen: niet toegestaan</h2>${list('verboden')}</section><section class="card"><h2>Eigen termen: waarschuwing</h2>${list('waarschuwing')}</section></div>
 <section class="card"><h2>Term toevoegen</h2><form method="post" action="/admin/regels">${csrf}<div class="two"><div class="row"><label for="rt">Woord of zin</label><input id="rt" name="term" maxlength="60" required></div><div class="row"><label for="rs">Wat moet er gebeuren?</label><select id="rs" name="soort"><option value="waarschuwing">Waarschuwing (publiceren kan met een reden)</option><option value="verboden">Niet toegestaan (blokkeert publiceren)</option></select></div></div><div class="row"><label for="rn">Toelichting (optioneel, voor het team)</label><input id="rn" name="toelichting" maxlength="200"></div><p class="fhint">Hoofdletters maken niet uit en de term geldt alleen als los woord. Een nieuwe term geldt direct, in alle talen, bij elke publicatie en planning.</p><button type="submit">Toevoegen</button></form></section>` });
+}
+
+/* ---- help, privacy overview, reply templates ---- */
+function helpPage(ctx, { guide, shortcuts }) {
+	return shell(ctx, { title: 'Help', active: 'help', body: `<div class="page-head"><div><h1>Help en sneltoetsen</h1><p class="hint">Korte uitleg in gewone taal. Bij de meeste schermen staat bovenaan ook een uitklapbare uitleg.</p></div></div>
+<div class="helpgrid"><nav class="card toc" aria-label="Onderwerpen"><h2>Onderwerpen</h2><ul class="plain">${guide.map(([id, t]) => `<li><a href="#${id}">${esc(t)}</a></li>`).join('')}<li><a href="#sneltoetsen">Sneltoetsen</a></li></ul></nav>
+<div>${guide.map(([id, t, ps]) => `<section class="card" id="${id}"><h2>${esc(t)}</h2>${ps.map((x) => `<p>${esc(x)}</p>`).join('')}</section>`).join('')}
+<section class="card" id="sneltoetsen"><h2>Sneltoetsen</h2><table><tbody>${shortcuts.map(([k, d]) => `<tr><th scope="row"><kbd>${esc(k)}</kbd></th><td>${esc(d)}</td></tr>`).join('')}</tbody></table><p class="hint">Sneltoetsen werken niet terwijl je in een invoerveld typt.</p></section><section class="card"><h2>Privacy</h2><p>Wat de website en het beheer bewaren staat in <a href="/admin/privacy-overzicht">Privacy en cookies</a>.</p></section></div></div>` });
+}
+function privacyOverviewPage(ctx, { retention, backups, secure }) {
+	const row = (a, b, c) => `<tr><th scope="row">${a}</th><td>${b}</td><td>${c}</td></tr>`;
+	return shell(ctx, { title: 'Privacy en cookies', active: 'help', body: `<div class="page-head"><div><h1>Privacy en cookies</h1><p class="hint">Wat de website en het beheer bewaren. Dit overzicht komt uit de werking van de software; leg de uitkomst naast de privacyverklaring en laat die controleren door een jurist.</p></div></div>
+<section class="card"><h2>De publieke website</h2><div class="scroll"><table><thead><tr><th>Wat</th><th>Waarvoor</th><th>Hoe lang</th></tr></thead><tbody>
+${row('Cookie <code>aethra_lang</code>', 'Onthoudt de gekozen taal. Wordt alleen gezet als iemand zelf de taal wisselt. Functioneel, geen tracking.', '1 jaar')}
+${row('Paginaweergaven', 'Anoniem geteld per pagina, taal en bron. Geen cookies, geen IP-adressen, geen vingerafdruk. Bezoekers met Do Not Track worden niet geteld.', 'Alleen totalen per dag')}
+${row('Contactformulier', 'Naam, e-mailadres, organisatie, rol, bericht en (als aanwezig) de bron van het bezoek. Alleen na toestemming (vinkje).', `${retention} dagen, daarna automatisch verwijderd`)}
+${row('Automatische bevestiging', 'Een bevestigingsmail naar de afzender, als er een mailserver is ingesteld.', 'Niet bewaard na verzending (verzonden mails 7 dagen in de wachtrij)')}
+${row('Externe diensten', 'Geen lettertypes, scripts, kaarten of video’s van derden. Alles komt van de eigen server.', '-')}
+</tbody></table></div></section>
+<section class="card"><h2>Het beheer</h2><div class="scroll"><table><thead><tr><th>Wat</th><th>Waarvoor</th><th>Hoe lang</th></tr></thead><tbody>
+${row('Cookie <code>aethra_sid</code>', `Houdt je ingelogd. Alleen voor het beheer, niet leesbaar door scripts${secure ? ', alleen via https' : ''}.`, 'Maximaal 8 uur, of tot je uitlogt')}
+${row('Browseropslag (localStorage)', 'Alleen jouw voorkeuren in dit beheer: gekozen taal-tab, thema, meldingen aan/uit en uitgeklapte uitleg. Wordt niet verstuurd.', 'Tot je het wist')}
+${row('Accounts', 'Naam, e-mailadres, rol, versleutelde wachtwoordhash, tijdstip van laatste login en voorkeuren voor meldingen.', 'Tot een beheerder het account verwijdert')}
+${row('Inlogpogingen', 'Een teller per adres en e-mailadres om te veel pogingen te remmen. Sessies bewaren alleen het netwerkdeel van het adres (/24) en een hash van de browser.', 'Tot de blokkade afloopt; sessies maximaal 8 uur')}
+${row('Auditlog', 'Wie wat wanneer wijzigde. Kan niet worden aangepast.', '180 dagen in de database, daarna in een gezipt archief op de server')}
+${row('Back-ups', 'Een kopie van de database inclusief berichten en accounts.', `De laatste ${backups}`)}
+${row('Voorbeeldlinks', 'Geheime links naar concepten, met de inhoud van het concept.', 'Tot de ingestelde einddatum (maximaal 14 dagen)')}
+${row('Mails in de wachtrij', 'Uitnodigingen, herstellinks, meldingen en het weekrapport (geen berichttekst).', 'Verzonden of opgegeven mails: 7 dagen')}
+</tbody></table></div></section>
+<section class="card"><h2>Inzage en verwijdering</h2><p>Vraagt iemand om inzage of verwijdering van zijn of haar berichten? Gebruik <a href="/admin/berichten/privacy">Privacyverzoek</a>: je zoekt op e-mailadres, exporteert alles als bestand of wist het in één keer. Ook uit de mailwachtrij verdwijnt de inhoud binnen een week en uit de back-ups zodra die worden vervangen.</p></section>` });
+}
+function repliesPage(ctx, { list, edit, draft = null, canWrite }) {
+	const csrf = `<input type="hidden" name="csrf" value="${esc(ctx.session.csrf)}">`;
+	const val = (k, l) => esc(draft ? draft[`${k}_${l}`] : edit && edit.teksten[l] ? edit.teksten[l][k] : '');
+	const naam = esc(draft ? draft.naam : edit ? edit.naam : '');
+	const form = canWrite ? `<section class="card" id="vorm"><h2>${edit ? `Sjabloon bewerken` : 'Nieuw sjabloon'}</h2><form method="post" action="/admin/sjablonen">${csrf}<input type="hidden" name="id" value="${edit ? edit.id : ''}"><div class="row"><label for="sn">Naam (voor jezelf)</label><input id="sn" name="naam" maxlength="80" required value="${naam}"></div>
+<p class="hint">Je kunt <code>{naam}</code> en <code>{organisatie}</code> gebruiken; die worden ingevuld met de gegevens van de afzender. Het sjabloon in de taal van de afzender wordt gebruikt, anders het Engelse.</p>
+${LANGS.map((l) => `<details class="fold-lite"${(edit && edit.teksten[l]) || (draft && (draft[`tekst_${l}`] || draft[`onderwerp_${l}`])) || l === 'nl' ? ' open' : ''}><summary>${esc(LANG_NAMES[l])}</summary><div class="row"><label for="so${l}">Onderwerp</label><input id="so${l}" name="onderwerp_${l}" maxlength="150" lang="${l}" value="${val('onderwerp', l)}"></div><div class="row"><label for="st${l}">Tekst</label><textarea id="st${l}" name="tekst_${l}" rows="6" maxlength="4000" lang="${l}">${val('tekst', l)}</textarea></div></details>`).join('')}
+<button type="submit">Opslaan</button> ${edit ? '<a class="btn-link secondary" href="/admin/sjablonen">Annuleren</a>' : ''}</form></section>` : '';
+	return shell(ctx, { title: 'Antwoordsjablonen', active: 'sjablonen', body: `<div class="page-head"><div><h1>Antwoordsjablonen</h1><p class="hint">Standaardantwoorden voor berichten. Open een bericht en kies “Antwoord met een sjabloon”.</p></div></div>
+<section class="card flush">${list.length ? `<ul class="msglist">${list.map((t) => `<li class="msg-row"><span class="msg-main"><span class="msg-top"><strong>${esc(t.naam)}</strong></span><span class="msg-snip">Talen: ${Object.keys(t.teksten).map((l) => l.toUpperCase()).join(', ')}</span></span><span class="msg-side">${canWrite ? `<a class="btn-link secondary small" href="/admin/sjablonen?bewerk=${t.id}#vorm">Bewerken</a><form method="post" action="/admin/sjablonen/${t.id}/verwijderen" class="inline" data-confirm="Dit sjabloon verwijderen?">${csrf}<button class="small danger" type="submit">Verwijderen</button></form>` : ''}</span></li>`).join('')}</ul>` : '<p class="hint pad">Nog geen sjablonen.</p>'}</section>${form}` });
 }
