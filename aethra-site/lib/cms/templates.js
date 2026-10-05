@@ -7,55 +7,55 @@
 const T = (key, label, type = 'text', extra = {}) => ({ key, label, type, ...extra });
 
 const SECTIONS = {
-	hero: { label: 'Banner (hero)', velden: [T('eyebrow', 'Label above the title'), T('title', 'Title'), T('text', 'Intro text', 'textarea'), T('cta_label', 'Button text'), T('cta_url', 'Button link (for example /contact)', 'url')] },
-	tekst: { label: 'Text', velden: [T('body', 'Text', 'rich')] },
-	citaat: { label: 'Quote', velden: [T('quote', 'Quote', 'textarea'), T('by', 'Who said it (name and role)')] },
-	foto: { label: 'Photo', velden: [T('media', 'Photo', 'media'), T('caption', 'Caption (optional)')] },
-	feiten: { label: 'Facts with sources', velden: [T('title', 'Heading (optional)')], items: { max: 4, label: 'Fact', velden: [T('value', 'Figure'), T('label', 'What it says', 'textarea'), T('source', 'Source name'), T('url', 'Source link', 'url')] } },
-	stappen: { label: 'Steps', velden: [T('title', 'Heading')], items: { max: 6, label: 'Step', velden: [T('title', 'Title'), T('text', 'Text', 'textarea')] } },
-	kaarten: { label: 'Cards', velden: [T('title', 'Heading')], items: { max: 6, label: 'Card', velden: [T('title', 'Title'), T('text', 'Text', 'textarea'), T('url', 'Link', 'url'), T('link_label', 'Link text')] } },
-	punten: { label: 'Points', velden: [T('title', 'Heading')], items: { max: 8, label: 'Point', velden: [T('text', 'Text', 'textarea')] } },
-	faq: { label: 'Frequently asked questions', velden: [T('title', 'Heading')], items: { max: 10, label: 'Question', velden: [T('q', 'Question'), T('a', 'Answer', 'textarea')] } },
-	statusband: { label: 'Project status', velden: [T('title', 'Title'), T('text', 'Text', 'textarea'), T('note', 'Note', 'textarea')] },
-	chips: { label: 'Links to other pages', velden: [T('title', 'Heading')], items: { max: 8, label: 'Link', velden: [T('label', 'Text'), T('url', 'Link', 'url')] } },
-	over: { label: 'Who is behind it', velden: [T('title', 'Title'), T('text', 'Text', 'textarea')], items: { max: 6, label: 'Person', velden: [T('name', 'Name'), T('role', 'Role'), T('bio', 'Short bio', 'textarea')] } },
-	cta: { label: 'Closing call to action', velden: [T('title', 'Title'), T('text', 'Text', 'textarea'), T('label', 'Button text'), T('url', 'Button link', 'url')] },
-	disclaimer: { label: 'Disclaimer (not an offer)', velden: [T('tekst', 'Statement', 'textarea')], vergrendeld: true },
+	hero: { label: 'Banner', velden: [T('eyebrow', 'Klein label boven de titel'), T('title', 'Titel'), T('text', 'Introductietekst', 'textarea'), T('cta_label', 'Tekst op de knop'), T('cta_url', 'Link van de knop (bijvoorbeeld /contact)', 'url')] },
+	tekst: { label: 'Tekst', velden: [T('body', 'Tekst', 'rich')] },
+	citaat: { label: 'Citaat', velden: [T('quote', 'Citaat', 'textarea'), T('by', 'Van wie (naam en functie)')] },
+	foto: { label: 'Foto', velden: [T('media', 'Foto', 'media'), T('caption', 'Bijschrift (optioneel)')] },
+	feiten: { label: 'Feiten met bronnen', velden: [T('title', 'Kop (optioneel)')], items: { max: 4, label: 'Feit', velden: [T('value', 'Cijfer'), T('label', 'Wat het zegt', 'textarea'), T('source', 'Naam van de bron'), T('url', 'Link naar de bron', 'url')] } },
+	stappen: { label: 'Stappen', velden: [T('title', 'Kop')], items: { max: 6, label: 'Stap', velden: [T('title', 'Titel'), T('text', 'Tekst', 'textarea')] } },
+	kaarten: { label: 'Kaarten', velden: [T('title', 'Kop')], items: { max: 6, label: 'Kaart', velden: [T('title', 'Titel'), T('text', 'Tekst', 'textarea'), T('url', 'Link', 'url'), T('link_label', 'Tekst van de link')] } },
+	punten: { label: 'Punten', velden: [T('title', 'Kop')], items: { max: 8, label: 'Punt', velden: [T('text', 'Tekst', 'textarea')] } },
+	faq: { label: 'Veelgestelde vragen', velden: [T('title', 'Kop')], items: { max: 10, label: 'Vraag', velden: [T('q', 'Vraag'), T('a', 'Antwoord', 'textarea')] } },
+	statusband: { label: 'Status van het project', velden: [T('title', 'Titel'), T('text', 'Tekst', 'textarea'), T('note', 'Opmerking', 'textarea')] },
+	chips: { label: 'Links naar andere pagina’s', velden: [T('title', 'Kop')], items: { max: 8, label: 'Link', velden: [T('label', 'Tekst'), T('url', 'Link', 'url')] } },
+	over: { label: 'Wie zit erachter', velden: [T('title', 'Titel'), T('text', 'Tekst', 'textarea')], items: { max: 6, label: 'Persoon', velden: [T('name', 'Naam'), T('role', 'Rol'), T('bio', 'Korte achtergrond', 'textarea')] } },
+	cta: { label: 'Afsluitende oproep', velden: [T('title', 'Titel'), T('text', 'Tekst', 'textarea'), T('label', 'Tekst op de knop'), T('url', 'Link van de knop', 'url')] },
+	disclaimer: { label: 'Disclaimer (geen aanbod)', velden: [T('tekst', 'Verklaring', 'textarea')], vergrendeld: true },
 };
 
 const TEMPLATES = {
 	standaard: {
-		label: 'Standard page', uitleg: 'Heading, text and optionally a quote, photo or call to action. For information and legal pages.',
+		label: 'Standaardpagina', uitleg: 'Kop, tekst en eventueel een citaat, foto of oproep. Voor informatie en juridische pagina’s.',
 		toegestaan: ['tekst', 'citaat', 'foto', 'punten', 'faq', 'cta'], verplicht: ['tekst'], max: { cta: 1 }, ctaLaatst: true,
 		standaard: ['tekst', 'cta'],
 	},
 	doelgroep: {
-		label: 'Audience page', uitleg: 'Points with a contact button, questions, links to the other audiences and a closing call to action.',
+		label: 'Doelgroeppagina', uitleg: 'Punten met een contactknop, vragen, links naar de andere doelgroepen en een afsluitende oproep.',
 		toegestaan: ['punten', 'faq', 'chips', 'over', 'cta', 'tekst', 'citaat', 'foto'], verplicht: ['punten', 'faq'], max: { punten: 1, faq: 1, chips: 1, over: 1, cta: 1 }, ctaLaatst: true,
 		vast: ['punten', 'faq', 'chips', 'over', 'cta'], standaard: ['punten', 'faq', 'chips', 'cta'],
 	},
 	investeerder: {
-		label: 'Investor page', uitleg: 'Like the audience page, with a disclaimer that cannot be removed or moved far down.',
+		label: 'Investeerderspagina', uitleg: 'Zoals de doelgroeppagina, met een disclaimer die niet weg kan en niet ver naar beneden mag.',
 		toegestaan: ['disclaimer', 'punten', 'faq', 'chips', 'over', 'cta', 'tekst', 'citaat', 'foto', 'statusband'], verplicht: ['disclaimer', 'punten', 'faq'], max: { disclaimer: 1, punten: 1, faq: 1, chips: 1, over: 1, cta: 1, statusband: 1 }, ctaLaatst: true,
 		maxPositie: { disclaimer: 3 }, standaard: ['disclaimer', 'punten', 'faq', 'statusband', 'cta'],
 	},
 	landing: {
-		label: 'Landing page', uitleg: 'Banner, short explanation, steps, cards and status. For a campaign.',
+		label: 'Landingspagina', uitleg: 'Banner, korte uitleg, stappen, kaarten en status. Voor een campagne.',
 		toegestaan: ['hero', 'feiten', 'stappen', 'kaarten', 'statusband', 'citaat', 'foto', 'tekst', 'cta'], verplicht: ['hero'], max: { hero: 1, statusband: 1, cta: 1 }, eerste: 'hero', ctaLaatst: true,
 		standaard: ['hero', 'stappen', 'kaarten', 'statusband', 'cta'],
 	},
 	feitenpagina: {
-		label: 'Facts page', uitleg: 'Facts with their sources, a photo and text. For substantiation and research.',
+		label: 'Feitenpagina', uitleg: 'Feiten met hun bronnen, een foto en tekst. Voor onderbouwing en onderzoek.',
 		toegestaan: ['feiten', 'foto', 'tekst', 'citaat', 'cta'], verplicht: ['feiten'], max: { cta: 1 }, ctaLaatst: true,
 		standaard: ['feiten', 'tekst', 'cta'],
 	},
 	update: {
-		label: 'Update or news page', uitleg: 'Text with photos and quotes. For progress and publications.',
+		label: 'Nieuws- of updatepagina', uitleg: 'Tekst met foto’s en citaten. Voor voortgang en publicaties.',
 		toegestaan: ['tekst', 'foto', 'citaat', 'punten', 'cta'], verplicht: ['tekst'], max: { cta: 1 }, ctaLaatst: true,
 		standaard: ['tekst', 'foto', 'cta'],
 	},
 	vrije_secties: {
-		label: 'Free sections', uitleg: 'Choose any building blocks and put them in any order. No restrictions on order.',
+		label: 'Vrije indeling', uitleg: 'Kies zelf bouwstenen en zet ze in elke volgorde. Geen regels voor de volgorde.',
 		toegestaan: Object.keys(SECTIONS), verplicht: [], max: {}, vrij: true, standaard: ['tekst'],
 	},
 };

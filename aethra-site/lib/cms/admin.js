@@ -148,7 +148,7 @@ async function handleAdmin(req, res, url) {
 	if (req.method === 'GET' && p === '/admin/events') { messages.alarm(); events.broadcast('berichten', { nieuw: messages.unreadCount() }); return events.handle(req, res, headers(nonce)), true; }
 
 	/* ---- pages and texts: lists ---- */
-	if (req.method === 'GET' && p === '/admin/paginas') return out(200, views.pagesPage(ctx, { extra: pages.list(), locks: ws.snapshot() }));
+	if (req.method === 'GET' && p === '/admin/paginas') return out(200, views.pagesPage(ctx, { extra: pages.list(), locks: ws.snapshot(), info: Object.fromEntries(db.all('SELECT o.object, o.gewijzigd_op, g.naam FROM objecten o LEFT JOIN gebruikers g ON g.id = o.gewijzigd_door').map((r) => [r.object, r])) }));
 	if (req.method === 'GET' && p === '/admin/paginas/nieuw') return out(200, views.newPagePage(ctx));
 	if (isPost && p === '/admin/paginas/nieuw') {
 		if (!needWrite()) return true;
@@ -179,7 +179,7 @@ async function handleAdmin(req, res, url) {
 		const saved = content.readObject('privacy');
 		const values = Object.fromEntries(LANGS.map((l) => [l, (saved[l] && saved[l].text) || content.privacyText(l) || PRIVACY[l]]));
 		const versie = content.objectVersion('privacy');
-		return out(200, views.privacyEditorPage(ctx, { values, versie, draft: draftFor('privacy', versie) }));
+		return out(200, views.privacyEditorPage(ctx, { values, versie, draft: draftFor('privacy', versie), statuses: content.readStatus('privacy') }));
 	}
 	if (req.method === 'GET' && (m = /^\/admin\/paginas\/(\d+)$/.exec(p))) {
 		const pg = pages.get(Number(m[1]));

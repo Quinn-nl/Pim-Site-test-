@@ -1,6 +1,7 @@
 'use strict';
 /** HTML of the admin (server-rendered, Dutch). Interactivity is in public/js/admin.js. Every value is escaped. */
 const { GROUPS, IMAGE_SLOTS, ROLES: CONTACT_ROLES } = require('../fields');
+const { labelOf, SLOTS } = require('./labels');
 const { LANGS, LANG_NAMES } = require('../i18n');
 const { esc, asset } = require('../views');
 const { qrSvg } = require('../qr');
@@ -57,6 +58,10 @@ const ICON_PATHS = {
 	lock: '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
 	history: '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/>',
 	chev: '<path d="M6 9l6 6 6-6"/>',
+	monitor: '<rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/>',
+	tablet: '<rect x="5" y="2" width="14" height="20" rx="2"/><path d="M11 18h2"/>',
+	phone: '<rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/>',
+	search: '<circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/>',
 	eye: '<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
 };
 const sprite = `<svg class="sprite" aria-hidden="true" focusable="false">${Object.entries(ICON_PATHS).map(([k, v]) => `<symbol id="i-${k}" viewBox="0 0 24 24">${v}</symbol>`).join('')}</svg>`;
@@ -136,124 +141,154 @@ ${card('Laatste wijzigingen', recent)}
 }
 
 /* ---- pages overview ---- */
-function pagesPage(ctx, { extra, locks }) {
+const ago = (iso) => { const d = Math.round((Date.now() - Date.parse(iso)) / 86400000); return d <= 0 ? 'vandaag' : d === 1 ? 'gisteren' : d < 30 ? `${d} dagen geleden` : when(iso); };
+function pagesPage(ctx, { extra, locks, info = {} }) {
 	const canWrite = ctx.session.user.rol !== 'lezer';
 	const groups = {};
 	for (const id of ORDER) (groups[PLACE[id].sectie] = groups[PLACE[id].sectie] || []).push(id);
-	const lockNote = (o) => (locks[o] ? ` <span class="lock" title="Wordt bewerkt">🔒 ${esc(locks[o])}</span>` : '');
-	const fixed = Object.entries(groups).map(([sectie, ids]) => `<section class="card"><h2>${esc(sectie)}</h2><ul class="plain">${ids.map((id) => `<li><a href="/admin/tekst/${esc(id)}">${esc(PLACE[id].label)}</a>${lockNote(`tekst:${id}`)}</li>`).join('')}${sectie === 'Extra pagina’s' ? `<li><a href="/admin/privacy">Privacyverklaring</a>${lockNote('privacy')}</li>` : ''}</ul></section>`).join('');
-	const rows = extra.length ? `<div class="scroll"><table><thead><tr><th>Titel</th><th>Sjabloon</th><th>Talen</th><th>Status</th><th></th></tr></thead><tbody>${extra.map((p) => {
-		const talen = Object.keys(p.titels);
-		const titel = p.titels.en || p.titels.nl || Object.values(p.titels)[0] || '(zonder titel)';
-		return `<tr><td><a href="/admin/paginas/${p.id}">${esc(titel)}</a>${lockNote(`pagina:${p.id}`)}</td><td>${esc(TEMPLATES[p.sjabloon] ? TEMPLATES[p.sjabloon].label : p.sjabloon)}</td><td>${talen.map((l) => l.toUpperCase()).join(' ') || '-'}</td><td><span class="pill ${p.status === 'gepubliceerd' ? 'ok' : ''}">${p.status === 'gepubliceerd' ? 'live' : 'concept'}</span></td><td class="num"><a href="/admin/historie?object=${encodeURIComponent(`pagina:${p.id}`)}">geschiedenis</a></td></tr>`;
-	}).join('')}</tbody></table></div>` : '<p class="hint">Nog geen extra pagina’s.</p>';
-	return shell(ctx, { title: 'Pagina’s', active: 'paginas', body: `<h1>Pagina’s en teksten</h1>
-<p class="hint">Links staan alle vaste teksten van de website per pagina. Hieronder staan de extra pagina’s die je zelf maakt met een sjabloon.</p>
-<section class="card"><h2>Extra pagina’s</h2>${rows}${canWrite ? '<p><a class="btn-link" href="/admin/paginas/nieuw">Nieuwe pagina maken</a></p>' : ''}</section>
-<div class="cols3">${fixed}</div>` });
+	const lockNote = (o) => (locks[o] ? `<span class="lock" title="Wordt bewerkt">${icon('lock')} ${esc(locks[o])}</span>` : '');
+	const edited = (o) => (info[o] ? `<span class="meta">Aangepast ${esc(ago(info[o].gewijzigd_op))}${info[o].naam ? ` door ${esc(info[o].naam)}` : ''}</span>` : '<span class="meta">Standaardtekst</span>');
+	const row = (href, title, sub, right) => `<a class="rowlink" href="${href}" data-filter-item="${esc(`${title} ${sub}`.toLowerCase())}"><span class="rl-main"><strong>${esc(title)}</strong><span class="meta">${esc(sub)}</span></span><span class="rl-side">${right}</span></a>`;
+	const fixed = Object.entries(groups).map(([sectie, ids]) => `<section class="card rl-card" data-filter-group><h2>${esc(sectie)}</h2>${ids.map((id) => row(`/admin/tekst/${esc(id)}`, PLACE[id].label, PLACE[id].uitleg, `${lockNote(`tekst:${id}`)}${edited(`tekst:${id}`)}`)).join('')}${sectie === 'Extra pagina’s' ? row('/admin/privacy', 'Privacyverklaring', 'De tekst van /privacy.', `${lockNote('privacy')}${edited('privacy')}`) : ''}</section>`).join('');
+	const extras = extra.length ? extra.map((p) => {
+		const talen = LANGS.filter((l) => p.titels[l]);
+		const titel = p.titels.nl || p.titels.en || Object.values(p.titels)[0] || '(zonder titel)';
+		return row(`/admin/paginas/${p.id}`, titel, `${TEMPLATES[p.sjabloon] ? TEMPLATES[p.sjabloon].label : p.sjabloon}`, `${lockNote(`pagina:${p.id}`)}<span class="meta">${talen.map((l) => l.toUpperCase()).join(' · ') || 'geen taal'}</span><span class="pill ${p.status === 'gepubliceerd' ? 'ok' : ''}">${p.status === 'gepubliceerd' ? 'live' : 'concept'}</span>`);
+	}).join('') : `<div class="empty">${icon('pages')}<p>Je hebt nog geen eigen pagina’s gemaakt.</p>${canWrite ? '<a class="btn-link" href="/admin/paginas/nieuw">Eerste pagina maken</a>' : ''}</div>`;
+	return shell(ctx, { title: 'Pagina’s en teksten', active: 'paginas', body: `<div class="page-head"><div><h1>Pagina’s en teksten</h1><p class="hint">Kies wat je wilt aanpassen. Alles wat je publiceert staat meteen op de website.</p></div>${canWrite ? `<a class="btn-link" href="/admin/paginas/nieuw">${icon('plus')} Nieuwe pagina</a>` : ''}</div>
+<div class="searchbar"><label class="sr" for="pf">Zoek een pagina</label>${icon('search')}<input id="pf" type="search" placeholder="Zoek een pagina of tekst…" data-filter autocomplete="off"></div>
+<section class="card rl-card" data-filter-group><h2>Eigen pagina’s</h2>${extras}</section>
+<h2 class="sub">Vaste pagina’s van de website</h2>
+<div class="cols">${fixed}</div><p class="empty hidden" id="nofilter">Niets gevonden.</p>` });
 }
 function newPagePage(ctx) {
-	return shell(ctx, { title: 'Nieuwe pagina', active: 'paginas', body: `<h1>Nieuwe pagina</h1><p class="hint">Kies eerst een sjabloon. Het sjabloon bepaalt welke bouwstenen de pagina heeft en welke volgorde is toegestaan.</p>
+	return shell(ctx, { title: 'Nieuwe pagina', active: 'paginas', body: `<h1>Nieuwe pagina</h1><p class="hint">Kies eerst een sjabloon. Het sjabloon bepaalt welke bouwstenen de pagina heeft en in welke volgorde.</p>
 <form method="post" action="/admin/paginas/nieuw"><input type="hidden" name="csrf" value="${esc(ctx.session.csrf)}">
-<div class="cols3">${Object.entries(TEMPLATES).map(([id, t], i) => `<label class="card tpl"><input type="radio" name="sjabloon" value="${esc(id)}"${i === 0 ? ' checked' : ''}> <strong>${esc(t.label)}</strong><span class="hint">${esc(t.uitleg)}</span><span class="meta">${t.standaard.map((x) => esc(SECTIONS[x].label)).join(' → ')}</span></label>`).join('')}</div>
-<button type="submit">Pagina maken</button></form>` });
+<div class="cols3">${Object.entries(TEMPLATES).map(([id, t], i) => `<label class="card tpl"><span class="tpl-top"><input type="radio" name="sjabloon" value="${esc(id)}"${i === 0 ? ' checked' : ''}> <strong>${esc(t.label)}</strong></span><span class="hint">${esc(t.uitleg)}</span><span class="meta">${t.standaard.map((x) => esc(SECTIONS[x].label)).join(' → ')}</span></label>`).join('')}</div>
+<div class="actions"><button type="submit">Pagina maken</button><a class="btn-link secondary" href="/admin/paginas">Annuleren</a></div></form>` });
 }
 
 /* ---- editors ---- */
 const maxLen = (type) => (type === 'textarea' ? 2000 : type === 'rich' ? 50000 : 300);
-const statusPill = (st) => (st ? `<span class="pill st-${esc(st)}">${esc(STATUS_LABEL[st] || st)}</span>` : '');
+const OPTIONAL_RE = require('../fields').OPTIONAL;
 
-function control(f, lang, value, status) {
-	const common = `data-lang="${lang}" data-key="${esc(f.key)}" lang="${lang}" aria-label="${esc(f.label)} (${esc(LANG_NAMES[lang])})"`;
-	if (f.type === 'rich') return `<div class="rte" data-lang="${lang}" data-key="${esc(f.key)}"><div class="rte-bar" role="toolbar" aria-label="Opmaak"><button type="button" data-cmd="bold" title="Vet"><b>B</b></button><button type="button" data-cmd="italic" title="Cursief"><i>I</i></button><button type="button" data-cmd="h2">H2</button><button type="button" data-cmd="h3">H3</button><button type="button" data-cmd="ul">• Lijst</button><button type="button" data-cmd="ol">1. Lijst</button><button type="button" data-cmd="quote">“ ”</button><button type="button" data-cmd="link">Link</button><button type="button" data-cmd="clear">Wis opmaak</button></div><div class="rte-area" contenteditable="true" role="textbox" aria-multiline="true" ${common}>${value || ''}</div></div>`;
+function control(f, lang, value) {
+	const common = `data-lang="${lang}" data-key="${esc(f.key)}" lang="${lang}"${f.req ? ' data-req="1"' : ''} aria-label="${esc(f.label)} (${esc(LANG_NAMES[lang])})"`;
+	if (f.type === 'rich') return `<div class="rte" data-lang="${lang}" data-key="${esc(f.key)}"><div class="rte-bar" role="toolbar" aria-label="Opmaak"><button type="button" data-cmd="bold" title="Vet" aria-label="Vet"><b>B</b></button><button type="button" data-cmd="italic" title="Cursief" aria-label="Cursief"><i>I</i></button><button type="button" data-cmd="h2">Kop</button><button type="button" data-cmd="h3">Subkop</button><button type="button" data-cmd="ul">Lijst</button><button type="button" data-cmd="ol">Genummerd</button><button type="button" data-cmd="quote">Citaat</button><button type="button" data-cmd="link">Link</button><button type="button" data-cmd="clear">Wis opmaak</button></div><div class="rte-area" contenteditable="true" role="textbox" aria-multiline="true" ${common}>${value || ''}</div></div>`;
 	if (f.type === 'textarea') return `<textarea ${common} rows="3" maxlength="${maxLen('textarea')}">${esc(value)}</textarea>`;
 	if (f.type === 'media') return `<select ${common} data-media="1"><option value="">(geen foto)</option>${media.list().map((m) => `<option value="${m.id}"${String(value) === String(m.id) ? ' selected' : ''}>#${m.id} ${esc(m.alt.en || m.bestand)}</option>`).join('')}</select>`;
-	return `<input ${common} type="${f.type === 'url' ? 'text' : 'text'}" maxlength="${maxLen(f.type)}" value="${esc(value)}"${f.type === 'url' ? ' inputmode="url" placeholder="https://…"' : ''}>`;
+	return `<input ${common} type="text" maxlength="${maxLen(f.type)}" value="${esc(value)}"${f.type === 'url' ? ' inputmode="url" placeholder="https://…"' : ''}>`;
 }
 
-/** One field in all languages side by side. */
-const rowStatus = (statuses, l, key) => { const r = statuses && statuses[l] && statuses[l][key]; return r ? (r.versie_nummer === 0 ? 'standaard' : r.status) : ''; };
-function fieldRow(f, values, statuses, { hidden = false } = {}) {
-	return `<div class="frow${hidden ? ' hidden' : ''}" data-fieldkey="${esc(f.key)}"><div class="flabel">${esc(f.label)}</div><div class="fcols">${LANGS.map((l) => `<div class="fcol" data-col="${l}"><span class="lang-tag">${l.toUpperCase()}${statusPill(rowStatus(statuses, l, f.key))}</span>${control(f, l, (values[l] || {})[f.key], statuses)}</div>`).join('')}</div></div>`;
+/** One field, in all four languages (the editor shows one of them at a time, or all side by side). */
+function fieldRow(f, values) {
+	return `<div class="field" data-fieldkey="${esc(f.key)}"><div class="flabel">${esc(f.label)}</div>${f.hint ? `<p class="fhint">${esc(f.hint)}</p>` : ''}<div class="fcols">${LANGS.map((l) => `<div class="fcol" data-col="${l}"><span class="lang-tag">${esc(LANG_NAMES[l])}</span>${control(f, l, (values[l] || {})[f.key])}</div>`).join('')}</div><p class="ref" data-ref hidden></p></div>`;
 }
 
-function langBar(object, canWrite) {
-	return `<div class="langbar" role="group" aria-label="Talen"><span class="hint">Toon:</span>${LANGS.map((l) => `<label class="chk"><input type="checkbox" data-showlang="${l}" checked> ${esc(LANG_NAMES[l])}</label>`).join('')}
-${canWrite && object ? `<span class="spacer"></span><span class="hint">Nagekeken door een moedertaalspreker:</span>${LANGS.filter((l) => l !== 'en').map((l) => `<button type="button" class="secondary small" data-reviewed="${l}">${l.toUpperCase()} nagekeken</button>`).join('')}` : ''}</div>`;
+/** 'standaard' (nothing edited yet), 'eerste_versie' or 'nagekeken' for one language of an object. */
+function langState(statuses, l) {
+	const rows = Object.values((statuses && statuses[l]) || {}).filter((r) => r.versie_nummer > 0 && r.status !== 'leeg');
+	if (!rows.length) return 'standaard';
+	return rows.every((r) => r.status === 'nagekeken') ? 'nagekeken' : 'eerste_versie';
+}
+const STATE_LABEL = { standaard: 'standaardtekst', eerste_versie: 'eerste versie', nagekeken: 'nagekeken' };
+
+function langTabs(statuses, canWrite) {
+	return `<div class="langtabs"><div role="tablist" aria-label="Taal van de invoer" class="lt-list">${LANGS.map((l) => {
+		const st = l === 'en' ? '' : langState(statuses, l);
+		return `<button type="button" role="tab" class="lt" data-lang-tab="${l}" aria-selected="false"><span class="lt-name">${esc(LANG_NAMES[l])}</span><span class="lt-prog" data-prog="${l}"></span>${st ? `<span class="pill st-${st}" data-state="${l}">${STATE_LABEL[st]}</span>` : ''}</button>`;
+	}).join('')}</div><span class="spacer"></span>${canWrite ? '<button type="button" class="secondary small" id="review-btn" hidden></button>' : ''}<label class="chk"><input type="checkbox" id="alllangs"> Alle talen naast elkaar</label></div>`;
 }
 
 function previewPane(defaultPath, kind) {
-	return `<aside class="preview-pane" aria-label="Voorbeeld"><div class="pv-bar">
-<label>Taal <select data-pv="lang">${LANGS.map((l) => `<option value="${l}">${esc(LANG_NAMES[l])}</option>`).join('')}</select></label>
-${kind === 'tekst' ? `<label>Pagina <select data-pv="path">${PREVIEW_PAGES.map(([p, n]) => `<option value="${esc(p)}"${p === defaultPath ? ' selected' : ''}>${esc(n)}</option>`).join('')}</select></label>` : `<input type="hidden" data-pv="path" value="${esc(defaultPath)}">`}
-<label>Breedte <select data-pv="width"><option value="1200">Bureaublad</option><option value="768">Tablet</option><option value="390">Telefoon</option></select></label>
-</div><div class="pv-frame"><iframe title="Voorbeeld van de pagina" sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox" name="pv" id="pv"></iframe></div>
+	return `<aside class="preview-pane" aria-label="Voorbeeld"><div class="pv-bar"><strong>Voorbeeld</strong>
+${kind === 'tekst' ? `<label class="pv-path"><span class="sr">Pagina</span><select data-pv="path">${PREVIEW_PAGES.map(([p, n]) => `<option value="${esc(p)}"${p === defaultPath ? ' selected' : ''}>${esc(n)}</option>`).join('')}</select></label>` : `<input type="hidden" data-pv="path" value="${esc(defaultPath)}">`}
+<input type="hidden" data-pv="lang" value="en"><input type="hidden" data-pv="width" value="1200">
+<span class="spacer"></span><div class="seg" role="group" aria-label="Schermbreedte"><button type="button" class="seg-b" data-pv-width="1200" aria-pressed="true" title="Bureaublad">${icon('monitor')}<span class="sr">Bureaublad</span></button><button type="button" class="seg-b" data-pv-width="768" aria-pressed="false" title="Tablet">${icon('tablet')}<span class="sr">Tablet</span></button><button type="button" class="seg-b" data-pv-width="390" aria-pressed="false" title="Telefoon">${icon('phone')}<span class="sr">Telefoon</span></button></div></div>
+<div class="pv-frame"><iframe title="Voorbeeld van de pagina" sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox" name="pv" id="pv"></iframe></div>
 <form id="pvform" method="post" action="/admin/preview" target="pv" hidden><input type="hidden" name="csrf"><input type="hidden" name="payload"></form></aside>`;
 }
 
-function editorHead(ctx, { titel, uitleg, object, versie, kind, id, draft, locked, canWrite, extraButtons = '', status = '' }) {
-	return `<div class="ed-head"><div><h1>${esc(titel)} ${status}</h1><p class="hint">${esc(uitleg)}</p></div>
-<div class="ed-actions"><span id="savestate" class="savestate" data-state="saved" role="status">Alles opgeslagen</span><a class="secondary btn-link" href="/admin/historie?object=${encodeURIComponent(object)}">${icon('history')} Geschiedenis</a>${canWrite ? extraButtons : ''}</div></div>
+function editorHead(ctx, { titel, uitleg, object, canWrite, extraButtons = '', status = '' }) {
+	return `<div class="ed-head"><div class="ed-title"><h1>${esc(titel)} ${status}</h1>${uitleg ? `<p class="hint">${esc(uitleg)}</p>` : ''}</div>
+<div class="ed-actions"><span id="savestate" class="savestate" data-state="saved" role="status">Alles opgeslagen</span>${canWrite ? extraButtons : ''}<a class="secondary btn-link icon-only" href="/admin/historie?object=${encodeURIComponent(object)}" title="Geschiedenis" aria-label="Geschiedenis">${icon('history')}</a></div></div>
 <div id="lockbanner" class="flash err" role="status" hidden></div>
-<div id="draftbanner" class="flash" role="status" hidden>Er staat een niet-opgeslagen concept van <span id="draftwhen"></span>. <button type="button" class="secondary small" id="draftrestore">Terugzetten</button> <button type="button" class="secondary small" id="draftdiscard">Weggooien</button></div>
+<div id="draftbanner" class="flash" role="status" hidden><span>Niet-opgeslagen concept van <span id="draftwhen"></span> gevonden.</span> <button type="button" class="secondary small" id="draftrestore">Terugzetten</button> <button type="button" class="secondary small" id="draftdiscard">Weggooien</button></div>
 <div id="result" role="status" aria-live="polite"></div>`;
 }
 
-function textEditorPage(ctx, groupId, { values, statuses, versie, draft, locked }) {
+/** Groups the fields of a text group into small cards with a heading, so a long form reads as a few clear blocks. */
+function textBlocks(group) {
+	const f = (k) => group.fields.find((x) => x.key === k);
+	const pick = (keys) => keys.map(f).filter(Boolean);
+	const id = group.id;
+	if (id.startsWith('aud_')) return [['Kop en inleiding', pick([`${id}_seo`, `${id}_title`, `${id}_lead`])], ['De drie punten', pick([1, 2, 3].map((n) => `${id}_p${n}`))], ['Veelgestelde vragen', pick([1, 2, 3].flatMap((n) => [`${id}_q${n}`, `${id}_a${n}`]))]];
+	if (id === 'problem') return [['Tekst', pick(['problem_title', 'problem_text'])], ['Feit 1', pick(['fact1_value', 'fact1_label', 'fact1_source', 'fact1_url'])], ['Feit 2', pick(['fact2_value', 'fact2_label', 'fact2_source', 'fact2_url'])]];
+	if (id === 'steps') return [['Kop', pick(['steps_title'])], ...[1, 2, 3].map((n) => [`Stap ${n}`, pick([`step${n}_title`, `step${n}_text`])])];
+	if (id === 'apps') return [['Kop', pick(['apps_title'])], ...[1, 2, 3, 4].map((n) => [`Kaart ${n}`, pick([`app${n}_title`, `app${n}_text`])])];
+	if (id === 'about') return [['Het blok', pick(['about_title', 'about_text', 'company_details'])], ['Persoon 1', pick(['p1_name', 'p1_role', 'p1_bio', 'p1_link'])], ['Persoon 2', pick(['p2_name', 'p2_role', 'p2_bio', 'p2_link'])]];
+	if (id === 'today') return [['Publiceren', pick(['today_enabled', 'seo_today'])], ['Tekst', pick(['today_title', 'today_lead', 'today_exists_title', 'today_item1', 'today_item2', 'today_item3', 'today_gap_title', 'today_gap_text'])]];
+	if (id === 'contact') return [['Contactpagina', pick(['contact_title', 'contact_text', 'contact_reply'])], ['Bedrijf', pick(['linkedin_url'])]];
+	return [['', group.fields]];
+}
+
+function textEditorPage(ctx, groupId, { values, statuses, versie, draft }) {
 	const group = GROUPS.find((g) => g.id === groupId);
 	const place = PLACE[groupId];
 	const canWrite = ctx.session.user.rol !== 'lezer';
 	const object = content.textObject(groupId);
-	const rows = group.fields.map((f) => fieldRow({ key: f.key, label: f.label, type: f.type }, Object.fromEntries(LANGS.map((l) => [l, values[l]])), statuses)).join('');
-	return shell(ctx, { title: place.label, active: 'paginas', wide: true, body: `${editorHead(ctx, { titel: place.label, uitleg: place.uitleg, object, versie, kind: 'tekst', id: groupId, draft, locked, canWrite, extraButtons: '<button type="button" id="btn-save">Publiceren</button>' })}
-${langBar(object, canWrite)}
-<div class="ed-grid"><form id="editor" class="ed" data-kind="tekst" data-id="${esc(groupId)}" data-object="${esc(object)}" data-version="${versie}" data-readonly="${canWrite ? '0' : '1'}" data-draft="${json(draft || null)}" onsubmit="return false">${rows}</form>${previewPane(place.path, 'tekst')}</div>` });
+	const blocks = textBlocks(group).map(([heading, fields]) => `<section class="card fgroup">${heading ? `<h2>${esc(heading)}</h2>` : ''}${fields.map((fl) => { const { label, hint } = labelOf(fl); return fieldRow({ key: fl.key, label, hint, type: fl.type, req: !OPTIONAL_RE.test(fl.key) }, values); }).join('')}</section>`).join('');
+	return shell(ctx, { title: place.label, active: 'paginas', wide: true, body: `<p class="crumb"><a href="/admin/paginas">${icon('chev', 'back')} Pagina’s en teksten</a></p>${editorHead(ctx, { titel: place.label, uitleg: place.uitleg, object, canWrite, extraButtons: '<button type="button" id="btn-save">Publiceren</button>' })}
+${langTabs(statuses, canWrite)}
+<div class="ed-grid"><form id="editor" class="ed" data-all="0" data-kind="tekst" data-id="${esc(groupId)}" data-object="${esc(object)}" data-version="${versie}" data-readonly="${canWrite ? '0' : '1'}" data-draft="${json(draft || null)}" onsubmit="return false">${blocks}</form>${previewPane(place.path, 'tekst')}</div>` });
 }
-function privacyEditorPage(ctx, { values, versie, draft }) {
+function privacyEditorPage(ctx, { values, versie, draft, statuses }) {
 	const canWrite = ctx.session.user.rol !== 'lezer';
-	const f = { key: 'text', label: 'Privacyverklaring (regel met # = kop, lege regel = nieuwe alinea)', type: 'textarea' };
-	const rows = `<div class="frow"><div class="flabel">${esc(f.label)}</div><div class="fcols">${LANGS.map((l) => `<div class="fcol" data-col="${l}"><span class="lang-tag">${l.toUpperCase()}</span><textarea data-lang="${l}" data-key="text" lang="${l}" rows="22" maxlength="20000" aria-label="Privacyverklaring (${esc(LANG_NAMES[l])})">${esc(values[l] || '')}</textarea></div>`).join('')}</div></div>`;
-	return shell(ctx, { title: 'Privacyverklaring', active: 'paginas', wide: true, body: `${editorHead(ctx, { titel: 'Privacyverklaring', uitleg: 'Laat deze tekst controleren door een jurist. Vervang alles tussen [haken].', object: 'privacy', versie, kind: 'privacy', canWrite, extraButtons: '<button type="button" id="btn-save">Publiceren</button>' })}
-${langBar('', false)}
-<div class="ed-grid"><form id="editor" class="ed" data-kind="privacy" data-object="privacy" data-version="${versie}" data-readonly="${canWrite ? '0' : '1'}" data-draft="${json(draft || null)}" onsubmit="return false">${rows}</form>${previewPane('/privacy', 'privacy')}</div>` });
+	const f = { key: 'text', label: 'Privacyverklaring', hint: 'Een regel die begint met # is een kop. Een lege regel begint een nieuwe alinea. Laat de tekst controleren door een jurist en vervang alles tussen [haken].', type: 'privacy' };
+	const row = `<div class="field"><div class="flabel">${esc(f.label)}</div><p class="fhint">${esc(f.hint)}</p><div class="fcols">${LANGS.map((l) => `<div class="fcol" data-col="${l}"><span class="lang-tag">${esc(LANG_NAMES[l])}</span><textarea data-lang="${l}" data-key="text" data-req="1" lang="${l}" rows="24" maxlength="20000" aria-label="Privacyverklaring (${esc(LANG_NAMES[l])})">${esc(values[l] || '')}</textarea></div>`).join('')}</div><p class="ref" data-ref hidden></p></div>`;
+	return shell(ctx, { title: 'Privacyverklaring', active: 'paginas', wide: true, body: `<p class="crumb"><a href="/admin/paginas">${icon('chev', 'back')} Pagina’s en teksten</a></p>${editorHead(ctx, { titel: 'Privacyverklaring', uitleg: '', object: 'privacy', canWrite, extraButtons: '<button type="button" id="btn-save">Publiceren</button>' })}
+${langTabs(statuses || {}, canWrite)}
+<div class="ed-grid"><form id="editor" class="ed" data-all="0" data-kind="privacy" data-object="privacy" data-version="${versie}" data-readonly="${canWrite ? '0' : '1'}" data-draft="${json(draft || null)}" onsubmit="return false"><section class="card fgroup">${row}</section></form>${previewPane('/privacy', 'privacy')}</div>` });
 }
 
 /** A section card for the page editor. */
-function sectionCard(section, values, statuses, { template = false } = {}) {
+function sectionCard(section, values) {
 	const def = SECTIONS[section.type];
 	const id = section.id;
-	const base = def.velden.map((f) => fieldRow({ key: `s.${id}.${f.key}`, label: f.label, type: f.type }, values, statuses)).join('');
+	const base = def.velden.map((f) => fieldRow({ key: `s.${id}.${f.key}`, label: f.label, type: f.type }, values)).join('');
 	let itemsHtml = '';
 	if (def.items) {
 		const filled = (n) => LANGS.some((l) => def.items.velden.some((f) => ((values[l] || {})[`s.${id}.items.${n}.${f.key}`] || '').trim()));
-		itemsHtml = `<div class="items" data-max="${def.items.max}">${Array.from({ length: def.items.max }, (_, i) => i + 1).map((n) => `<div class="item${filled(n) || n === 1 ? '' : ' hidden'}" data-item="${n}"><div class="item-head"><strong>${esc(def.items.label)} ${n}</strong><button type="button" class="secondary small" data-item-clear="${n}">Verwijderen</button></div>${def.items.velden.map((f) => fieldRow({ key: `s.${id}.items.${n}.${f.key}`, label: f.label, type: f.type }, values, statuses)).join('')}</div>`).join('')}<button type="button" class="secondary small" data-item-add>+ ${esc(def.items.label)} toevoegen</button></div>`;
+		itemsHtml = `<div class="items" data-max="${def.items.max}">${Array.from({ length: def.items.max }, (_, i) => i + 1).map((n) => `<div class="item${filled(n) || n === 1 ? '' : ' hidden'}" data-item="${n}"><div class="item-head"><strong>${esc(def.items.label)} ${n}</strong><span class="spacer"></span><button type="button" class="secondary small" data-item-clear="${n}">Verwijderen</button></div>${def.items.velden.map((f) => fieldRow({ key: `s.${id}.items.${n}.${f.key}`, label: f.label, type: f.type }, values)).join('')}</div>`).join('')}<button type="button" class="secondary small" data-item-add>${icon('plus')} ${esc(def.items.label)} toevoegen</button></div>`;
 	}
-	return `<section class="sec card" data-sid="${esc(id)}" data-type="${esc(section.type)}"><div class="sec-head" data-sec-toggle>${icon('chev', 'chev')}<strong>${esc(def.label)}</strong><span class="spacer"></span>
-<button type="button" class="secondary small" data-sec-up aria-label="Omhoog">↑</button><button type="button" class="secondary small" data-sec-down aria-label="Omlaag">↓</button><button type="button" class="secondary small" data-sec-remove>Verwijderen</button></div>${base}${itemsHtml}</section>`;
+	return `<section class="sec card" data-sid="${esc(id)}" data-type="${esc(section.type)}"><div class="sec-head" data-sec-toggle>${icon('chev', 'chev')}<strong>${esc(def.label)}</strong><span class="sec-sum" data-sec-sum></span><span class="spacer"></span>
+<button type="button" class="secondary small icon-only" data-sec-up aria-label="Omhoog" title="Omhoog">↑</button><button type="button" class="secondary small icon-only" data-sec-down aria-label="Omlaag" title="Omlaag">↓</button><button type="button" class="secondary small" data-sec-remove>Verwijderen</button></div><div class="sec-body">${base}${itemsHtml}</div></section>`;
 }
 
 function pageEditorPage(ctx, id, p) {
 	const canWrite = ctx.session.user.rol !== 'lezer';
 	const tpl = TEMPLATES[p.meta.sjabloon];
 	const object = pagesApi.object(id);
-	const baseRows = pagesApi.BASE.map((f) => fieldRow(f, p.velden, p.status)).join('');
-	const sections = p.meta.indeling.map((s) => sectionCard(s, p.velden, p.status)).join('');
+	const baseOf = (keys) => pagesApi.BASE.filter((f) => keys.includes(f.key)).map((f) => fieldRow(f, p.velden)).join('');
+	const sections = p.meta.indeling.map((s) => sectionCard(s, p.velden)).join('');
 	const addOptions = tpl.toegestaan.map((t) => `<option value="${esc(t)}">${esc(SECTIONS[t].label)}</option>`).join('');
-	const templates = tpl.toegestaan.map((t) => `<template id="tpl-${esc(t)}">${sectionCard({ id: '__ID__', type: t }, {}, {})}</template>`).join('');
+	const templates = tpl.toegestaan.map((t) => `<template id="tpl-${esc(t)}">${sectionCard({ id: '__ID__', type: t }, {})}</template>`).join('');
 	const live = p.meta.status === 'gepubliceerd';
-	const title = (p.velden.en && p.velden.en.titel) || (p.velden.nl && p.velden.nl.titel) || 'Nieuwe pagina';
+	const title = (p.velden.nl && p.velden.nl.titel) || (p.velden.en && p.velden.en.titel) || 'Nieuwe pagina';
 	const buttons = live
 		? '<button type="button" id="btn-save">Wijzigingen opslaan</button><button type="button" class="secondary" id="btn-unpublish">Offline halen</button>'
 		: '<button type="button" class="secondary" id="btn-save">Opslaan als concept</button><button type="button" id="btn-publish">Publiceren</button>';
-	return shell(ctx, { title, active: 'paginas', wide: true, body: `${editorHead(ctx, { titel: title, uitleg: `Sjabloon: ${tpl.label}. ${tpl.uitleg}`, object, versie: p.versie, kind: 'pagina', id, canWrite, extraButtons: buttons, status: `<span class="pill ${live ? 'ok' : ''}">${live ? 'live' : 'concept'}</span>` })}
-${langBar(object, canWrite)}
-<div class="ed-grid"><form id="editor" class="ed" data-kind="pagina" data-id="${id}" data-object="${esc(object)}" data-version="${p.versie}" data-status="${esc(p.meta.status)}" data-template="${esc(p.meta.sjabloon)}" data-readonly="${canWrite ? '0' : '1'}" data-draft="${json(p.draft || null)}" data-rules="${json({ toegestaan: tpl.toegestaan, verplicht: tpl.verplicht, max: tpl.max || {}, vrij: !!tpl.vrij })}" onsubmit="return false">
-<section class="card"><h2>Pagina</h2>${baseRows}
-<div class="opts"><label class="chk"><input type="checkbox" data-meta="in_footer"${p.meta.in_footer ? ' checked' : ''}> Link in de footer</label><label class="chk"><input type="checkbox" data-meta="indexeren"${p.meta.indexeren ? ' checked' : ''}> Zichtbaar voor zoekmachines</label><label class="chk">Volgorde <input type="number" data-meta="volgorde" min="0" max="9999" value="${p.meta.volgorde}" class="narrow-num"></label></div></section>
-<div class="actions"><button type="button" class="secondary small" id="collapse-all">Alles inklappen</button><button type="button" class="secondary small" id="expand-all">Alles uitklappen</button></div>
+	const isNew = p.versie === 0;
+	return shell(ctx, { title, active: 'paginas', wide: true, body: `<p class="crumb"><a href="/admin/paginas">${icon('chev', 'back')} Pagina’s en teksten</a></p>${editorHead(ctx, { titel: title, uitleg: `${tpl.label}. ${tpl.uitleg}`, object, canWrite, extraButtons: buttons, status: `<span class="pill ${live ? 'ok' : ''}">${live ? 'live' : 'concept'}</span>` })}
+${langTabs(p.status, canWrite)}
+<div class="ed-grid"><form id="editor" class="ed" data-all="0" data-kind="pagina" data-id="${id}" data-object="${esc(object)}" data-version="${p.versie}" data-new="${isNew ? '1' : '0'}" data-status="${esc(p.meta.status)}" data-template="${esc(p.meta.sjabloon)}" data-readonly="${canWrite ? '0' : '1'}" data-draft="${json(p.draft || null)}" data-rules="${json({ toegestaan: tpl.toegestaan, verplicht: tpl.verplicht, max: tpl.max || {}, vrij: !!tpl.vrij })}" onsubmit="return false">
+<section class="card fgroup"><h2>Basis</h2>${baseOf(['titel', 'slug', 'lead'])}</section>
+<details class="card fold"><summary>Zoekmachines (SEO)</summary>${baseOf(['seo_title', 'seo_description'])}</details>
+<details class="card fold"><summary>Instellingen van de pagina</summary><div class="opts"><label class="chk"><input type="checkbox" data-meta="in_footer"${p.meta.in_footer ? ' checked' : ''}> Link in de footer</label><label class="chk"><input type="checkbox" data-meta="indexeren"${p.meta.indexeren ? ' checked' : ''}> Zichtbaar voor zoekmachines</label><label class="chk">Volgorde in de footer <input type="number" data-meta="volgorde" min="0" max="9999" value="${p.meta.volgorde}" class="narrow-num"></label></div></details>
+<div class="sec-title"><h2>Inhoud van de pagina</h2><div class="actions"><button type="button" class="secondary small" id="collapse-all">Alles inklappen</button><button type="button" class="secondary small" id="expand-all">Alles uitklappen</button></div></div>
 <div id="sections">${sections}</div>
-${canWrite ? `<div class="card addbar"><label for="addtype">Bouwsteen toevoegen</label> <select id="addtype">${addOptions}</select> <button type="button" class="secondary" id="addsec">Toevoegen</button></div>` : ''}
-</form>${previewPane(`/${(p.velden.en && p.velden.en.slug) || 'voorbeeld'}`, 'pagina')}</div>${templates}
+${canWrite ? `<div class="addbar"><label for="addtype">Bouwsteen toevoegen</label><select id="addtype">${addOptions}</select><button type="button" class="secondary" id="addsec">${icon('plus')} Toevoegen</button></div>` : ''}
+</form>${previewPane(`/${(p.velden.nl && p.velden.nl.slug) || (p.velden.en && p.velden.en.slug) || 'voorbeeld'}`, 'pagina')}</div>${templates}
 ${canWrite ? `<form method="post" action="/admin/paginas/${id}/verwijderen" class="card danger-zone" data-confirm="Deze pagina definitief verwijderen?"><input type="hidden" name="csrf" value="${esc(ctx.session.csrf)}"><button class="danger" type="submit">Pagina verwijderen</button></form>` : ''}` });
 }
 
@@ -281,7 +316,7 @@ function mediaPage(ctx, { items, slots, enc }) {
 <div class="row"><label for="rechten">Rechten</label><select id="rechten" name="rechten">${media.RIGHTS.map((r) => `<option value="${r}">${esc(rightsLabel[r])}</option>`).join('')}</select></div>
 <div class="row"><label for="bron">Bron of licentie (optioneel)</label><input id="bron" name="bron" maxlength="200"></div>
 <button type="submit">Uploaden</button></form></section>` : '';
-	const slotRows = IMAGE_SLOTS.map((s) => `<tr><td>${esc(s.label)}</td><td><form method="post" action="/admin/media/plek" class="inline"><input type="hidden" name="csrf" value="${esc(ctx.session.csrf)}"><input type="hidden" name="plek" value="${esc(s.slot)}"><select name="media" aria-label="${esc(s.label)}"${canWrite ? '' : ' disabled'}><option value="">(geen foto)</option>${items.map((m) => `<option value="${m.id}"${slots[s.slot] === m.id ? ' selected' : ''}>#${m.id} ${esc(m.alt.en || m.bestand)}</option>`).join('')}</select>${canWrite ? ' <button type="submit" class="small">Opslaan</button>' : ''}</form></td></tr>`).join('');
+	const slotRows = IMAGE_SLOTS.map((s) => `<tr><td>${esc(SLOTS[s.slot] || s.label)}</td><td><form method="post" action="/admin/media/plek" class="inline"><input type="hidden" name="csrf" value="${esc(ctx.session.csrf)}"><input type="hidden" name="plek" value="${esc(s.slot)}"><select name="media" aria-label="${esc(SLOTS[s.slot] || s.label)}"${canWrite ? '' : ' disabled'}><option value="">(geen foto)</option>${items.map((m) => `<option value="${m.id}"${slots[s.slot] === m.id ? ' selected' : ''}>#${m.id} ${esc(m.alt.en || m.bestand)}</option>`).join('')}</select>${canWrite ? ' <button type="submit" class="small">Opslaan</button>' : ''}</form></td></tr>`).join('');
 	const grid = items.length ? `<div class="mgrid">${items.map((m) => `<figure class="card mitem"><img src="/uploads/${esc(m.bestand)}" alt="${esc(m.alt.en || '')}" loading="lazy" width="${m.breedte}" height="${m.hoogte}"><figcaption><strong>#${m.id}</strong> ${esc(m.alt.en || '')}<br><span class="meta">${m.breedte}×${m.hoogte} · ${esc(rightsLabel[m.rechten])}${m.varianten.length ? ` · ${m.varianten.length} varianten` : ''}</span></figcaption>
 ${canWrite ? `<details><summary>Wijzigen</summary><form method="post" action="/admin/media/${m.id}"><input type="hidden" name="csrf" value="${esc(ctx.session.csrf)}">${altInputs(m.alt)}<div class="row"><label>Rechten</label><select name="rechten">${media.RIGHTS.map((r) => `<option value="${r}"${m.rechten === r ? ' selected' : ''}>${esc(rightsLabel[r])}</option>`).join('')}</select></div><div class="row"><label>Bron</label><input name="bron" maxlength="200" value="${esc(m.bron)}"></div><button type="submit" class="small">Opslaan</button></form><form method="post" action="/admin/media/${m.id}/verwijderen" data-confirm="Deze foto verwijderen?"><input type="hidden" name="csrf" value="${esc(ctx.session.csrf)}"><button type="submit" class="danger small">Verwijderen</button></form></details>` : ''}</figure>`).join('')}</div>` : '<p class="hint">Nog geen foto’s.</p>';
 	return shell(ctx, { title: 'Media', active: 'media', body: `<h1>Media</h1><p class="hint">Gebruik alleen foto’s waarvoor je de rechten hebt. AI-beelden zijn alleen sfeer en nooit het prototype zelf.</p>

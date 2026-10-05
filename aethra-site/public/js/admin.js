@@ -53,6 +53,19 @@
 		});
 	}
 
+	const filter = $('[data-filter]');
+	if (filter) filter.addEventListener('input', () => {
+		const q = filter.value.trim().toLowerCase();
+		let any = false;
+		for (const g of $$('[data-filter-group]')) {
+			let shown = 0;
+			for (const it of $$('[data-filter-item]', g)) { const hit = !q || it.dataset.filterItem.includes(q); it.classList.toggle('hidden', !hit); if (hit) shown += 1; }
+			g.classList.toggle('hidden', q !== '' && shown === 0);
+			if (shown || !q) any = true;
+		}
+		const none = $('#nofilter'); if (none) none.classList.toggle('hidden', any);
+	});
+
 	const ed = $('#editor');
 	if (!ed) return;
 
@@ -102,8 +115,63 @@
 	ed.addEventListener('change', () => { if (!readOnly) markDirty(); });
 	window.addEventListener('beforeunload', (e) => { if (dirty && !readOnly) { e.preventDefault(); e.returnValue = ''; } });
 
-	/* languages shown */
-	for (const cb of $$('[data-showlang]')) cb.addEventListener('change', () => { for (const c of $$(`.fcol[data-col="${cb.dataset.showlang}"]`)) c.classList.toggle('hidden', !cb.checked); });
+	/* ---- one language at a time (or all side by side) ---- */
+	const NAMES = { en: 'Engels', nl: 'Nederlands', de: 'Duits', fr: 'Frans' };
+	let active = 'nl';
+	try { const saved = localStorage.getItem('aethra_tab'); if (saved && NAMES[saved]) active = saved; } catch (e) { /* storage blocked */ }
+	const plain = (html) => { const d = document.createElement('div'); d.innerHTML = html; return (d.textContent || '').replace(/\s+/g, ' ').trim(); };
+	const ctl = (root, lang) => $$(`[data-lang="${lang}"][data-key]`, root);
+	function updateRefs() {
+		for (const f of $$('.field', ed)) {
+			const ref = $('[data-ref]', f);
+			if (!ref) continue;
+			const en = $('[data-col="en"] [data-key]', f);
+			const text = en ? plain(valueOf(en)) : '';
+			const show = active !== 'en' && ed.dataset.all !== '1' && text !== '';
+			ref.hidden = !show;
+			if (show) ref.textContent = `Engels: ${text.length > 180 ? text.slice(0, 180) + '…' : text}`;
+		}
+	}
+	function updateProgress() {
+		for (const l of Object.keys(NAMES)) {
+			const need = ctl(ed, l).filter((n) => n.dataset.req === '1' && !n.closest('.item.hidden'));
+			const empty = need.filter((n) => !plain(valueOf(n))).length;
+			const el2 = $(`[data-prog="${l}"]`);
+			if (!el2) continue;
+			el2.textContent = need.length ? (empty ? `${empty} leeg` : '✓') : '';
+			el2.classList.toggle('warn', empty > 0);
+		}
+	}
+	function updateTitle() {
+		if (kind !== 'pagina') return;
+		const h = $('.ed-title h1');
+		const t = ['nl', 'en', 'de', 'fr'].map((l) => $(`[data-lang="${l}"][data-key="titel"]`, ed)).map((n) => (n ? n.value.trim() : '')).find(Boolean);
+		if (h && h.firstChild && h.firstChild.nodeType === 3) h.firstChild.nodeValue = `${t || 'Nieuwe pagina'} `;
+	}
+	function updateSummaries() {
+		for (const sec of $$('#sections > .sec')) {
+			const first = ctl(sec, active).find((n) => !n.closest('.item.hidden') && plain(valueOf(n)));
+			const sum = $('[data-sec-sum]', sec);
+			if (sum) { const t = first ? plain(valueOf(first)) : ''; sum.textContent = t ? `${t.length > 70 ? t.slice(0, 70) + '…' : t}` : 'nog leeg'; sum.classList.toggle('is-empty', !t); }
+		}
+	}
+	function setActive(l, preview) {
+		active = l;
+		try { localStorage.setItem('aethra_tab', l); } catch (e) { /* storage blocked */ }
+		ed.dataset.active = l;
+		for (const t of $$('[data-lang-tab]')) t.setAttribute('aria-selected', String(t.dataset.langTab === l));
+		const hidden = pv('lang'); if (hidden) hidden.value = l;
+		const rb = $('#review-btn');
+		if (rb) { rb.hidden = l === 'en' || readOnly; rb.textContent = `Markeer ${NAMES[l]} als nagekeken`; rb.dataset.reviewed = l; }
+		updateRefs(); updateSummaries();
+		if (preview !== false) schedulePreview();
+	}
+	for (const t of $$('[data-lang-tab]')) t.addEventListener('click', () => setActive(t.dataset.langTab));
+	const all = $('#alllangs');
+	if (all) all.addEventListener('change', () => { ed.dataset.all = all.checked ? '1' : '0'; updateRefs(); });
+	ed.addEventListener('input', () => { updateProgress(); updateSummaries(); updateRefs(); updateTitle(); });
+	ed.addEventListener('change', () => { updateProgress(); updateSummaries(); });
+	for (const b of $$('[data-pv-width]')) b.addEventListener('click', () => { pv('width').value = b.dataset.pvWidth; for (const o of $$('[data-pv-width]')) o.setAttribute('aria-pressed', String(o === b)); fitPreview(); });
 
 	/* ---- preview ---- */
 	let pvTimer = null;
@@ -133,7 +201,6 @@
 	window.addEventListener('resize', () => fitPreview());
 	function schedulePreview() { clearTimeout(pvTimer); pvTimer = setTimeout(preview, 700); }
 	for (const k of ['lang', 'path', 'width']) if (pv(k)) pv(k).addEventListener('change', preview);
-	preview();
 
 	/* ---- rich text ---- */
 	const safeUrl = (u) => /^(https?:\/\/|mailto:|\/(?!\/)|#)/i.test(u.trim());
@@ -327,11 +394,19 @@
 	bind('btn-save', () => save(kind === 'pagina' ? ed.dataset.status : undefined));
 	bind('btn-publish', () => save('gepubliceerd'));
 	bind('btn-unpublish', () => { if (window.confirm('Deze pagina offline halen? Hij blijft als concept bewaard.')) save('concept'); });
-	for (const b of $$('[data-reviewed]')) b.addEventListener('click', async () => {
+	const reviewBtn = $('#review-btn');
+	if (reviewBtn) reviewBtn.addEventListener('click', async () => {
+		const b = reviewBtn;
 		if (dirty) return window.alert('Sla eerst je wijzigingen op.');
 		const r = await api('/admin/api/nagekeken', { kind, id, taal: b.dataset.reviewed });
 		if (r.data && r.data.ok) location.reload(); else say('err', 'Markeren is niet gelukt.');
 	});
+
+	/* start: the saved language tab; an existing page opens with its blocks folded except the first */
+	if (kind === 'pagina' && ed.dataset.new !== '1') for (const sec of $$('#sections > .sec').slice(1)) sec.classList.add('collapsed');
+	updateProgress();
+	setActive(active, false);
+	preview();
 
 	/* ---- auto-save (a shadow draft, never public) and a live check ---- */
 	const draftBanner = $('#draftbanner');

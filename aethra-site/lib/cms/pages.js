@@ -11,11 +11,11 @@ const { LANGS } = require('../i18n');
 const RESERVED = new Set(['problem', 'how-it-works', 'applications', 'contact', 'privacy', 'for', 'eco-mode-today', 'admin', 'api', 'css', 'js', 'img', 'fonts', 'uploads', 'deck', 'healthz', 'robots', 'sitemap', 'llms', 'favicon']);
 const SLUG = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 const BASE = [
-	{ key: 'titel', label: 'Heading (H1)', type: 'text' },
-	{ key: 'slug', label: 'Address', type: 'text' },
-	{ key: 'lead', label: 'Introduction', type: 'textarea' },
-	{ key: 'seo_title', label: 'Title in search results', type: 'text' },
-	{ key: 'seo_description', label: 'Description in search results', type: 'textarea' },
+	{ key: 'titel', label: 'Kop van de pagina', hint: 'De hoofdtitel. Zonder kop bestaat de pagina niet in deze taal.', type: 'text', req: true },
+	{ key: 'slug', label: 'Adres', hint: 'Kleine letters, cijfers en streepjes, bijvoorbeeld over-ons. De pagina staat dan op /nl/over-ons.', type: 'text', req: true },
+	{ key: 'lead', label: 'Inleiding (optioneel)', hint: '', type: 'textarea' },
+	{ key: 'seo_title', label: 'Titel in zoekresultaten', hint: 'Ongeveer 50 tekens. De sitenaam wordt automatisch toegevoegd.', type: 'text' },
+	{ key: 'seo_description', label: 'Omschrijving in zoekresultaten', hint: 'Ongeveer 150 tekens. Zonder omschrijving kiest Google zelf een tekst.', type: 'textarea' },
 ];
 const object = (id) => `pagina:${id}`;
 const invalid = (errors, status = 422) => Object.assign(new Error(errors[0]), { status, fouten: errors });
