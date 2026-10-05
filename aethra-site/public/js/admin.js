@@ -12,12 +12,37 @@
 	};
 
 	/* ---- generic ---- */
+	const ICON = (name) => { const n = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); n.setAttribute('class', 'i'); n.setAttribute('aria-hidden', 'true'); const u = document.createElementNS('http://www.w3.org/2000/svg', 'use'); u.setAttribute('href', `#i-${name}`); n.append(u); return n; };
+	function toast(text, kind) {
+		const box = $('#toasts');
+		if (!box) return;
+		const t = el('div', { class: `toast${kind === 'err' ? ' err' : ''}` }, ICON(kind === 'err' ? 'alert' : 'check'), el('span', { text }));
+		box.append(t);
+		setTimeout(() => t.remove(), kind === 'err' ? 8000 : 3500); // transient messages disappear by themselves
+	}
+	window.aethraToast = toast;
+	const toggle = $('#navtoggle');
+	const setNav = (open) => { const side = $('#side'); side.dataset.open = String(open); document.body.classList.toggle('nav-open', open); toggle.setAttribute('aria-expanded', String(open)); toggle.setAttribute('aria-label', open ? 'Menu sluiten' : 'Menu openen'); };
+	if (toggle) {
+		toggle.addEventListener('click', () => setNav($('#side').dataset.open !== 'true'));
+		document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && $('#side').dataset.open === 'true') { setNav(false); toggle.focus(); } });
+		document.addEventListener('click', (e) => { if ($('#side').dataset.open === 'true' && !e.target.closest('#side') && !e.target.closest('#navtoggle')) setNav(false); });
+	}
+	for (const f of $$('main > .flash.ok')) { toast(f.textContent.trim()); f.remove(); } // a confirmation after a redirect becomes a short toast
 	document.addEventListener('submit', (e) => { const f = e.target; if (f && f.dataset && f.dataset.confirm && !window.confirm(f.dataset.confirm)) e.preventDefault(); });
 
 	const setBadge = (key, n) => { for (const b of $$(`[data-badge="${key}"]`)) { b.textContent = n || ''; b.hidden = !n; } for (const k of $$(`[data-kpi="${key}"]`)) k.textContent = String(n || 0); };
 	if (window.EventSource) {
 		const es = new EventSource('/admin/events');
-		es.addEventListener('berichten', (ev) => { try { setBadge('berichten', JSON.parse(ev.data).nieuw); } catch (e) { /* ignore */ } });
+		let lastNew = null;
+		es.addEventListener('berichten', (ev) => {
+			try {
+				const n = JSON.parse(ev.data).nieuw;
+				setBadge('berichten', n);
+				if (lastNew !== null && n > lastNew) { const live = $('#live'); if (live) live.textContent = `${n} nieuwe bericht${n === 1 ? '' : 'en'}`; toast(`Nieuw bericht binnengekomen (${n} ongelezen)`); }
+				lastNew = n;
+			} catch (e) { /* ignore */ }
+		});
 		es.addEventListener('mail', (ev) => {
 			try {
 				const d = JSON.parse(ev.data);
@@ -69,7 +94,10 @@
 		try { data = await res.json(); } catch (e) { /* not json */ }
 		return { status: res.status, data };
 	};
-	const markDirty = () => { dirty = true; schedulePreview(); };
+	const savestate = $('#savestate');
+	const setState = (state, text) => { if (savestate) { savestate.dataset.state = state; savestate.textContent = text; } };
+	const clock = () => new Date().toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' });
+	const markDirty = () => { dirty = true; setState('dirty', 'Niet-opgeslagen wijzigingen'); schedulePreview(); };
 	ed.addEventListener('input', () => { if (!readOnly) markDirty(); });
 	ed.addEventListener('change', () => { if (!readOnly) markDirty(); });
 	window.addEventListener('beforeunload', (e) => { if (dirty && !readOnly) { e.preventDefault(); e.returnValue = ''; } });
@@ -87,9 +115,22 @@
 		const c = collect();
 		form.elements.csrf.value = csrf;
 		form.elements.payload.value = JSON.stringify({ ...c, lang: pv('lang').value, path: pv('path') ? pv('path').value : '/' });
-		frame.style.width = pv('width').value;
+		fitPreview();
 		form.submit();
 	}
+	/* The preview is drawn at a real device width and scaled down to fit the pane, so it looks like the site and not like a squeezed phone. */
+	function fitPreview() {
+		const frame = $('#pv');
+		if (!frame) return;
+		const box = frame.parentElement;
+		const vw = Number(pv('width').value) || 1200;
+		const scale = Math.min(1, box.clientWidth / vw);
+		frame.style.width = `${vw}px`;
+		frame.style.height = `${box.clientHeight / scale}px`;
+		frame.style.left = `${(box.clientWidth - vw * scale) / 2}px`;
+		frame.style.transform = `scale(${scale})`;
+	}
+	window.addEventListener('resize', () => fitPreview());
 	function schedulePreview() { clearTimeout(pvTimer); pvTimer = setTimeout(preview, 700); }
 	for (const k of ['lang', 'path', 'width']) if (pv(k)) pv(k).addEventListener('change', preview);
 	preview();
@@ -161,6 +202,10 @@
 			}
 		});
 	}
+	ed.addEventListener('click', (e) => { const h = e.target.closest('[data-sec-toggle]'); if (h && !e.target.closest('button')) h.parentElement.classList.toggle('collapsed'); });
+	const collapseAll = (on) => { for (const sec of $$('#sections > .sec')) sec.classList.toggle('collapsed', on); };
+	for (const [idn, on] of [['collapse-all', true], ['expand-all', false]]) { const b = document.getElementById(idn); if (b) b.addEventListener('click', () => collapseAll(on)); }
+	document.addEventListener('keydown', (e) => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { e.preventDefault(); const b = document.getElementById('btn-save'); if (b && !b.disabled) b.click(); } });
 	function applyLayout(indeling) {
 		if (!sectionsBox) return;
 		const wanted = new Set(indeling.map((s) => s.id));
@@ -244,19 +289,22 @@
 	async function save(status, overrideReason) {
 		if (busy || readOnly) return;
 		busy = true;
+		setState('saving', 'Opslaan…');
 		clearMarks();
 		const c = collect();
 		if (kind === 'pagina' && status) c.meta.status = status;
 		const payload = { ...c, baseVersie: version, override_reason: overrideReason || undefined };
 		let r;
-		try { r = await api(overrideReason ? '/admin/publish/override' : '/admin/publish', payload); } catch (e) { busy = false; return say('err', 'Geen verbinding. Er is niets opgeslagen.'); }
+		try { r = await api(overrideReason ? '/admin/publish/override' : '/admin/publish', payload); } catch (e) { busy = false; setState('dirty', 'Niet opgeslagen'); return say('err', 'Geen verbinding. Er is niets opgeslagen.'); }
 		busy = false;
+		if (!(r.status === 200 && r.data && r.data.ok)) setState('dirty', 'Niet opgeslagen');
 		const d = r.data || {};
 		if (r.status === 200 && d.ok) {
 			version = d.versie;
 			ed.dataset.version = String(version);
 			dirty = false;
-			say('ok', `Opgeslagen (versie ${version}).`, lines(d.notes));
+			setState('saved', `Opgeslagen om ${clock()} (versie ${version})`);
+			if (d.notes && d.notes.length) say('', 'Opgeslagen. Let op:', lines(d.notes)); else { say(); toast(`Opgeslagen (versie ${version})`); }
 			if (kind === 'pagina' && status && status !== ed.dataset.status) { location.reload(); return; }
 			preview();
 		} else if (r.status === 422) {
@@ -305,7 +353,8 @@
 		if (r.data && r.data.ok) {
 			lastSaved = snap;
 			const note = $('#autosave') || result.appendChild(el('p', { id: 'autosave', class: 'hint' }));
-			note.textContent = `Concept bewaard om ${new Date().toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })}.`;
+			note.textContent = `Concept bewaard om ${clock()}.`;
+			setState('dirty', `Concept bewaard om ${clock()}, nog niet gepubliceerd`);
 		}
 		const chk = await api('/admin/api/check', { kind, id, velden: c.velden, meta: c.meta });
 		if (chk.data && chk.data.ok && !result.querySelector('.flash')) {
